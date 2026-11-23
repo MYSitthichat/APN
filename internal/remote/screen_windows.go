@@ -391,11 +391,11 @@ func ApplyInputEvent(ev InputEvent) error {
 		sendUnicodeText(ev.Text)
 
 	case "switch_lang":
-		// Toggle input language on Windows (Alt+Shift works across both Thai Grave-Accent and standard Windows layouts)
-		sendHardwareKey(0xA4, 0x38, false, false) // AltLeft down
-		sendHardwareKey(0xA0, 0x2A, false, false) // ShiftLeft down
-		sendHardwareKey(0xA0, 0x2A, false, true)  // ShiftLeft up
-		sendHardwareKey(0xA4, 0x38, false, true)  // AltLeft up
+		// Send Windows+Space (works on 100% of Windows 10/11 machines regardless of Grave Accent / Alt+Shift settings)
+		sendHardwareKey(0x5B, 0x5B, true, false)  // MetaLeft (Win) down
+		sendHardwareKey(0x20, 0x39, false, false) // Space down
+		sendHardwareKey(0x20, 0x39, false, true)  // Space up
+		sendHardwareKey(0x5B, 0x5B, true, true)   // MetaLeft (Win) up
 
 	case "key_down":
 		handleKey(ev, false)

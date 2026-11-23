@@ -43,6 +43,8 @@ type Status struct {
 	Checking        bool   `json:"checking"`
 	Updating        bool   `json:"updating"`
 	Progress        int    `json:"progress"`
+	DownloadedBytes int64  `json:"downloaded_bytes,omitempty"`
+	TotalBytes      int64  `json:"total_bytes,omitempty"`
 	Stage           string `json:"stage,omitempty"`
 	LastError       string `json:"last_error,omitempty"`
 	CheckedAt       string `json:"checked_at,omitempty"`
@@ -206,8 +208,14 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 
 	hasher := sha256.New()
 	total := resp.ContentLength
+	m.mu.Lock()
+	m.status.TotalBytes = total
+	m.status.DownloadedBytes = 0
+	m.mu.Unlock()
+
 	var written int64
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 64*1024)
+	lastTick := time.Now()
 	for {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
@@ -218,13 +226,18 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 			}
 			_, _ = hasher.Write(buf[:n])
 			written += int64(n)
-			if total > 0 {
-				pct := int(written * 90 / total)
-				if pct < 5 {
-					pct = 5
+			if time.Since(lastTick) >= 120*time.Millisecond || rerr == io.EOF {
+				lastTick = time.Now()
+				pct := 10
+				if total > 0 {
+					pct = int(written * 90 / total)
+					if pct < 5 {
+						pct = 5
+					}
 				}
 				m.mu.Lock()
 				m.status.Progress = pct
+				m.status.DownloadedBytes = written
 				m.mu.Unlock()
 			}
 		}
@@ -244,6 +257,7 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 
 	m.mu.Lock()
 	m.status.Progress = 93
+	m.status.DownloadedBytes = written
 	m.status.Stage = "กำลังตรวจสอบความถูกต้องไฟล์ (SHA-256)..."
 	m.mu.Unlock()
 
@@ -276,10 +290,12 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.status.Stage = "อัปเดตสำเร็จ! กำลังเปิดเวอร์ชันใหม่..."
 	m.mu.Unlock()
 
-	// Spawn the updated binary cleanly (no args = App Window + System Tray) and exit the old instance
-	cmd := exec.Command(exePath)
+	// Spawn the updated binary with -wait-old so it waits cleanly for THIS old process
+	// to release port 8080/4433/8444 BEFORE checking single-instance & starting up!
+	// (Fixes the race where the new exe saw old port 8080 still open and exited immediately!)
+	cmd := exec.Command(exePath, "peer", "-tray-icon", "-wait-old")
 	_ = cmd.Start()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	if onRestart != nil {
 		onRestart()
 	}

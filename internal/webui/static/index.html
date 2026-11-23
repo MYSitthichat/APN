@@ -1063,7 +1063,7 @@
     <div class="quick-bar">
       <input id="txtSendText" placeholder="พิมพ์ข้อความไทย/อังกฤษแล้วกด Enter เพื่อส่งเข้าเครื่องปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
       <button onclick="sendQuickText()">ส่งข้อความ</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'})" title="สลับภาษาไทย/อังกฤษที่เครื่องปลายทาง (Alt+Shift)">🌐 เปลี่ยนภาษา</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'})" title="ส่ง Win+Space เปลี่ยนภาษาไทย/อังกฤษที่เครื่องปลายทาง (หรือกดเต็มจอเพื่อใช้ Win+Space บนคีย์บอร์ดจริง)">🌐 เปลี่ยนภาษา (Win+Space)</button>
       <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
       <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Escape')">Esc</button>
       <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
@@ -1776,11 +1776,18 @@
             <!-- Horizontal AnyDesk/RustDesk Quick Connect Bar -->
             <div class="connect-bar">
               ${(d.update?.update_available || d.update?.updating) ? `
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface))">
-                  <span style="font-size:0.84rem;font-weight:700">⬆️ มี APN เวอร์ชันใหม่ v${esc(d.update.latest_version)} พร้อมอัปเดต!</span>
-                  ${d.update.updating
-                    ? `<span class="badge"><span class="dot warn"></span>${esc(d.update.stage || 'กำลังอัปเดต...')} (${d.update.progress || 0}%)</span>`
-                    : `<button class="success" style="padding:6px 12px;font-size:0.8rem" onclick="peerApplyUpdate()">⚡ อัปเดตเลย</button>`}
+                <div style="display:grid;gap:6px;padding:9px 12px;border-radius:10px;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface))">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+                    <span style="font-size:0.84rem;font-weight:700">⬆️ มี APN เวอร์ชันใหม่ v${esc(d.update.latest_version)} พร้อมอัปเดต!</span>
+                    ${d.update.updating
+                      ? `<span class="badge"><span class="dot warn"></span>${esc(d.update.stage || 'กำลังอัปเดต...')} ${d.update.progress || 0}%${d.update.total_bytes ? ` (${fmtBytes(d.update.downloaded_bytes)} / ${fmtBytes(d.update.total_bytes)})` : ''}</span>`
+                      : `<button class="success" style="padding:6px 12px;font-size:0.8rem" onclick="peerApplyUpdate()">⚡ อัปเดตเลย</button>`}
+                  </div>
+                  ${d.update.updating ? `
+                    <div style="height:5px;background:var(--surface-2);border-radius:999px;overflow:hidden">
+                      <div style="height:100%;width:${Math.max(5, d.update.progress || 0)}%;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width 0.18s ease"></div>
+                    </div>` : ''}
+                  ${d.update.last_error ? `<div class="err" style="margin:0">${esc(d.update.last_error)}</div>` : ''}
                 </div>` : ''}
 
               ${approvals.map(a => `
@@ -2200,11 +2207,27 @@
       sendInput({ type: 'key_down', key });
       sendInput({ type: 'key_up', key });
     };
-    window.toggleFullscreen = () => {
+    window.toggleFullscreen = async () => {
       const el = document.getElementById('screenModal');
-      if (!document.fullscreenElement) el.requestFullscreen?.();
-      else document.exitFullscreen?.();
+      if (!document.fullscreenElement) {
+        try {
+          await el.requestFullscreen?.();
+          // W3C Keyboard Lock API (Chrome/Edge): routes Win+Space, Meta, Alt+Tab directly to the remote PC!
+          if (navigator.keyboard?.lock) {
+            await navigator.keyboard.lock(['MetaLeft', 'MetaRight', 'Space', 'AltLeft', 'AltRight', 'Tab']);
+            showToast('✓ โหมดเต็มจอ: กด Win+Space / Alt+Tab ส่งตรงเข้าเครื่องปลายทางได้แล้ว (กด Esc ค้างเพื่อออก)');
+          }
+        } catch {}
+      } else {
+        try { navigator.keyboard?.unlock?.(); } catch {}
+        document.exitFullscreen?.();
+      }
     };
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement) {
+        try { navigator.keyboard?.unlock?.(); } catch {}
+      }
+    });
 
     function normCoords(e) {
       const rect = canvas.getBoundingClientRect();
@@ -2451,10 +2474,15 @@
         }
       } catch (err) { showToast('⚠ ' + err.message); }
     };
+    let isSelfUpdating = false;
+    let updateFastTimer = null;
     window.peerApplyUpdate = async () => {
       try {
         await api('/api/peer/update/apply', { method: 'POST' });
+        isSelfUpdating = true;
         showToast('⚡ กำลังดาวน์โหลดและอัปเดต APN อัตโนมัติ...');
+        if (updateFastTimer) clearInterval(updateFastTimer);
+        updateFastTimer = setInterval(poll, 450);
         poll();
       } catch (err) { showToast('⚠ ' + err.message); }
     };
@@ -2669,6 +2697,13 @@
       }
       try {
         const res = await api('/api/status');
+        if (isSelfUpdating && res.version && appVersion && res.version !== appVersion) {
+          // New APN version is now live! Reload the page cleanly so the new UI assets take effect immediately!
+          isSelfUpdating = false;
+          if (updateFastTimer) { clearInterval(updateFastTimer); updateFastTimer = null; }
+          location.reload();
+          return;
+        }
         lastMode = res.mode;
         if (res.version) appVersion = res.version;
         const isPeer = res.mode === 'peer';
@@ -2682,7 +2717,11 @@
         else if (res.mode === 'portal') renderPortal(res.data);
         else if (res.mode === 'portal_login') renderPortalLogin();
       } catch (e) {
-        setHeaderBadge(lastMode || 'offline', 'Disconnected', 'danger');
+        if (isSelfUpdating) {
+          setHeaderBadge('updating', 'กำลังสลับเป็นเวอร์ชันใหม่...', 'warn');
+        } else {
+          setHeaderBadge(lastMode || 'offline', 'Disconnected', 'danger');
+        }
       }
     }
 

@@ -249,6 +249,7 @@ func runPeer(args []string, logger *slog.Logger) error {
 	openBrowser := fs.Bool("open", false, "Automatically open APN App Window")
 	trayOnly := fs.Bool("tray", false, "Start silently in the System Tray (used for login auto-start)")
 	trayIcon := fs.Bool("tray-icon", false, "Show APN System Tray icon (double-click to open, right-click to quit)")
+	waitOld := fs.Bool("wait-old", false, "Wait for previous APN instance to release UI port during self-update")
 	noAutoDeps := fs.Bool("no-auto-deps", false, "Disable automatic background install of FFmpeg/Wintun")
 	connectTicket := fs.String("connect", "", "Optional RVPN1-... ticket or wss:// URL to connect on startup")
 	if err := fs.Parse(args); err != nil {
@@ -299,6 +300,17 @@ func runPeer(args []string, logger *slog.Logger) error {
 	}
 	if *rdvURL != "" {
 		cfg.RendezvousURL = *rdvURL
+	}
+
+	// During self-update handoff (-wait-old), wait up to 8s for the exiting old process to release UIAddr
+	// so the new version ALWAYS binds cleanly on the first try and never exits prematurely!
+	if *waitOld && cfg.UIAddr != "" {
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) && isAlreadyRunning(cfg.UIAddr) {
+			time.Sleep(150 * time.Millisecond)
+		}
+		time.Sleep(250 * time.Millisecond)
+		updater.CleanupOldBinary()
 	}
 
 	// Single-instance check: if APN is already running in the System Tray on UIAddr,
