@@ -1089,6 +1089,7 @@
           <option value="90">🎮 เล่นเกม 60FPS (8M CBR)</option>
           <option value="95">💎 Ultra คมสุด (14M CBR)</option>
         </select>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)">📁 โอนไฟล์</button>
         <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'keyframe'})" title="รีเฟรชทั้งหน้าจอ">↻</button>
         <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleFullscreen()">⛶ เต็มจอ</button>
         <button class="danger icon-btn" onclick="closeScreenModal()">✕ ปิด</button>
@@ -1128,6 +1129,47 @@
     <div class="quick-bar">
       <input id="termInput" placeholder="พิมพ์คำสั่ง (เช่น whoami, ipconfig, dir) แล้วกด Enter..." onkeydown="if(event.key==='Enter'){sendShellCmd();}" />
       <button onclick="sendShellCmd()">ส่งคำสั่ง</button>
+    </div>
+  </div>
+
+  <!-- Zero-Cost P2P Encrypted File Transfer Modal -->
+  <div id="filesModal" class="modal" style="z-index:1150">
+    <div class="modal-bar">
+      <div class="modal-controls">
+        <strong id="filesTitle">📁 โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)</strong>
+        <span id="filesMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">TLS 1.3 Direct</span>
+      </div>
+      <div class="modal-controls">
+        <input id="fileUploadInput" type="file" multiple style="display:none" onchange="uploadSelectedFiles(this.files); this.value='';" />
+        <button class="success icon-btn" onclick="document.getElementById('fileUploadInput').click()">⬆ ส่งไฟล์ไปเครื่องนี้</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="createRemoteFolder()">+ โฟลเดอร์ใหม่</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="loadRemoteDir(filesCurrentPath)">↻ รีเฟรช</button>
+        <button class="danger icon-btn" onclick="closeFilesModal()">✕ ปิด</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;background:rgba(15,23,42,0.82);border-bottom:1px solid rgba(148,163,184,0.18)">
+      <div id="filesShortcuts" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <form onsubmit="event.preventDefault(); loadRemoteDir(document.getElementById('filesPathInput').value);" style="display:flex;gap:6px;flex:1;min-width:220px">
+        <button type="button" class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc;padding:6px 10px" onclick="goRemoteParentDir()" title="ขึ้นไป 1 ชั้น">⬆</button>
+        <input id="filesPathInput" type="text" placeholder="เส้นทางโฟลเดอร์ปลายทาง..." style="flex:1;background:rgba(7,11,20,0.9);color:#f8fafc;border:1px solid rgba(148,163,184,0.28);padding:6px 10px" />
+        <button type="submit" class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc;padding:6px 12px">ไป</button>
+      </form>
+    </div>
+    <div id="filesTransferBar" style="display:none;padding:10px 16px;background:rgba(14,116,144,0.22);border-bottom:1px solid rgba(56,189,248,0.35)">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.84rem;margin-bottom:6px">
+        <span id="filesTransferLabel" style="font-weight:700">กำลังส่งไฟล์...</span>
+        <span id="filesTransferStats" style="color:#7dd3fc;font-variant-numeric:tabular-nums">0%</span>
+      </div>
+      <div style="height:6px;background:rgba(15,23,42,0.75);border-radius:999px;overflow:hidden">
+        <div id="filesTransferProgress" style="height:100%;width:4%;background:linear-gradient(90deg,#38bdf8,#10b981);transition:width 0.12s ease"></div>
+      </div>
+    </div>
+    <div id="filesDropZone" style="flex:1;overflow-y:auto;padding:14px 16px;background:#070b14;position:relative">
+      <div id="filesListBody" style="max-width:1180px;margin:0 auto"></div>
+    </div>
+    <div style="padding:8px 16px;background:rgba(15,23,42,0.92);border-top:1px solid rgba(148,163,184,0.16);font-size:0.78rem;color:#94a3b8;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>💡 ลากไฟล์จากเครื่องนี้มาวางในหน้าต่างนี้เพื่ออัปโหลดได้ทันที (ส่งตรง P2P เข้ารหัส TLS 1.3 ไม่จำกัดขนาดและฟรี 100%)</span>
+      <span id="filesCountInfo">-</span>
     </div>
   </div>
 
@@ -1275,12 +1317,26 @@
       return `${proto}//${location.host}`;
     }
 
+    function renderPeerVersionBadge(ver, connected) {
+      if (!connected) return '';
+      if (!ver) {
+        return `<span class="badge" style="padding:2px 7px;font-size:0.69rem;border-color:rgba(245,158,11,0.5);color:#fbbf24" title="เครื่องปลายทางยังเป็นเวอร์ชันเก่ากว่า v1.2.7 — เชื่อมต่อรีโมตได้ปกติ แต่บางฟีเจอร์ใหม่อย่างโอนไฟล์จะใช้ได้เมื่ออัปเดต">⚠ เวอร์ชันเก่ากว่า</span>`;
+      }
+      if (appVersion && ver !== appVersion) {
+        return `<span class="badge" style="padding:2px 7px;font-size:0.69rem;border-color:rgba(245,158,11,0.5);color:#fbbf24" title="เวอร์ชันต่างจากเครื่องนี้ (เครื่องนี้ v${esc(appVersion)}) — ใช้งานข้ามเวอร์ชันได้ปกติ แนะนำอัปเดตให้ตรงกันเพื่อความลื่นและฟีเจอร์ครบ">⚠ v${esc(ver)} (ต่างเวอร์ชัน)</span>`;
+      }
+      return `<span class="badge" style="padding:2px 7px;font-size:0.69rem;opacity:0.85">v${esc(ver)}</span>`;
+    }
+
     function renderAgentRemoteButtons(a) {
       const caps = a.capabilities || {};
       const btns = [];
       if (caps.allow_screen) {
         const hasFF = !!caps.has_ffmpeg;
         btns.push(`<button class="success" onclick="openRemoteScreen('${esc(a.id)}','${esc(a.name)}',${hasFF})">🖥 Remote Desktop${hasFF ? ' (60 FPS)' : ''}</button>`);
+      }
+      if (caps.allow_files) {
+        btns.push(`<button class="secondary" onclick="openRemoteFiles('${esc(a.id)}','${esc(a.name)}')">📁 โอนไฟล์</button>`);
       }
       if (caps.allow_shell) {
         btns.push(`<button class="secondary" onclick="openRemoteShell('${esc(a.id)}','${esc(a.name)}')">💻 Terminal</button>`);
@@ -1653,12 +1709,14 @@
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem" class="muted">
                       ${sp.has_saved_password ? '<span class="badge" style="padding:2px 7px;font-size:0.7rem">🔑 จำรหัสแล้ว</span>' : '<span class="badge" style="padding:2px 7px;font-size:0.7rem;opacity:0.7">ยังไม่จำรหัส</span>'}
+                      ${renderPeerVersionBadge(cp?.version || sp.version, !!cp)}
                       ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText('${esc(sp.vpn_ip)}','คัดลอก VPN IP ${esc(sp.vpn_ip)} แล้ว')">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
                       ${sp.last_connected ? `<span>${esc(fmtTimeAgo(sp.last_connected))}</span>` : ''}
                     </div>
                     <div class="saved-card-actions">
                       ${cp ? `
                         <button class="success" style="flex:1;padding:7px 9px;font-size:0.81rem" onclick="openRemoteScreen('${esc(cp.id)}','${esc(cp.name)}',${!!cp.capabilities?.has_ffmpeg})">🖥 เปิดหน้าจอ</button>
+                        <button class="secondary icon-btn" style="padding:6px 8px" title="${cp.capabilities?.allow_files ? 'โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)' : 'เครื่องปลายทางต้องอัปเดตเป็น v1.2.7 เพื่อใช้โอนไฟล์'}" onclick="openRemoteFiles('${esc(cp.id)}','${esc(cp.name)}',${!!cp.capabilities?.allow_files})">📁</button>
                         <button class="secondary icon-btn" style="padding:6px 8px" title="เปิด Terminal" onclick="openRemoteShell('${esc(cp.id)}','${esc(cp.name)}')">💻</button>
                         <button class="danger icon-btn" style="padding:6px 8px" title="ตัดการเชื่อมต่อ" onclick="peerDisconnect('${esc(cp.id)}')">✕</button>
                       ` : (sp.has_saved_password ? `
@@ -1683,7 +1741,7 @@
                   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
                     <div>
                       <strong>${esc(p.name)}</strong>
-                      <div style="margin-top:3px"><code>${esc(fmtDevID(p.device_id || p.id))}</code> <span class="muted" style="font-size:0.75rem">${esc(p.os)}</span></div>
+                      <div style="margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><code>${esc(fmtDevID(p.device_id || p.id))}</code> <span class="muted" style="font-size:0.75rem">${esc(p.os)}</span> ${renderPeerVersionBadge(p.version, true)}</div>
                     </div>
                     <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>${esc(p.transport)}</span>
                   </div>
@@ -2669,6 +2727,193 @@
       el.value = '';
     };
 
+    // ---- Zero-Cost P2P File Transfer Manager ----
+    let filesPeerId = '';
+    let filesPeerName = '';
+    let filesCurrentPath = '';
+    let filesParentPath = '';
+
+    window.openActiveRemoteFiles = () => {
+      if (!activeScreenTarget || !activeScreenTarget.agentId) return;
+      openRemoteFiles(activeScreenTarget.agentId, activeScreenTarget.name, true);
+    };
+
+    window.openRemoteFiles = (peerId, name, supported = true) => {
+      if (supported === false) {
+        showToast('⚠ เครื่องปลายทางยังเป็นเวอร์ชันเก่ากว่า v1.2.7 — กรุณาอัปเดตเครื่องปลายทางเพื่อใช้โอนไฟล์');
+        return;
+      }
+      filesPeerId = peerId;
+      filesPeerName = name || peerId;
+      filesCurrentPath = '';
+      filesParentPath = '';
+      document.getElementById('filesTitle').textContent = `📁 โอนไฟล์ — ${filesPeerName}`;
+      document.getElementById('filesMeta').textContent = 'P2P TLS 1.3 · ฟรีไม่จำกัดขนาด';
+      document.getElementById('filesTransferBar').style.display = 'none';
+      document.getElementById('filesModal').classList.add('open');
+      loadRemoteDir('');
+    };
+
+    window.closeFilesModal = () => {
+      document.getElementById('filesModal').classList.remove('open');
+    };
+
+    window.goRemoteParentDir = () => {
+      if (filesParentPath) loadRemoteDir(filesParentPath);
+    };
+
+    window.loadRemoteDir = async (dirPath = '') => {
+      if (!filesPeerId) return;
+      const body = document.getElementById('filesListBody');
+      body.innerHTML = '<div class="muted" style="padding:24px;text-align:center">⏳ กำลังเปิดโฟลเดอร์ปลายทาง...</div>';
+      try {
+        const res = await api(`/api/peer/files/list?peer_id=${encodeURIComponent(filesPeerId)}&path=${encodeURIComponent(dirPath || '')}`);
+        filesCurrentPath = res.path || '';
+        filesParentPath = res.parent || '';
+        document.getElementById('filesPathInput').value = filesCurrentPath;
+        const sc = res.shortcuts || [];
+        document.getElementById('filesShortcuts').innerHTML = sc.map(s =>
+          `<button type="button" class="secondary" style="background:rgba(30,41,59,0.85);color:#e2e8f0;padding:5px 10px;font-size:0.78rem" onclick="loadRemoteDir('${esc(s.path.replace(/\\/g, '\\\\'))}')">${esc(s.label)}</button>`
+        ).join('');
+        const entries = res.entries || [];
+        document.getElementById('filesCountInfo').textContent = `${entries.length} รายการ`;
+        if (entries.length === 0) {
+          body.innerHTML = '<div class="muted" style="padding:32px;text-align:center">📂 โฟลเดอร์นี้ว่างเปล่า — ลากไฟล์มาวางที่นี่เพื่ออัปโหลดได้เลย</div>';
+          return;
+        }
+        body.innerHTML = `
+          <table style="width:100%;border-collapse:collapse;font-size:0.86rem">
+            <thead>
+              <tr style="color:#94a3b8;border-bottom:1px solid rgba(148,163,184,0.2)">
+                <th style="text-align:left;padding:8px 10px">ชื่อไฟล์ / โฟลเดอร์</th>
+                <th style="text-align:right;padding:8px 10px;width:110px">ขนาด</th>
+                <th style="text-align:left;padding:8px 10px;width:150px">แก้ไขล่าสุด</th>
+                <th style="text-align:right;padding:8px 10px;width:165px">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${entries.map(e => {
+                const jsPath = esc(e.path.replace(/\\/g, '\\\\'));
+                const mod = e.mod_time ? new Date(e.mod_time).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+                return `
+                  <tr style="border-bottom:1px solid rgba(148,163,184,0.1)">
+                    <td style="padding:9px 10px">
+                      ${e.is_dir
+                        ? `<a href="javascript:void(0)" onclick="loadRemoteDir('${jsPath}')" style="color:#7dd3fc;text-decoration:none;font-weight:700">📁 ${esc(e.name)}</a>`
+                        : `<span style="color:#f1f5f9">📄 ${esc(e.name)}</span>`}
+                    </td>
+                    <td style="text-align:right;padding:9px 10px;color:#94a3b8;font-variant-numeric:tabular-nums">${e.is_dir ? '-' : fmtBytes(e.size)}</td>
+                    <td style="padding:9px 10px;color:#94a3b8;font-size:0.78rem">${esc(mod)}</td>
+                    <td style="text-align:right;padding:9px 10px;white-space:nowrap">
+                      ${e.is_dir
+                        ? `<button class="secondary" style="padding:4px 9px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="loadRemoteDir('${jsPath}')">เปิด</button>`
+                        : `<a href="/api/peer/files/download?peer_id=${encodeURIComponent(filesPeerId)}&path=${encodeURIComponent(e.path)}" style="text-decoration:none"><button class="success" style="padding:4px 10px;font-size:0.76rem">⬇ โหลด</button></a>`}
+                      <button class="danger" style="padding:4px 8px;font-size:0.76rem;margin-left:4px" onclick="deleteRemoteFile('${jsPath}','${esc(e.name)}')" title="ลบ">🗑</button>
+                    </td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`;
+      } catch (err) {
+        body.innerHTML = `<div style="padding:28px;text-align:center;color:#fca5a5">⚠️ ${esc(err.message)}</div>`;
+      }
+    };
+
+    window.uploadSelectedFiles = async (fileList) => {
+      if (!filesPeerId || !fileList || fileList.length === 0) return;
+      const bar = document.getElementById('filesTransferBar');
+      const label = document.getElementById('filesTransferLabel');
+      const stats = document.getElementById('filesTransferStats');
+      const prog = document.getElementById('filesTransferProgress');
+      bar.style.display = 'block';
+
+      const files = Array.from(fileList);
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        label.textContent = `⬆ กำลังส่ง (${i + 1}/${files.length}): ${f.name}`;
+        stats.textContent = `0% (0 / ${fmtBytes(f.size)})`;
+        prog.style.width = '3%';
+        const t0 = performance.now();
+        try {
+          await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const url = `/api/peer/files/upload?peer_id=${encodeURIComponent(filesPeerId)}&dir=${encodeURIComponent(filesCurrentPath)}&name=${encodeURIComponent(f.name)}`;
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            xhr.upload.onprogress = (ev) => {
+              if (!ev.lengthComputable) return;
+              const pct = Math.min(99, Math.round((ev.loaded / Math.max(1, ev.total)) * 100));
+              const sec = Math.max(0.05, (performance.now() - t0) / 1000);
+              const speed = ev.loaded / sec;
+              prog.style.width = `${Math.max(4, pct)}%`;
+              stats.textContent = `${pct}% · ${fmtBytes(ev.loaded)} / ${fmtBytes(ev.total)} · ${fmtBytes(speed)}/s`;
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                prog.style.width = '100%';
+                resolve();
+              } else {
+                let errMsg = `HTTP ${xhr.status}`;
+                try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
+                reject(new Error(errMsg));
+              }
+            };
+            xhr.onerror = () => reject(new Error('เครือข่ายขาดการเชื่อมต่อขณะส่งไฟล์'));
+            xhr.send(f);
+          });
+          showToast(`✓ ส่งไฟล์ ${f.name} สำเร็จ!`);
+        } catch (err) {
+          showToast(`⚠ ส่งไฟล์ ${f.name} ไม่สำเร็จ: ${err.message}`);
+          break;
+        }
+      }
+      setTimeout(() => { bar.style.display = 'none'; }, 1200);
+      loadRemoteDir(filesCurrentPath);
+    };
+
+    window.createRemoteFolder = async () => {
+      const name = prompt('ตั้งชื่อโฟลเดอร์ใหม่บนเครื่องปลายทาง:');
+      if (!name || !name.trim()) return;
+      try {
+        await api('/api/peer/files/mkdir', {
+          method: 'POST',
+          body: JSON.stringify({ peer_id: filesPeerId, path: filesCurrentPath, name: name.trim() })
+        });
+        showToast(`✓ สร้างโฟลเดอร์ ${name.trim()} แล้ว`);
+        loadRemoteDir(filesCurrentPath);
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+
+    window.deleteRemoteFile = async (targetPath, name) => {
+      if (!confirm(`ต้องการลบ "${name}" บนเครื่องปลายทางใช่หรือไม่?`)) return;
+      try {
+        await api('/api/peer/files/delete', {
+          method: 'POST',
+          body: JSON.stringify({ peer_id: filesPeerId, path: targetPath })
+        });
+        showToast(`🗑 ลบ ${name} แล้ว`);
+        loadRemoteDir(filesCurrentPath);
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+
+    // Drag & Drop anywhere in File Transfer Modal
+    const filesDropZone = document.getElementById('filesDropZone');
+    filesDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      filesDropZone.style.outline = '2px dashed #38bdf8';
+      filesDropZone.style.outlineOffset = '-10px';
+    });
+    filesDropZone.addEventListener('dragleave', () => {
+      filesDropZone.style.outline = 'none';
+    });
+    filesDropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      filesDropZone.style.outline = 'none';
+      if (e.dataTransfer?.files?.length) {
+        uploadSelectedFiles(e.dataTransfer.files);
+      }
+    });
+
     // ---- Actions ----
     window.portalLogin = async (e) => {
       e.preventDefault();
@@ -3036,7 +3281,8 @@
         return;
       }
       if (document.getElementById('screenModal').classList.contains('open') ||
-          document.getElementById('shellModal').classList.contains('open')) {
+          document.getElementById('shellModal').classList.contains('open') ||
+          document.getElementById('filesModal').classList.contains('open')) {
         return;
       }
       try {

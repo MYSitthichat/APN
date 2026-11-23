@@ -21,12 +21,13 @@ const (
 	RoleAgent  = "agent"
 	RoleClient = "client"
 
-	// Stream modes (ModeTUN is reserved for Phase 2 L3 VPN over TUN/Wintun).
+	// Stream modes
 	ModeTCP     = "tcp"
 	ModeControl = "control"
 	ModeScreen  = "screen"
 	ModeShell   = "shell"
 	ModeTUN     = "tun"
+	ModeFiles   = "files"
 
 	// Typed binary frame tags used inside ModeScreen streams.
 	FrameTypeJPEG      byte = 0x01 // Agent -> Client: [w:u16][h:u16][jpeg bytes] (legacy full frame)
@@ -60,6 +61,7 @@ type AgentCapabilities struct {
 	AllowScreen bool `json:"allow_screen"`
 	AllowInput  bool `json:"allow_input"`
 	AllowShell  bool `json:"allow_shell"`
+	AllowFiles  bool `json:"allow_files,omitempty"`
 	HasFFmpeg   bool `json:"has_ffmpeg,omitempty"`
 }
 

@@ -30,6 +30,7 @@ import (
 	"relayvpn/internal/remote"
 	"relayvpn/internal/security"
 	"relayvpn/internal/updater"
+	"relayvpn/internal/version"
 	"relayvpn/internal/vpn"
 )
 
@@ -38,6 +39,7 @@ type peerHello struct {
 	PeerID       string                     `json:"peer_id"`
 	Name         string                     `json:"name"`
 	OS           string                     `json:"os"`
+	Version      string                     `json:"version,omitempty"`
 	VPNIP        string                     `json:"vpn_ip,omitempty"`
 	Fingerprint  string                     `json:"fingerprint"`
 	PairSecret   string                     `json:"pair_secret,omitempty"`
@@ -57,6 +59,7 @@ type connectedPeer struct {
 	id           string
 	name         string
 	osInfo       string
+	appVersion   string
 	vpnIP        string
 	fingerprint  string
 	remoteAddr   string
@@ -78,6 +81,7 @@ type PeerInfo struct {
 	ID           string                     `json:"id"`
 	Name         string                     `json:"name"`
 	OS           string                     `json:"os"`
+	Version      string                     `json:"version,omitempty"`
 	VPNIP        string                     `json:"vpn_ip,omitempty"`
 	Fingerprint  string                     `json:"fingerprint"`
 	RemoteAddr   string                     `json:"remote_addr"`
@@ -160,6 +164,7 @@ type SavedPeerInfo struct {
 	DeviceID         string `json:"device_id"`
 	Name             string `json:"name"`
 	OS               string `json:"os,omitempty"`
+	Version          string `json:"version,omitempty"`
 	VPNIP            string `json:"vpn_ip,omitempty"`
 	Online           bool   `json:"online"`
 	Connected        bool   `json:"connected"`
@@ -1513,6 +1518,7 @@ func (n *Node) myHello(pairSecret string) peerHello {
 		PeerID:      n.cfg.PeerID,
 		Name:        n.cfg.Name,
 		OS:          fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		Version:     version.Version,
 		VPNIP:       n.vpnIP,
 		Fingerprint: n.identity.Fingerprint,
 		PairSecret:  pairSecret,
@@ -1522,6 +1528,7 @@ func (n *Node) myHello(pairSecret string) peerHello {
 			AllowScreen: n.cfg.AllowScreen,
 			AllowInput:  n.cfg.AllowInput,
 			AllowShell:  n.cfg.AllowShell,
+			AllowFiles:  true,
 			HasFFmpeg:   bootstrap.HasFFmpeg(),
 		},
 	}
@@ -1723,6 +1730,7 @@ func (n *Node) registerPeer(sess MuxSession, remotePeer peerHello) *connectedPee
 		id:           remotePeer.PeerID,
 		name:         remotePeer.Name,
 		osInfo:       remotePeer.OS,
+		appVersion:   remotePeer.Version,
 		vpnIP:        remotePeer.VPNIP,
 		fingerprint:  remotePeer.Fingerprint,
 		remoteAddr:   sess.RemoteAddr(),
@@ -1872,6 +1880,8 @@ func (n *Node) handleIncomingRemoteStream(ctx context.Context, p *connectedPeer,
 		n.serveIncomingScreen(p, stream, req)
 	case protocol.ModeShell:
 		n.serveIncomingShell(ctx, p, stream)
+	case protocol.ModeFiles:
+		n.serveIncomingFiles(p, stream)
 	case protocol.ModeTUN:
 		n.serveIncomingTUN(p, stream)
 	default:
@@ -1881,6 +1891,22 @@ func (n *Node) handleIncomingRemoteStream(ctx context.Context, p *connectedPeer,
 		})
 		_ = stream.Close()
 	}
+}
+
+func (n *Node) serveIncomingFiles(p *connectedPeer, stream io.ReadWriteCloser) {
+	if err := protocol.WriteMessage(stream, protocol.StreamOpenResponse{OK: true}); err != nil {
+		_ = stream.Close()
+		return
+	}
+	ls := n.trackSession(p.id, "files://p2p", func() {
+		_ = stream.Close()
+	})
+	p.activeConns.Add(1)
+	defer func() {
+		p.activeConns.Add(-1)
+		n.untrackSession(ls)
+	}()
+	_ = remote.ServeFileStream(stream, &ls.sent, &ls.recv)
 }
 
 func (n *Node) serveIncomingTUN(p *connectedPeer, stream io.ReadWriteCloser) {
@@ -2262,6 +2288,7 @@ func (p *connectedPeer) info() PeerInfo {
 		ID:           p.id,
 		Name:         p.name,
 		OS:           p.osInfo,
+		Version:      p.appVersion,
 		VPNIP:        p.vpnIP,
 		Fingerprint:  p.fingerprint,
 		RemoteAddr:   p.remoteAddr,
@@ -2392,6 +2419,7 @@ func (n *Node) Snapshot() NodeSnapshot {
 			sp.Connected = true
 			sp.Online = true
 			sp.OnlineVia = "connected"
+			sp.Version = cp.Version
 			if sp.Name == "" {
 				sp.Name = cp.Name
 			}
@@ -2478,6 +2506,7 @@ func (n *Node) Snapshot() NodeSnapshot {
 			AllowScreen: n.cfg.AllowScreen,
 			AllowInput:  n.cfg.AllowInput,
 			AllowShell:  n.cfg.AllowShell,
+			AllowFiles:  true,
 			HasFFmpeg:   bootstrap.HasFFmpeg(),
 		},
 		AllowedTargets:   targets,

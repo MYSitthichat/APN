@@ -22,6 +22,7 @@ import (
 	"relayvpn/internal/installer"
 	"relayvpn/internal/p2p"
 	"relayvpn/internal/protocol"
+	"relayvpn/internal/remote"
 	"relayvpn/internal/security"
 	"relayvpn/internal/server"
 	"relayvpn/internal/version"
@@ -500,6 +501,191 @@ func Start(ctx context.Context, opts Options) error {
 		mux.HandleFunc("GET /ws/remote/shell", func(w http.ResponseWriter, r *http.Request) {
 			bridgeShellWS(w, r, peerOpener)
 		})
+
+		// ---- Encrypted Zero-Cost P2P File Transfer Endpoints (ModeFiles) ----
+		mux.HandleFunc("GET /api/peer/files/list", func(w http.ResponseWriter, r *http.Request) {
+			peerID := strings.TrimSpace(r.URL.Query().Get("peer_id"))
+			dirPath := r.URL.Query().Get("path")
+			if peerID == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "peer_id is required"})
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), peerID, protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyFileStreamErr(err)})
+				return
+			}
+			defer st.Close()
+			if err := protocol.WriteMessage(st, remote.FileRequest{Action: "list", Path: dirPath}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var resp remote.FileResponse
+			if err := protocol.ReadMessage(st, &resp); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !resp.OK {
+				writeJSON(w, http.StatusBadRequest, resp)
+				return
+			}
+			writeJSON(w, http.StatusOK, resp)
+		})
+
+		mux.HandleFunc("GET /api/peer/files/download", func(w http.ResponseWriter, r *http.Request) {
+			peerID := strings.TrimSpace(r.URL.Query().Get("peer_id"))
+			filePath := r.URL.Query().Get("path")
+			if peerID == "" || strings.TrimSpace(filePath) == "" {
+				http.Error(w, "peer_id and path are required", http.StatusBadRequest)
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), peerID, protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				http.Error(w, friendlyFileStreamErr(err), http.StatusBadGateway)
+				return
+			}
+			defer st.Close()
+			if err := protocol.WriteMessage(st, remote.FileRequest{Action: "download", Path: filePath}); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			var hdr remote.FileResponse
+			if err := protocol.ReadMessage(st, &hdr); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			if !hdr.OK {
+				http.Error(w, hdr.Error, http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(hdr.Name, `"`, `_`)+`"; filename*=UTF-8''`+url.PathEscape(hdr.Name))
+			if hdr.Size >= 0 {
+				w.Header().Set("Content-Length", strconv.FormatInt(hdr.Size, 10))
+			}
+			buf := make([]byte, 256*1024)
+			_, _ = io.CopyBuffer(w, io.LimitReader(st, hdr.Size), buf)
+		})
+
+		mux.HandleFunc("POST /api/peer/files/upload", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			peerID := strings.TrimSpace(r.URL.Query().Get("peer_id"))
+			dirPath := r.URL.Query().Get("dir")
+			fileName := strings.TrimSpace(r.URL.Query().Get("name"))
+			if peerID == "" || fileName == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "peer_id and name are required"})
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), peerID, protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyFileStreamErr(err)})
+				return
+			}
+			defer st.Close()
+
+			size := r.ContentLength
+			if err := protocol.WriteMessage(st, remote.FileRequest{
+				Action: "upload",
+				Path:   dirPath,
+				Name:   fileName,
+				Size:   size,
+			}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var ready remote.FileResponse
+			if err := protocol.ReadMessage(st, &ready); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !ready.OK {
+				writeJSON(w, http.StatusBadRequest, ready)
+				return
+			}
+
+			buf := make([]byte, 256*1024)
+			if _, err := io.CopyBuffer(st, r.Body, buf); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": "ส่งไฟล์ไม่สำเร็จ: " + err.Error()})
+				return
+			}
+			if size < 0 {
+				if cw, ok := st.(interface{ CloseWrite() error }); ok {
+					_ = cw.CloseWrite()
+				}
+			}
+			var done remote.FileResponse
+			if err := protocol.ReadMessage(st, &done); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !done.OK {
+				writeJSON(w, http.StatusBadRequest, done)
+				return
+			}
+			writeJSON(w, http.StatusOK, done)
+		}))
+
+		mux.HandleFunc("POST /api/peer/files/mkdir", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID string `json:"peer_id"`
+				Path   string `json:"path"`
+				Name   string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyFileStreamErr(err)})
+				return
+			}
+			defer st.Close()
+			if err := protocol.WriteMessage(st, remote.FileRequest{Action: "mkdir", Path: body.Path, Name: body.Name}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var resp remote.FileResponse
+			if err := protocol.ReadMessage(st, &resp); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !resp.OK {
+				writeJSON(w, http.StatusBadRequest, resp)
+				return
+			}
+			writeJSON(w, http.StatusOK, resp)
+		}))
+
+		mux.HandleFunc("POST /api/peer/files/delete", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID string `json:"peer_id"`
+				Path   string `json:"path"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyFileStreamErr(err)})
+				return
+			}
+			defer st.Close()
+			if err := protocol.WriteMessage(st, remote.FileRequest{Action: "delete", Path: body.Path}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var resp remote.FileResponse
+			if err := protocol.ReadMessage(st, &resp); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !resp.OK {
+				writeJSON(w, http.StatusBadRequest, resp)
+				return
+			}
+			writeJSON(w, http.StatusOK, resp)
+		}))
 	}
 
 	httpSrv := &http.Server{
@@ -934,6 +1120,16 @@ func requireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func friendlyFileStreamErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "unsupported stream mode") {
+		return "เครื่องปลายทางยังเป็น APN เวอร์ชันเก่ากว่า v1.2.7 — กรุณากดอัปเดตเครื่องปลายทางเพื่อใช้งานโอนไฟล์"
+	}
+	return err.Error()
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
