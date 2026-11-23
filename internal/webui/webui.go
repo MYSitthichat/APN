@@ -727,7 +727,31 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 	}()
 
 	// Agent -> Browser (TileBatch, H264, JPEG, Info & Errors)
-	var taggedBuf []byte
+	// Decouple remote stream reads from local WebSocket writes via a small buffered queue so
+	// reading from QUIC/WSS never stalls on local browser frame scheduling.
+	type wsOutMsg struct {
+		msgType websocket.MessageType
+		data    []byte
+	}
+	outCh := make(chan wsOutMsg, 16)
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case m, ok := <-outCh:
+				if !ok {
+					return
+				}
+				if err := wsConn.Write(ctx, m.msgType, m.data); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	defer close(outCh)
+
 	for {
 		fType, payload, err := protocol.ReadTypedFrame(stream)
 		if err != nil {
@@ -735,15 +759,12 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 		}
 		switch fType {
 		case protocol.FrameTypeJPEG, protocol.FrameTypeTileBatch, protocol.FrameTypeH264:
-			needed := 1 + len(payload)
-			if cap(taggedBuf) < needed {
-				taggedBuf = make([]byte, needed)
-			} else {
-				taggedBuf = taggedBuf[:needed]
-			}
-			taggedBuf[0] = fType
-			copy(taggedBuf[1:], payload)
-			if err := wsConn.Write(ctx, websocket.MessageBinary, taggedBuf); err != nil {
+			tagged := make([]byte, 1+len(payload))
+			tagged[0] = fType
+			copy(tagged[1:], payload)
+			select {
+			case outCh <- wsOutMsg{msgType: websocket.MessageBinary, data: tagged}:
+			case <-ctx.Done():
 				return
 			}
 		case protocol.FrameTypeInfo:
@@ -751,13 +772,17 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 			if json.Unmarshal(payload, &info) == nil {
 				info["type"] = "info"
 				msg, _ := json.Marshal(info)
-				if err := wsConn.Write(ctx, websocket.MessageText, msg); err != nil {
+				select {
+				case outCh <- wsOutMsg{msgType: websocket.MessageText, data: msg}:
+				case <-ctx.Done():
 					return
 				}
 			}
 		case protocol.FrameTypeError:
 			errMsg, _ := json.Marshal(map[string]any{"type": "error", "error": string(payload)})
-			if err := wsConn.Write(ctx, websocket.MessageText, errMsg); err != nil {
+			select {
+			case outCh <- wsOutMsg{msgType: websocket.MessageText, data: errMsg}:
+			case <-ctx.Done():
 				return
 			}
 		}

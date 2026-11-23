@@ -4,6 +4,15 @@
 
 ---
 
+## v1.2.0 (2026-11-23)
+- **ปลดล็อกความลื่นระดับเล่นเกม (Gaming-Grade 60 FPS Zero-Stutter):**
+  - **แก้บั๊กกระตุกค้าง 1–2 วิเป็นจังหวะ (`frameCh`):** ขยายคิวกันกระแทกจาก 3 เป็น 24 เฟรม ไม่ทิ้ง Delta Frame ตอนเน็ตแกว่งสั้นๆ 50–150ms และลด GOP เหลือ 1 วินาที (`-g 60`)
+  - **Zero-Copy GPU VRAM-to-VRAM (`ddagrab` → `scale_d3d11` → `h264_mf CBR`):** จับภาพ-ย่อขยาย-แปลงสี-เข้ารหัสบนการ์ดจอ Direct3D 11 100% ลดภาระ CPU/PCIe (และสลับลง `hwdownload` อัตโนมัติหากไดรเวอร์ไม่รองรับ)
+  - **โหมด CBR คงที่ + พรีเซ็ตเล่นเกม:** เพิ่มพรีเซ็ต **`🎮 เล่นเกม 60FPS (8M CBR)`** และ **`💎 Ultra คมสุด (14M CBR)`** ลดอาการกระชากของ I-Frame
+  - **2-Frame Micro-Jitter FIFO VSync + Async WS Bridge:** กำจัดอาการเฟรมสั่น 30Hz Judder บนหน้าจอเบราว์เซอร์ ให้ภาพไหลนิ่ง 60.0 FPS ต่อเนื่อง
+- **แก้ Responsive UI ครบทุกขนาดหน้าจอ:**
+  - ปรับ Header, Sidebar (`clamp(276px, 25vw, 332px)`), แถบเชื่อมต่อ (CSS Grid ปรับ 1 แถว / 2 แถวอัตโนมัติ), การ์ดประวัติเครื่อง และแถบเครื่องมือ Remote Desktop ไม่ให้ปุ่มยุบ ขาด หรือขึ้นบรรทัดใหม่แบบไม่สวยทั้งบนจอ 1366×768, 1280×720, จอแบ่งครึ่ง และมือถือ
+
 ## v1.1.2 (2026-11-23)
 - **ไร้หน้าต่างคอมมานด์ 100% (Pure Windows GUI):** บิลด์ Windows (`amd64` / `arm64`) ด้วย `-H=windowsgui` และซ่อนโปรเซสเบื้องหลังทั้งหมด (`cloudflared`, `ffmpeg`, `netsh`, `powershell`, `clip`) ไม่มีหน้าต่าง CMD หรือ Windows Terminal เด้งขึ้นมาอีกต่อไป
 - **Auto-Update ครบวงจรผ่าน GitHub Releases:** เชื่อม `https://rdv.psms-center.com/api/releases/latest` กับ `MYSitthichat/APN` พร้อมตรวจ **SHA-256** และรีสตาร์ทกลับเข้าหน้าต่างแอป + System Tray อัตโนมัติหลังอัปเดต

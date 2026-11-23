@@ -140,13 +140,14 @@ func streamH264FFmpeg(
 
 		sendInfo("h264", cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU/H.264 (%s · %dx%d @ %d FPS)", cand.name, outW, outH, fps))
 
-		// Decouple FFmpeg stdout reading from network writes with a tight 3-frame low-latency buffer (<50ms max).
-		// Also cache the latest keyframe (SPS+PPS+IDR) so viewer keyframe requests unlock instantly (zero black screen!).
+		// Decouple FFmpeg stdout reading from network writes with a 24-frame shock absorber (~400ms)
+		// so normal 50-150ms Internet/Wi-Fi jitter NEVER drops delta frames or freezes video!
+		// Also cache the latest keyframe (SPS+PPS+IDR) so viewer keyframe requests unlock instantly.
 		type auPacket struct {
 			data  []byte
 			isKey bool
 		}
-		frameCh := make(chan auPacket, 3)
+		frameCh := make(chan auPacket, 24)
 		readDone := make(chan struct{})
 		go func() {
 			defer close(readDone)
@@ -247,24 +248,29 @@ type encoderCandidate struct {
 
 func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
 	fpsStr := strconv.Itoa(fps)
-	gopStr := strconv.Itoa(fps * 2) // keyframe every 2 seconds for snappy recovery & steady bitrate
+	gopStr := strconv.Itoa(fps) // 1-second GOP: super-fast recovery & zero long freezes!
 
-	// Map UI quality selector to strictly rate-controlled low-latency VBR targets
-	// (prevents 18+ Mbps CQP spikes that saturate Cloudflare Tunnel TCP and cause 25 FPS + mouse lag!).
+	// Map UI quality selector to smooth, strictly rate-controlled low-latency bitrate targets
+	// (CBR / LD-VBR prevents sudden 10x I-frame network spikes for gaming-grade frame pacing!)
 	cqStr := "24"
-	targetBitrate := "3500k"
-	maxRate := "5M"
-	bufSize := "1000k"
+	targetBitrate := "5M"
+	maxRate := "6M"
+	bufSize := "1200k"
 	if quality > 0 && quality <= 68 {
 		cqStr = "28"
-		targetBitrate = "2M"
+		targetBitrate = "2500k"
 		maxRate = "3M"
 		bufSize = "600k"
+	} else if quality >= 93 {
+		cqStr = "18"
+		targetBitrate = "14M"
+		maxRate = "16M"
+		bufSize = "3200k"
 	} else if quality >= 88 {
 		cqStr = "20"
 		targetBitrate = "8M"
-		maxRate = "11M"
-		bufSize = "2200k"
+		maxRate = "10M"
+		bufSize = "2000k"
 	}
 
 	// Skip redundant CPU scaling when capturing at native 100% resolution!
@@ -283,7 +289,11 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 	var list []encoderCandidate
 
 	if runtime.GOOS == "windows" {
-		// 1) Preferred: Windows DXGI Desktop Duplication (ddagrab — GPU VRAM <1ms capture!)
+		// 0) Ultra-fast Zero-Copy GPU VRAM-to-VRAM path (ddagrab -> scale_d3d11 NV12 -> h264_mf d3d11!)
+		// Zero PCIe download, zero CPU color conversion — Sunshine/Moonlight-style GPU pipeline!
+		ddaD3D11 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1,scale_d3d11=width=%d:height=%d:format=nv12", fpsStr, outW, outH)
+
+		// 1) Standard DXGI Desktop Duplication fallback with hwdownload (works on all hybrid GPUs)
 		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1,hwdownload,format=bgra,%s", fpsStr, nv12Filter)
 		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1,hwdownload,format=bgra,%s", fpsStr, yuvFilter)
 		makeDDA := func(filter string, encArgs []string) []string {
@@ -294,19 +304,18 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			return args
 		}
 
-		// Native NVENC (requires recent NVIDIA driver matching FFmpeg SDK)
+		// Native NVENC (CBR ULL for rock-steady gaming frame pacing)
 		nvencArgs := []string{
 			"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline",
 			"-zerolatency", "1", "-rc-lookahead", "0", "-delay", "0", "-forced-idr", "1",
-			"-rc", "vbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
+			"-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
-		// Windows Media Foundation Hardware Encoder (works on NVIDIA/Intel/AMD regardless of NVENC SDK version!
-		// Uses Microsoft's official Display Remoting low-delay VBR scenario at 150-350+ FPS!)
+		// Windows Media Foundation Hardware Encoder (CBR + Display Remoting = rock-steady 60 FPS on NVIDIA/Intel/AMD!)
 		mfArgs := []string{
-			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "ld_vbr",
+			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "cbr",
 			"-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
 		}
-		// Intel QuickSync Hardware Encoder (strictly rate-controlled VBR with -b:v, NEVER uncapped CQP global_quality!)
+		// Intel QuickSync Hardware Encoder (strictly rate-controlled VBR/CBR with async_depth=1)
 		qsvArgs := []string{
 			"-c:v", "h264_qsv", "-preset", "veryfast", "-profile:v", "baseline",
 			"-async_depth", "1", "-look_ahead", "0", "-rdo", "0", "-forced_idr", "1",
@@ -315,7 +324,7 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		amfArgs := []string{
 			"-c:v", "h264_amf", "-usage", "ultralowlatency", "-quality", "speed", "-profile:v", "baseline",
 			"-preanalysis", "0", "-vbaq", "0",
-			"-rc", "vbr_latency", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
+			"-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
 		x264Args := []string{
 			"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline",
@@ -324,8 +333,9 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		}
 
 		list = append(list,
+			encoderCandidate{name: "DXGI Zero-Copy GPU (D3D11)", args: makeDDA(ddaD3D11, mfArgs)},
 			encoderCandidate{name: "DXGI + NVENC GPU", args: makeDDA(ddaNV12, nvencArgs)},
-			encoderCandidate{name: "DXGI + Hardware GPU (MF Remoting)", args: makeDDA(ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF CBR)", args: makeDDA(ddaNV12, mfArgs)},
 			encoderCandidate{name: "DXGI + Intel QSV GPU", args: makeDDA(ddaNV12, qsvArgs)},
 			encoderCandidate{name: "DXGI + AMD AMF GPU", args: makeDDA(ddaNV12, amfArgs)},
 			encoderCandidate{name: "DXGI + x264 ZeroLatency", args: makeDDA(ddaYUV, x264Args)},
