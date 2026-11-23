@@ -21,13 +21,22 @@ if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
 go test -v ./...
 if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
 
-# 3. Rebuild local dist binaries
+# 3. Rebuild local dist binaries + latest.json + SHA256SUMS.txt
 & (Join-Path $PSScriptRoot 'build-all.ps1') -RendezvousURL 'https://rdv.psms-center.com'
+& (Join-Path $PSScriptRoot 'publish-update.ps1') -ReleaseNotes $Notes
+$dist = Resolve-Path (Join-Path $PSScriptRoot '..\dist')
+$sums = Get-ChildItem $dist -File -Filter "APN-v$ver-*" | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+$sums | Set-Content -Path (Join-Path $dist 'SHA256SUMS.txt') -Encoding ASCII
 
-# 4. Commit, tag with release notes, and push to GitHub (triggers GitHub Actions Release + Auto-Update!)
+# 4. Commit, tag with release notes, and push to GitHub + publish Release immediately via gh!
 git add -A
 git commit -m "Release $tag" -m $Notes
 git tag -a $tag -m $Notes
 git push origin main --tags
 
-Write-Host "`nPublished $tag to GitHub! GitHub Actions is building all 7 binaries and updating APN Auto-Updater."
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+    $files = @(Get-ChildItem $dist -File -Filter "APN-v$ver-*" | ForEach-Object { $_.FullName }) + (Join-Path $dist 'SHA256SUMS.txt') + (Join-Path $dist 'latest.json')
+    gh release create $tag --title "APN $tag" --notes-from-tag @files
+}
+
+Write-Host "`nPublished $tag to GitHub! Every APN client can now 1-click auto-update."

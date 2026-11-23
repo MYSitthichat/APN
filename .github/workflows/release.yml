@@ -51,7 +51,7 @@ jobs:
           (cd release-dist && sha256sum APN-v* > SHA256SUMS.txt)
           ls -lh release-dist
 
-      - name: Extract Release Notes from tag
+      - name: Extract Release Notes & Generate latest.json
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           NOTES=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}")
@@ -60,6 +60,29 @@ jobs:
           else
             printf 'APN %s release\n' "${GITHUB_REF_NAME}" > release-notes.md
           fi
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          ver = os.environ["VERSION"]
+          notes = pathlib.Path("release-notes.md").read_text(encoding="utf-8").strip()
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/v{ver}"
+          mapping = {
+            "windows-amd64": f"APN-v{ver}-windows-amd64.exe",
+            "windows-arm64": f"APN-v{ver}-windows-arm64.exe",
+            "linux-amd64":   f"APN-v{ver}-linux-amd64",
+            "linux-arm64":   f"APN-v{ver}-linux-arm64",
+            "linux-armv7":   f"APN-v{ver}-linux-armv7",
+            "darwin-arm64":  f"APN-v{ver}-macos-arm64",
+            "darwin-amd64":  f"APN-v{ver}-macos-amd64",
+          }
+          assets = {}
+          for k, fname in mapping.items():
+            p = pathlib.Path("release-dist") / fname
+            if p.exists():
+              h = hashlib.sha256(p.read_bytes()).hexdigest()
+              assets[k] = {"url": f"{base}/{fname}", "sha256": h}
+          manifest = {"version": ver, "release_notes": notes, "assets": assets}
+          pathlib.Path("release-dist/latest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+          PY
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -70,3 +93,4 @@ jobs:
           files: |
             release-dist/APN-v*
             release-dist/SHA256SUMS.txt
+            release-dist/latest.json

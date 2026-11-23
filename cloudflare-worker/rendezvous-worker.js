@@ -35,6 +35,25 @@ async function fetchLatestRelease(env, forceRefresh = false) {
     return cachedRelease;
   }
 
+  // 1) Primary (zero GitHub API rate limit!): fetch latest.json directly from GitHub Releases CDN!
+  try {
+    const cdnRes = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json`, {
+      headers: { 'User-Agent': 'APN-AutoUpdater/1.1' },
+      redirect: 'follow',
+    });
+    if (cdnRes.ok) {
+      const parsed = await cdnRes.json();
+      if (parsed && parsed.version && parsed.assets) {
+        parsed.repo = GITHUB_REPO;
+        parsed.source = 'github-releases-cdn';
+        cachedRelease = parsed;
+        cachedReleaseExp = now + RELEASE_CACHE_MS;
+        return parsed;
+      }
+    }
+  } catch {}
+
+  // 2) Fallback: GitHub Releases REST API (also reads native asset.digest sha256)
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: {
@@ -48,31 +67,14 @@ async function fetchLatestRelease(env, forceRefresh = false) {
       const notes = String(gh.body || gh.name || '').trim();
       const ghAssets = Array.isArray(gh.assets) ? gh.assets : [];
 
-      // Optional SHA256SUMS.txt attached to the release
-      const shaMap = {};
-      const sumsAsset = ghAssets.find(a => /sha256/i.test(a.name || '') && /\.txt$/i.test(a.name || ''));
-      if (sumsAsset?.browser_download_url) {
-        try {
-          const sres = await fetch(sumsAsset.browser_download_url, {
-            headers: { 'User-Agent': 'APN-AutoUpdater/1.1' },
-          });
-          if (sres.ok) {
-            const text = await sres.text();
-            for (const line of text.split(/\r?\n/)) {
-              const m = line.trim().match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/);
-              if (m) shaMap[m[2].trim().toLowerCase()] = m[1].toLowerCase();
-            }
-          }
-        } catch {}
-      }
-
       const assets = {};
       for (const a of ghAssets) {
         const key = matchPlatformAsset(a.name);
         if (!key || !a.browser_download_url) continue;
+        const digest = String(a.digest || '').replace(/^sha256:/i, '');
         assets[key] = {
           url: a.browser_download_url,
-          sha256: shaMap[String(a.name || '').toLowerCase()] || '',
+          sha256: digest,
         };
       }
 
@@ -80,7 +82,7 @@ async function fetchLatestRelease(env, forceRefresh = false) {
         version: ver,
         release_notes: notes,
         repo: GITHUB_REPO,
-        source: 'github-releases',
+        source: 'github-releases-api',
         assets,
       };
       cachedRelease = manifest;
