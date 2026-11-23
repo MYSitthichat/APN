@@ -87,6 +87,9 @@ func streamH264FFmpeg(
 	for _, cand := range candidates {
 		lastEnc = cand.name
 		cmd := exec.CommandContext(ctx, ffmpegPath, cand.args...)
+		if runtime.GOOS == "linux" {
+			cmd.Env = linuxCmdEnv()
+		}
 		executil.HideWindow(cmd)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -363,7 +366,8 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 	if runtime.GOOS == "darwin" {
 		inputArgs = []string{"-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", "1", "-i", "1:none"}
 	} else {
-		inputArgs = []string{"-f", "x11grab", "-framerate", fpsStr, "-i", ":0.0"}
+		disp, _ := detectLinuxDisplayEnv()
+		inputArgs = []string{"-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", "1", "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
 	}
 	makeUnix := func(vf string, encArgs []string) []string {
 		args := append([]string{}, inLowLatency...)
@@ -378,6 +382,11 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		list = append(list, encoderCandidate{
 			name: "VideoToolbox GPU",
 			args: makeUnix(nv12Filter, []string{"-c:v", "h264_videotoolbox", "-realtime", "true", "-profile:v", "baseline", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0"}),
+		})
+	} else {
+		list = append(list, encoderCandidate{
+			name: "X11 + NVENC GPU",
+			args: makeUnix(nv12Filter, []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
 		})
 	}
 	list = append(list, encoderCandidate{

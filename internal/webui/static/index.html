@@ -527,15 +527,38 @@
       padding: 6px 10px;
       font-size: 0.82rem;
     }
-    .modal-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .modal-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+    #screenMeta {
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .screen-stage {
       flex: 1;
+      min-height: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: auto;
       padding: 8px;
       background: #03050c;
+      position: relative;
+    }
+    .screen-placeholder {
+      max-width: 560px;
+      padding: 20px 24px;
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #cbd5e1;
+      text-align: center;
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+    .screen-placeholder.is-err {
+      border-color: rgba(248, 113, 113, 0.55);
+      color: #fecaca;
     }
     #remoteCanvas {
       max-width: 100%;
@@ -1058,7 +1081,8 @@
     </div>
     <div id="screenNotice" style="display:none;padding:7px 16px;background:#1e293b;color:#fde68a;font-size:0.82rem;border-bottom:1px solid rgba(148,163,184,0.2)"></div>
     <div class="screen-stage" id="screenStage">
-      <canvas id="remoteCanvas" tabindex="0"></canvas>
+      <div id="screenPlaceholder" class="screen-placeholder">⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...</div>
+      <canvas id="remoteCanvas" tabindex="0" style="display:none"></canvas>
     </div>
     <div class="quick-bar">
       <input id="txtSendText" placeholder="พิมพ์ข้อความไทย/อังกฤษแล้วกด Enter เพื่อส่งเข้าเครื่องปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
@@ -1881,6 +1905,30 @@
       }
     }
 
+    function resetRemoteCanvas(placeholderMsg, isErr = false) {
+      canvas.width = 0;
+      canvas.height = 0;
+      canvas.style.display = 'none';
+      const ph = document.getElementById('screenPlaceholder');
+      if (ph) {
+        ph.textContent = placeholderMsg || '⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...';
+        ph.classList.toggle('is-err', !!isErr);
+        ph.style.display = 'block';
+      }
+    }
+
+    function markFrameReceived() {
+      screenFrames++;
+      screenTotalFrames++;
+      if (canvas.style.display === 'none') {
+        canvas.style.display = 'block';
+      }
+      const ph = document.getElementById('screenPlaceholder');
+      if (ph && ph.style.display !== 'none') {
+        ph.style.display = 'none';
+      }
+    }
+
     function startVideoRenderLoop() {
       if (videoRAF) return;
       const tick = () => {
@@ -1894,8 +1942,7 @@
           }
           ctx2d.drawImage(frame, 0, 0);
           frame.close();
-          screenFrames++;
-          screenTotalFrames++;
+          markFrameReceived();
         }
         videoRAF = requestAnimationFrame(tick);
       };
@@ -1981,6 +2028,7 @@
 
     window.openRemoteScreen = (agentId, name, preferH264 = false) => {
       closeScreenModal();
+      resetRemoteCanvas(`⏳ กำลังเชื่อมต่อหน้าจอ ${name || agentId}...`, false);
       const modal = document.getElementById('screenModal');
       const notice = document.getElementById('screenNotice');
       notice.style.display = 'none';
@@ -2027,7 +2075,7 @@
 
       screenFPSTimer = setInterval(() => {
         const meta = document.getElementById('screenMeta');
-        if (screenWS && screenWS.readyState === WebSocket.OPEN && canvas.width > 0) {
+        if (screenWS && screenWS.readyState === WebSocket.OPEN && screenTotalFrames > 0 && canvas.width > 0) {
           if (screenFrames === 0 && screenBytesSec === 0) {
             meta.textContent = `${canvas.width}×${canvas.height} · Idle (จอนิ่ง) · ${screenEncoderLabel}`;
           } else {
@@ -2063,7 +2111,12 @@
               notice.style.display = 'none';
             }
           } else if (msg.type === 'error') {
-            document.getElementById('screenMeta').textContent = `ข้อผิดพลาด: ${msg.error}`;
+            document.getElementById('screenMeta').textContent = '⚠ ไม่สามารถจับภาพหน้าจอได้';
+            notice.textContent = `ข้อผิดพลาด: ${msg.error}`;
+            notice.style.display = 'block';
+            if (screenTotalFrames === 0) {
+              resetRemoteCanvas(`⚠️ ${msg.error}`, true);
+            }
           }
           return;
         }
@@ -2108,7 +2161,7 @@
                 ctx2d.drawImage(bitmaps[i], t.x, t.y, t.tw, t.th);
                 bitmaps[i].close();
               }
-              screenFrames++;
+              markFrameReceived();
             } catch {}
             if (screenWS && screenWS.readyState === WebSocket.OPEN) {
               screenWS.send(JSON.stringify({ type: 'ack', seq }));
@@ -2156,7 +2209,7 @@
               }
               ctx2d.drawImage(bmp, 0, 0, sw, sh);
               bmp.close();
-              screenFrames++;
+              markFrameReceived();
             } catch {}
           });
         }
@@ -2171,9 +2224,12 @@
     window.closeScreenModal = () => {
       stopVideoRenderLoop();
       resetH264Decoder();
+      screenTotalFrames = 0;
+      screenFrames = 0;
       if (screenKeyRetry1) { clearTimeout(screenKeyRetry1); screenKeyRetry1 = null; }
       if (screenKeyRetry2) { clearTimeout(screenKeyRetry2); screenKeyRetry2 = null; }
       canvas.classList.remove('hide-local-cursor');
+      resetRemoteCanvas('⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...', false);
       if (screenFPSTimer) { clearInterval(screenFPSTimer); screenFPSTimer = null; }
       if (screenWS) { screenWS.close(); screenWS = null; }
       document.getElementById('screenModal').classList.remove('open');
