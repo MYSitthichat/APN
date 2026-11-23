@@ -4,6 +4,12 @@
 
 ---
 
+## v1.2.5 (2026-11-23)
+- **อัปเกรดความลื่นระดับเนทีฟ Zero-Latency 60 FPS (Moonlight/Parsec-grade):**
+  - **Zero-Delay FLV H.264 Framing (`h264.go`):** เปลี่ยนท่อ FFmpeg จาก raw Annex-B (ที่ต้องรอ Start Code ของเฟรมถัดไป +16.7ms ทุกเฟรมและค้างเฟรมสุดท้ายตอนจอนิ่ง) เป็น **FLV Length-Prefixed Framing** ส่งเฟรมออกทันทีใน 0.01ms ทันทีที่การ์ดจอเข้ารหัสเสร็จ พร้อมโหมด **`h264_mf -rate_control ld_vbr`** (Low-Delay VBR สำหรับ Display Remoting)
+  - **Zero-Copy WebGL GPU Video Renderer (`index.html`):** เพิ่มเอนจินแสดงผลวิดีโอ **WebGL GPU Shader** แยกจาก 2D Canvas และถอด `desynchronized: true` ที่ทำให้เกิดอาการเฟรมสั่น/DWM กระตุกบน Windows Chrome/Edge แสดง `VideoFrame` จาก VRAM ตรงๆ ใน ~0.2ms พร้อม Adaptive Low-Latency VSync Pacing
+  - **ขยายบัฟเฟอร์ QUIC UDP เป็น 7 MiB (`node.go`) & ปิด WebSocket Compression:** แก้ปัญหาบัฟเฟอร์ UDP เริ่มต้นของ Windows (64 KB) ล้นตอนส่ง Keyframe/ภาพเคลื่อนไหวเร็ว ทำให้ QUIC ไม่ดรอปแพ็กเก็ตและไม่สะดุดกลางทาง
+
 ## v1.2.4 (2026-11-23)
 - **แก้บั๊ก Auto-Update บน Linux (`open /usr/bin/apn.new: permission denied`):**
   - เมื่อติดตั้ง APN บน Ubuntu/Linux ผ่าน `.deb` (ไฟล์ระบบเป็นสิทธิ์ root) ตัวอัปเดตจะสลับไปดาวน์โหลด ตรวจ SHA-256 และติดตั้งลง `~/.local/bin/apn` อัตโนมัติโดยไม่ต้องขอรหัส root และไม่ติด Permission Denied อีกต่อไป

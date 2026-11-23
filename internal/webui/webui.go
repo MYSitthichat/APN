@@ -753,7 +753,7 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 		msgType websocket.MessageType
 		data    []byte
 	}
-	outCh := make(chan wsOutMsg, 16)
+	outCh := make(chan wsOutMsg, 32)
 	go func() {
 		defer cancel()
 		for {

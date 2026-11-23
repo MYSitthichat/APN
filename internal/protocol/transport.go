@@ -72,8 +72,9 @@ func DialSession(sessionCtx context.Context, opts DialOptions) (*yamux.Session, 
 	}
 
 	wsConn, resp, err := websocket.Dial(dialCtx, opts.ServerURL, &websocket.DialOptions{
-		HTTPClient: httpClient,
-		HTTPHeader: headers,
+		HTTPClient:      httpClient,
+		HTTPHeader:      headers,
+		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
 		if resp != nil {

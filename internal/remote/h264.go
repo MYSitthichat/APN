@@ -101,19 +101,21 @@ func streamH264FFmpeg(
 			continue
 		}
 
-		scanner := newAnnexBScanner(stdout)
+		scanner := newFLVH264Reader(stdout)
 		// Guard first-frame probe with a 3-second timeout so an unsupported GPU encoder never hangs.
 		type probeRes struct {
-			au  []byte
-			err error
+			au    []byte
+			isKey bool
+			err   error
 		}
 		probeCh := make(chan probeRes, 1)
 		go func() {
-			au, err := scanner.NextAccessUnit()
-			probeCh <- probeRes{au: au, err: err}
+			au, isKey, err := scanner.NextAccessUnit()
+			probeCh <- probeRes{au: au, isKey: isKey, err: err}
 		}()
 
 		var firstAU []byte
+		var firstIsKey bool
 		probeTimer := time.NewTimer(3 * time.Second)
 		select {
 		case <-ctx.Done():
@@ -135,6 +137,7 @@ func streamH264FFmpeg(
 				continue
 			}
 			firstAU = pr.au
+			firstIsKey = pr.isKey
 		}
 
 		cachedEncMu.Lock()
@@ -143,7 +146,7 @@ func streamH264FFmpeg(
 
 		sendInfo("h264", cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU/H.264 (%s · %dx%d @ %d FPS)", cand.name, outW, outH, fps))
 
-		// Decouple FFmpeg stdout reading from network writes with a 24-frame shock absorber (~400ms)
+		// Decouple FFmpeg stdout reading from network writes with a 32-frame shock absorber
 		// so normal 50-150ms Internet/Wi-Fi jitter NEVER drops delta frames or freezes video!
 		// Also cache the latest keyframe (SPS+PPS+IDR) so viewer keyframe requests unlock instantly.
 		type auPacket struct {
@@ -156,8 +159,10 @@ func streamH264FFmpeg(
 			defer close(readDone)
 			defer close(frameCh)
 			droppingUntilKey := false
-			pushAU := func(au []byte) bool {
-				isKey := isH264Keyframe(au)
+			pushAU := func(au []byte, isKey bool) bool {
+				if !isKey {
+					isKey = isH264Keyframe(au)
+				}
 				if droppingUntilKey {
 					if !isKey {
 						return true
@@ -189,15 +194,15 @@ func streamH264FFmpeg(
 				}
 			}
 
-			if !pushAU(firstAU) {
+			if !pushAU(firstAU, firstIsKey) {
 				return
 			}
 			for ctx.Err() == nil {
-				au, err := scanner.NextAccessUnit()
+				au, isKey, err := scanner.NextAccessUnit()
 				if err != nil {
 					return
 				}
-				if !pushAU(au) {
+				if !pushAU(au, isKey) {
 					return
 				}
 			}
@@ -287,8 +292,10 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		yuvFilter = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=yuv420p", outW, outH)
 	}
 
-	// Critical low-latency output flags: -flush_packets 1 disables FFmpeg's 32KB pipe buffering
-	outFlags := []string{"-flush_packets", "1", "-f", "h264", "pipe:1"}
+	// Critical zero-latency length-prefixed FLV output:
+	// Every video tag header carries the exact frame length BEFORE the payload, so we emit EVERY frame
+	// the exact microsecond FFmpeg finishes encoding it — ZERO 1-frame (+16.7ms) Annex-B lookahead wait!
+	outFlags := []string{"-flush_packets", "1", "-f", "flv", "pipe:1"}
 	inLowLatency := []string{"-loglevel", "error", "-fflags", "+nobuffer+flush_packets", "-flags", "+low_delay"}
 
 	var list []encoderCandidate
@@ -315,9 +322,9 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			"-zerolatency", "1", "-rc-lookahead", "0", "-delay", "0", "-forced-idr", "1",
 			"-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
-		// Windows Media Foundation Hardware Encoder (CBR + Display Remoting = rock-steady 60 FPS on NVIDIA/Intel/AMD!)
+		// Windows Media Foundation Hardware Encoder (Low-Delay VBR + Display Remoting = lowest latency & sharpest 60 FPS!)
 		mfArgs := []string{
-			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "cbr",
+			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "ld_vbr",
 			"-quality", "50", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
 		}
 		// Intel QuickSync Hardware Encoder (strictly rate-controlled VBR/CBR with async_depth=1)
@@ -430,88 +437,167 @@ func isH264Keyframe(au []byte) bool {
 	return false
 }
 
-// annexBScanner splits an Annex-B H.264 byte stream into clean access units (grouping SPS/PPS + IDR)
-// without ever dropping start codes.
-type annexBScanner struct {
-	r   io.Reader
-	buf []byte
-	tmp []byte
+// flvH264Reader reads exact length-prefixed H.264 video frames from an FFmpeg `-f flv` stream
+// with ZERO 1-frame lookahead latency (every frame is emitted immediately upon tag completion)
+// and converts AVCC length-prefixed NAL units into Annex-B with automatic SPS/PPS prepending on keyframes.
+type flvH264Reader struct {
+	r           io.Reader
+	headerDone  bool
+	nalLenSize  int
+	spsPPSAnnex []byte
+	tagHdr      [11]byte
+	prevSize    [4]byte
+	payloadBuf  []byte
+	outBuf      bytes.Buffer
 }
 
-func newAnnexBScanner(r io.Reader) *annexBScanner {
-	return &annexBScanner{
-		r:   r,
-		tmp: make([]byte, 64*1024),
+func newFLVH264Reader(r io.Reader) *flvH264Reader {
+	return &flvH264Reader{
+		r:          r,
+		nalLenSize: 4,
 	}
 }
 
-// findStartCode finds the earliest 3-byte (00 00 01) or 4-byte (00 00 00 01) Annex-B start code.
-// Returns (index, startCodeLength) or (-1, 0) if not found.
-func findStartCode(b []byte) (int, int) {
-	for i := 0; i+2 < len(b); i++ {
-		if b[i] == 0 && b[i+1] == 0 {
-			if b[i+2] == 1 {
-				return i, 3
-			}
-			if b[i+2] == 0 && i+3 < len(b) && b[i+3] == 1 {
-				return i, 4
-			}
+func (f *flvH264Reader) NextAccessUnit() ([]byte, bool, error) {
+	if !f.headerDone {
+		var flvHdr [13]byte // 9-byte FLV header + 4-byte PreviousTagSize0
+		if _, err := io.ReadFull(f.r, flvHdr[:]); err != nil {
+			return nil, false, err
 		}
+		if flvHdr[0] != 'F' || flvHdr[1] != 'L' || flvHdr[2] != 'V' {
+			return nil, false, errors.New("invalid FLV stream header")
+		}
+		f.headerDone = true
 	}
-	return -1, 0
-}
 
-func (s *annexBScanner) nextNAL() ([]byte, error) {
-	for {
-		idx, scLen := findStartCode(s.buf)
-		if idx >= 0 {
-			if idx > 0 {
-				s.buf = s.buf[idx:]
-			}
-			nextIdx, _ := findStartCode(s.buf[scLen:])
-			if nextIdx >= 0 {
-				nal := append([]byte(nil), s.buf[scLen:scLen+nextIdx]...)
-				s.buf = s.buf[scLen+nextIdx:]
-				return nal, nil
-			}
-		}
-		n, err := s.r.Read(s.tmp)
-		if n > 0 {
-			s.buf = append(s.buf, s.tmp[:n]...)
-		}
-		if err != nil {
-			if idx, scLen := findStartCode(s.buf); idx == 0 && len(s.buf) > scLen {
-				nal := append([]byte(nil), s.buf[scLen:]...)
-				s.buf = nil
-				return nal, nil
-			}
-			return nil, err
-		}
-		if len(s.buf) > 8*1024*1024 {
-			return nil, io.ErrShortBuffer
-		}
-	}
-}
-
-func (s *annexBScanner) NextAccessUnit() ([]byte, error) {
 	sc := []byte{0, 0, 0, 1}
-	var out bytes.Buffer
 	for {
-		nal, err := s.nextNAL()
-		if err != nil {
-			if out.Len() > 0 {
-				return out.Bytes(), nil
-			}
-			return nil, err
+		if _, err := io.ReadFull(f.r, f.tagHdr[:]); err != nil {
+			return nil, false, err
 		}
-		if len(nal) == 0 {
+		tagType := f.tagHdr[0] & 0x1F
+		dataSize := int(f.tagHdr[1])<<16 | int(f.tagHdr[2])<<8 | int(f.tagHdr[3])
+		if dataSize > 16*1024*1024 {
+			return nil, false, io.ErrShortBuffer
+		}
+		if cap(f.payloadBuf) < dataSize {
+			f.payloadBuf = make([]byte, dataSize)
+		}
+		payload := f.payloadBuf[:dataSize]
+		if dataSize > 0 {
+			if _, err := io.ReadFull(f.r, payload); err != nil {
+				return nil, false, err
+			}
+		}
+		if _, err := io.ReadFull(f.r, f.prevSize[:]); err != nil {
+			return nil, false, err
+		}
+
+		// Only process Video tags (type 9) with AVC/H.264 codec (codecID 7)
+		if tagType != 9 || dataSize < 5 {
 			continue
 		}
-		out.Write(sc)
-		out.Write(nal)
-		nalType := nal[0] & 0x1F
-		if nalType == 1 || nalType == 5 {
-			return out.Bytes(), nil
+		frameType := payload[0] >> 4
+		codecID := payload[0] & 0x0F
+		if codecID != 7 {
+			continue
 		}
+		avcPacketType := payload[1]
+
+		if avcPacketType == 0 {
+			// AVCDecoderConfigurationRecord: extract SPS & PPS into Annex-B cache
+			f.parseAVCConfig(payload[5:])
+			continue
+		}
+		if avcPacketType != 1 {
+			continue
+		}
+
+		isKey := frameType == 1
+		avcc := payload[5:]
+		f.outBuf.Reset()
+		hasSPS := false
+
+		// Convert AVCC length-prefixed NALUs to Annex-B
+		off := 0
+		nLen := f.nalLenSize
+		if nLen < 1 || nLen > 4 {
+			nLen = 4
+		}
+		var nals [][]byte
+		for off+nLen <= len(avcc) {
+			nalSize := 0
+			for i := 0; i < nLen; i++ {
+				nalSize = (nalSize << 8) | int(avcc[off+i])
+			}
+			off += nLen
+			if nalSize <= 0 || off+nalSize > len(avcc) {
+				break
+			}
+			nal := avcc[off : off+nalSize]
+			off += nalSize
+			nalType := nal[0] & 0x1F
+			if nalType == 7 {
+				hasSPS = true
+			}
+			if nalType == 5 {
+				isKey = true
+			}
+			nals = append(nals, nal)
+		}
+		if len(nals) == 0 {
+			continue
+		}
+		if isKey && !hasSPS && len(f.spsPPSAnnex) > 0 {
+			f.outBuf.Write(f.spsPPSAnnex)
+		}
+		for _, nal := range nals {
+			f.outBuf.Write(sc)
+			f.outBuf.Write(nal)
+		}
+		au := make([]byte, f.outBuf.Len())
+		copy(au, f.outBuf.Bytes())
+		return au, isKey, nil
+	}
+}
+
+func (f *flvH264Reader) parseAVCConfig(cfg []byte) {
+	// ISO/IEC 14496-15 AVCDecoderConfigurationRecord:
+	// [0] version, [1] profile, [2] compat, [3] level, [4] 6b reserved + 2b lengthSizeMinusOne, [5] 3b reserved + 5b numSPS
+	if len(cfg) < 7 {
+		return
+	}
+	f.nalLenSize = int(cfg[4]&0x03) + 1
+	sc := []byte{0, 0, 0, 1}
+	var buf bytes.Buffer
+
+	numSPS := int(cfg[5] & 0x1F)
+	off := 6
+	for i := 0; i < numSPS && off+2 <= len(cfg); i++ {
+		l := int(binary.BigEndian.Uint16(cfg[off : off+2]))
+		off += 2
+		if l <= 0 || off+l > len(cfg) {
+			return
+		}
+		buf.Write(sc)
+		buf.Write(cfg[off : off+l])
+		off += l
+	}
+	if off < len(cfg) {
+		numPPS := int(cfg[off])
+		off++
+		for i := 0; i < numPPS && off+2 <= len(cfg); i++ {
+			l := int(binary.BigEndian.Uint16(cfg[off : off+2]))
+			off += 2
+			if l <= 0 || off+l > len(cfg) {
+				break
+			}
+			buf.Write(sc)
+			buf.Write(cfg[off : off+l])
+			off += l
+		}
+	}
+	if buf.Len() > 0 {
+		f.spsPPSAnnex = append([]byte(nil), buf.Bytes()...)
 	}
 }

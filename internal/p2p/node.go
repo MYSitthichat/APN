@@ -444,6 +444,18 @@ func (n *Node) StartAsync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen udp %s: %w", quicBind, err)
 	}
+	// Enlarge OS UDP buffers (Windows default is only 64 KB!) so 60 FPS H.264 keyframes/bursts
+	// NEVER overflow the socket buffer and trigger QUIC packet loss or congestion stalls!
+	for _, sz := range []int{7 << 20, 4 << 20, 2 << 20, 1 << 20} {
+		if udpConn.SetReadBuffer(sz) == nil {
+			break
+		}
+	}
+	for _, sz := range []int{7 << 20, 4 << 20, 2 << 20, 1 << 20} {
+		if udpConn.SetWriteBuffer(sz) == nil {
+			break
+		}
+	}
 
 	n.quicTr = &quic.Transport{Conn: udpConn}
 	n.quicAddrStr = udpConn.LocalAddr().String()
@@ -1421,7 +1433,8 @@ func (n *Node) dialWSPeer(ctx context.Context, wsURL, pairSecret string, tryQUIC
 	}
 
 	wsConn, resp, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
-		HTTPClient: httpClient,
+		HTTPClient:      httpClient,
+		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
 		if resp != nil {

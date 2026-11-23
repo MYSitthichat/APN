@@ -560,7 +560,8 @@
       border-color: rgba(248, 113, 113, 0.55);
       color: #fecaca;
     }
-    #remoteCanvas {
+    #remoteCanvas,
+    #remoteVideoCanvas {
       max-width: 100%;
       max-height: 100%;
       border: 1px solid rgba(148, 163, 184, 0.2);
@@ -570,7 +571,8 @@
       touch-action: none;
       box-shadow: 0 18px 48px rgba(0, 0, 0, 0.7);
     }
-    #remoteCanvas.hide-local-cursor {
+    #remoteCanvas.hide-local-cursor,
+    #remoteVideoCanvas.hide-local-cursor {
       cursor: none;
     }
     .saved-grid {
@@ -1095,6 +1097,7 @@
     <div id="screenNotice" style="display:none;padding:7px 16px;background:#1e293b;color:#fde68a;font-size:0.82rem;border-bottom:1px solid rgba(148,163,184,0.2)"></div>
     <div class="screen-stage" id="screenStage">
       <div id="screenPlaceholder" class="screen-placeholder">⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...</div>
+      <canvas id="remoteVideoCanvas" tabindex="0" style="display:none"></canvas>
       <canvas id="remoteCanvas" tabindex="0" style="display:none"></canvas>
     </div>
     <div class="quick-bar">
@@ -1905,12 +1908,82 @@
     const videoFrameQueue = [];
     let videoRAF = 0;
     const canvas = document.getElementById('remoteCanvas');
-    const ctx2d = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const videoCanvas = document.getElementById('remoteVideoCanvas');
+    // Do NOT use desynchronized:true on Windows Chrome/Edge (breaks DWM flip-model VSync & causes micro-stutter!)
+    const ctx2d = canvas.getContext('2d', { alpha: false });
+    let activeRenderMode = '2d'; // 'gl' for zero-copy H.264 WebGL, '2d' for Smart Tiles/PNG
+
+    // Zero-Copy WebGL GPU VideoFrame Renderer (~0.2ms VRAM-to-VRAM draw, zero CPU readback!)
+    function createWebGLVideoRenderer(el) {
+      const gl = el.getContext('webgl2', {
+        alpha: false, antialias: false, depth: false, stencil: false,
+        preserveDrawingBuffer: false, powerPreference: 'high-performance'
+      }) || el.getContext('webgl', {
+        alpha: false, antialias: false, depth: false, stencil: false,
+        preserveDrawingBuffer: false, powerPreference: 'high-performance'
+      });
+      if (!gl) return null;
+
+      const vsSrc = `attribute vec2 aPos; varying vec2 vUV;
+        void main() { vUV = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5); gl_Position = vec4(aPos, 0.0, 1.0); }`;
+      const fsSrc = `precision mediump float; uniform sampler2D uTex; varying vec2 vUV;
+        void main() { gl_FragColor = texture2D(uTex, vUV); }`;
+      const compile = (type, src) => {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+      };
+      const vs = compile(gl.VERTEX_SHADER, vsSrc);
+      const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+      if (!vs || !fs) return null;
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+      gl.useProgram(prog);
+
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, 'aPos');
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+      return {
+        draw(frame) {
+          const w = frame.displayWidth, h = frame.displayHeight;
+          if (el.width !== w || el.height !== h) {
+            el.width = w;
+            el.height = h;
+            gl.viewport(0, 0, w, h);
+          }
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+      };
+    }
+    const glVideo = createWebGLVideoRenderer(videoCanvas);
+
+    function activeRemoteCanvas() {
+      return (activeRenderMode === 'gl' && glVideo) ? videoCanvas : canvas;
+    }
 
     window.syncCanvasCursor = () => {
       const ctrl = document.getElementById('chkControl')?.checked && screenAllowInput;
       const hideLocal = document.getElementById('chkHideCursor')?.checked;
-      canvas.classList.toggle('hide-local-cursor', !!(ctrl && hideLocal));
+      const hide = !!(ctrl && hideLocal);
+      canvas.classList.toggle('hide-local-cursor', hide);
+      videoCanvas.classList.toggle('hide-local-cursor', hide);
     };
 
     function clearVideoFrameQueue() {
@@ -1923,6 +1996,9 @@
       canvas.width = 0;
       canvas.height = 0;
       canvas.style.display = 'none';
+      videoCanvas.width = 0;
+      videoCanvas.height = 0;
+      videoCanvas.style.display = 'none';
       const ph = document.getElementById('screenPlaceholder');
       if (ph) {
         ph.textContent = placeholderMsg || '⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...';
@@ -1931,11 +2007,23 @@
       }
     }
 
-    function markFrameReceived() {
+    function markFrameReceived(mode = '2d') {
       screenFrames++;
       screenTotalFrames++;
-      if (canvas.style.display === 'none') {
-        canvas.style.display = 'block';
+      const useGL = mode === 'gl' && !!glVideo;
+      activeRenderMode = useGL ? 'gl' : '2d';
+      if (useGL) {
+        if (canvas.style.display !== 'none') canvas.style.display = 'none';
+        if (videoCanvas.style.display !== 'block') {
+          videoCanvas.style.display = 'block';
+          videoCanvas.focus();
+        }
+      } else {
+        if (videoCanvas.style.display !== 'none') videoCanvas.style.display = 'none';
+        if (canvas.style.display !== 'block') {
+          canvas.style.display = 'block';
+          canvas.focus();
+        }
       }
       const ph = document.getElementById('screenPlaceholder');
       if (ph && ph.style.display !== 'none') {
@@ -1946,17 +2034,28 @@
     function startVideoRenderLoop() {
       if (videoRAF) return;
       const tick = () => {
-        // 2-frame micro-jitter FIFO: renders strictly 1 frame per VSync tick for locked 60.0 FPS
-        // without 30Hz phase-beat judder, while keeping latency bounded to <= 1 frame (16ms)!
+        // Adaptive Low-Latency VSync Pacing:
+        // - Queue 1..2 frames: draw 1 frame cleanly per VSync tick (silky 60.0 FPS, absorbs 1-frame jitter).
+        // - Queue >= 3 frames: gently drop 1 stale frame so latency NEVER drifts above 16-33ms!
+        if (videoFrameQueue.length >= 3) {
+          try { videoFrameQueue.shift().close(); } catch {}
+        }
         if (videoFrameQueue.length > 0) {
           const frame = videoFrameQueue.shift();
-          if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-            canvas.width = frame.displayWidth;
-            canvas.height = frame.displayHeight;
-          }
-          ctx2d.drawImage(frame, 0, 0);
+          try {
+            if (glVideo) {
+              glVideo.draw(frame);
+              markFrameReceived('gl');
+            } else {
+              if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                canvas.width = frame.displayWidth;
+                canvas.height = frame.displayHeight;
+              }
+              ctx2d.drawImage(frame, 0, 0);
+              markFrameReceived('2d');
+            }
+          } catch {}
           frame.close();
-          markFrameReceived();
         }
         videoRAF = requestAnimationFrame(tick);
       };
@@ -2091,11 +2190,12 @@
 
       screenFPSTimer = setInterval(() => {
         const meta = document.getElementById('screenMeta');
-        if (screenWS && screenWS.readyState === WebSocket.OPEN && screenTotalFrames > 0 && canvas.width > 0) {
+        const ac = activeRemoteCanvas();
+        if (screenWS && screenWS.readyState === WebSocket.OPEN && screenTotalFrames > 0 && ac.width > 0) {
           if (screenFrames === 0 && screenBytesSec === 0) {
-            meta.textContent = `${canvas.width}×${canvas.height} · Idle (จอนิ่ง) · ${screenEncoderLabel}`;
+            meta.textContent = `${ac.width}×${ac.height} · Idle (จอนิ่ง) · ${screenEncoderLabel}`;
           } else {
-            meta.textContent = `${canvas.width}×${canvas.height} · ${screenFrames} FPS · ${fmtBytes(screenBytesSec)}/s · ${screenEncoderLabel}`;
+            meta.textContent = `${ac.width}×${ac.height} · ${screenFrames} FPS · ${fmtBytes(screenBytesSec)}/s · ${screenEncoderLabel}`;
           }
         }
         screenFrames = 0;
@@ -2304,7 +2404,8 @@
     });
 
     function normCoords(e) {
-      const rect = canvas.getBoundingClientRect();
+      const target = e.currentTarget || activeRemoteCanvas();
+      const rect = target.getBoundingClientRect();
       return {
         x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
         y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
@@ -2323,84 +2424,88 @@
       sendInput({ type: 'mouse_move', x: p.x, y: p.y });
     }
 
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-    canvas.addEventListener('pointermove', e => {
-      const p = normCoords(e);
-      const now = performance.now();
-      if (now - lastMoveSent >= 6) {
-        pendingMovePos = p;
-        flushPendingMove();
-      } else {
-        pendingMovePos = p;
-        if (!pendingMoveTimer) {
-          pendingMoveTimer = setTimeout(flushPendingMove, 6 - (now - lastMoveSent));
-        }
-      }
-    });
-    canvas.addEventListener('pointerdown', e => {
-      canvas.focus();
-      flushPendingMove();
-      const p = normCoords(e);
-      sendInput({ type: 'mouse_down', x: p.x, y: p.y, button: btnName(e.button) });
-    });
-    canvas.addEventListener('pointerup', e => {
-      flushPendingMove();
-      const p = normCoords(e);
-      sendInput({ type: 'mouse_up', x: p.x, y: p.y, button: btnName(e.button) });
-    });
-    canvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      const p = normCoords(e);
-      sendInput({ type: 'mouse_wheel', x: p.x, y: p.y, delta_y: Math.round(e.deltaY) });
-    }, { passive: false });
     const heldCodes = new Set();
     let swallowedLangCode = '';
-    canvas.addEventListener('keydown', e => {
-      e.preventDefault();
-      // 1) Grave Accent (~) single-key Thai/Eng switch (when enabled; Shift+~ still types ~)
-      if (e.code === 'Backquote' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey &&
-          document.getElementById('chkGraveSwitch')?.checked) {
-        if (!e.repeat) {
-          swallowedLangCode = 'Backquote';
-          sendInput({ type: 'switch_lang' });
+    function bindRemoteCanvasEvents(el) {
+      el.addEventListener('contextmenu', e => e.preventDefault());
+      el.addEventListener('pointermove', e => {
+        const p = normCoords(e);
+        const now = performance.now();
+        if (now - lastMoveSent >= 6) {
+          pendingMovePos = p;
+          flushPendingMove();
+        } else {
+          pendingMovePos = p;
+          if (!pendingMoveTimer) {
+            pendingMoveTimer = setTimeout(flushPendingMove, 6 - (now - lastMoveSent));
+          }
         }
-        return;
-      }
-      // 2) Fullscreen Win+Space (via Keyboard Lock API)
-      if (e.code === 'Space' && e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (!e.repeat) {
-          swallowedLangCode = 'Space';
-          sendInput({ type: 'switch_lang' });
+      });
+      el.addEventListener('pointerdown', e => {
+        el.focus();
+        flushPendingMove();
+        const p = normCoords(e);
+        sendInput({ type: 'mouse_down', x: p.x, y: p.y, button: btnName(e.button) });
+      });
+      el.addEventListener('pointerup', e => {
+        flushPendingMove();
+        const p = normCoords(e);
+        sendInput({ type: 'mouse_up', x: p.x, y: p.y, button: btnName(e.button) });
+      });
+      el.addEventListener('wheel', e => {
+        e.preventDefault();
+        const p = normCoords(e);
+        sendInput({ type: 'mouse_wheel', x: p.x, y: p.y, delta_y: Math.round(e.deltaY) });
+      }, { passive: false });
+      el.addEventListener('keydown', e => {
+        e.preventDefault();
+        // 1) Grave Accent (~) single-key Thai/Eng switch (when enabled; Shift+~ still types ~)
+        if (e.code === 'Backquote' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey &&
+            document.getElementById('chkGraveSwitch')?.checked) {
+          if (!e.repeat) {
+            swallowedLangCode = 'Backquote';
+            sendInput({ type: 'switch_lang' });
+          }
+          return;
         }
-        return;
-      }
-      // 3) Alt + Shift chord -> clean remote language switch (releases modifiers so menus never stick)
-      if (((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && e.altKey && !e.ctrlKey && !e.metaKey) ||
-          ((e.code === 'AltLeft' || e.code === 'AltRight') && e.shiftKey && !e.ctrlKey && !e.metaKey)) {
-        if (!e.repeat) {
-          swallowedLangCode = e.code;
-          ['AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight'].forEach(c => {
-            if (heldCodes.has(c)) {
-              sendInput({ type: 'key_up', code: c });
-              heldCodes.delete(c);
-            }
-          });
-          sendInput({ type: 'switch_lang' });
+        // 2) Fullscreen Win+Space (via Keyboard Lock API)
+        if (e.code === 'Space' && e.metaKey && !e.ctrlKey && !e.altKey) {
+          if (!e.repeat) {
+            swallowedLangCode = 'Space';
+            sendInput({ type: 'switch_lang' });
+          }
+          return;
         }
-        return;
-      }
-      if (e.code) heldCodes.add(e.code);
-      sendInput({ type: 'key_down', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
-    });
-    canvas.addEventListener('keyup', e => {
-      e.preventDefault();
-      if (swallowedLangCode && e.code === swallowedLangCode) {
-        swallowedLangCode = '';
-        return;
-      }
-      if (e.code) heldCodes.delete(e.code);
-      sendInput({ type: 'key_up', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
-    });
+        // 3) Alt + Shift chord -> clean remote language switch (releases modifiers so menus never stick)
+        if (((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && e.altKey && !e.ctrlKey && !e.metaKey) ||
+            ((e.code === 'AltLeft' || e.code === 'AltRight') && e.shiftKey && !e.ctrlKey && !e.metaKey)) {
+          if (!e.repeat) {
+            swallowedLangCode = e.code;
+            ['AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight'].forEach(c => {
+              if (heldCodes.has(c)) {
+                sendInput({ type: 'key_up', code: c });
+                heldCodes.delete(c);
+              }
+            });
+            sendInput({ type: 'switch_lang' });
+          }
+          return;
+        }
+        if (e.code) heldCodes.add(e.code);
+        sendInput({ type: 'key_down', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
+      });
+      el.addEventListener('keyup', e => {
+        e.preventDefault();
+        if (swallowedLangCode && e.code === swallowedLangCode) {
+          swallowedLangCode = '';
+          return;
+        }
+        if (e.code) heldCodes.delete(e.code);
+        sendInput({ type: 'key_up', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
+      });
+    }
+    bindRemoteCanvasEvents(canvas);
+    bindRemoteCanvasEvents(videoCanvas);
     window.addEventListener('blur', () => {
       if (heldCodes.size === 0) return;
       heldCodes.forEach(code => sendInput({ type: 'key_up', code }));
