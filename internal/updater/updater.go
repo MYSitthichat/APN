@@ -315,6 +315,17 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.status.Stage = "อัปเดตสำเร็จ! กำลังเปิดเวอร์ชันใหม่..."
 	m.mu.Unlock()
 
+	// If running under Linux systemd user service (INVOCATION_ID set + Restart=always),
+	// simply exit cleanly after swapping the binary so systemd restarts the service cleanly
+	// with zero duplicate processes! Otherwise spawn the updated binary with -wait-pid handoff.
+	if runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != "" {
+		time.Sleep(150 * time.Millisecond)
+		if onRestart != nil {
+			onRestart()
+		}
+		return nil
+	}
+
 	// Spawn the updated binary with -wait-old and -wait-pid=<currentPID> (WITHOUT -open, because the
 	// user's existing APN app window auto-reloads into the new version seamlessly!).
 	// The new process waits until THIS old PID completely terminates & frees port 8080 before starting!

@@ -85,7 +85,8 @@ func isLinuxWayland() bool {
 	return strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY")) != ""
 }
 
-// x11Conn holds a reusable pure-Go X11 connection for zero-dependency screen capture & XTEST input.
+// x11State holds a reusable pure-Go X11 connection.
+// Capture and Input use TWO separate connections so mouse_move NEVER blocks waiting on GetImage!
 type x11State struct {
 	mu      sync.Mutex
 	conn    *xgb.Conn
@@ -96,7 +97,10 @@ type x11State struct {
 	buf     *image.RGBA
 }
 
-var linuxX11 x11State
+var (
+	linuxX11Cap x11State
+	linuxX11Inp x11State
+)
 
 func (x *x11State) ensureLocked() error {
 	if x.conn != nil {
@@ -134,52 +138,52 @@ func (x *x11State) resetLocked() {
 }
 
 func x11ScreenSize() (int, int, bool) {
-	linuxX11.mu.Lock()
-	defer linuxX11.mu.Unlock()
-	if err := linuxX11.ensureLocked(); err != nil {
+	linuxX11Cap.mu.Lock()
+	defer linuxX11Cap.mu.Unlock()
+	if err := linuxX11Cap.ensureLocked(); err != nil {
 		return 0, 0, false
 	}
-	geom, err := xproto.GetGeometry(linuxX11.conn, xproto.Drawable(linuxX11.root)).Reply()
+	geom, err := xproto.GetGeometry(linuxX11Cap.conn, xproto.Drawable(linuxX11Cap.root)).Reply()
 	if err == nil && geom.Width > 0 && geom.Height > 0 {
-		linuxX11.w = int(geom.Width)
-		linuxX11.h = int(geom.Height)
+		linuxX11Cap.w = int(geom.Width)
+		linuxX11Cap.h = int(geom.Height)
 	}
-	if linuxX11.w > 0 && linuxX11.h > 0 {
-		return linuxX11.w, linuxX11.h, true
+	if linuxX11Cap.w > 0 && linuxX11Cap.h > 0 {
+		return linuxX11Cap.w, linuxX11Cap.h, true
 	}
 	return 0, 0, false
 }
 
 // captureX11Native captures the entire root desktop in 100% pure Go (zero CGO, zero external tools).
 func captureX11Native() (*image.RGBA, error) {
-	linuxX11.mu.Lock()
-	defer linuxX11.mu.Unlock()
+	linuxX11Cap.mu.Lock()
+	defer linuxX11Cap.mu.Unlock()
 
-	if err := linuxX11.ensureLocked(); err != nil {
+	if err := linuxX11Cap.ensureLocked(); err != nil {
 		return nil, err
 	}
 
-	geom, err := xproto.GetGeometry(linuxX11.conn, xproto.Drawable(linuxX11.root)).Reply()
+	geom, err := xproto.GetGeometry(linuxX11Cap.conn, xproto.Drawable(linuxX11Cap.root)).Reply()
 	if err != nil {
-		linuxX11.resetLocked()
+		linuxX11Cap.resetLocked()
 		return nil, err
 	}
 	w, h := int(geom.Width), int(geom.Height)
 	if w <= 0 || h <= 0 {
 		return nil, errors.New("invalid X11 root screen geometry")
 	}
-	linuxX11.w, linuxX11.h = w, h
+	linuxX11Cap.w, linuxX11Cap.h = w, h
 
 	reply, err := xproto.GetImage(
-		linuxX11.conn,
+		linuxX11Cap.conn,
 		xproto.ImageFormatZPixmap,
-		xproto.Drawable(linuxX11.root),
+		xproto.Drawable(linuxX11Cap.root),
 		0, 0,
 		uint16(w), uint16(h),
 		0xffffffff,
 	).Reply()
 	if err != nil {
-		linuxX11.resetLocked()
+		linuxX11Cap.resetLocked()
 		return nil, err
 	}
 
@@ -188,10 +192,10 @@ func captureX11Native() (*image.RGBA, error) {
 		return nil, fmt.Errorf("unexpected X11 ZPixmap size: got %d want %d", len(data), w*h*4)
 	}
 
-	if linuxX11.buf == nil || linuxX11.buf.Bounds().Dx() != w || linuxX11.buf.Bounds().Dy() != h {
-		linuxX11.buf = image.NewRGBA(image.Rect(0, 0, w, h))
+	if linuxX11Cap.buf == nil || linuxX11Cap.buf.Bounds().Dx() != w || linuxX11Cap.buf.Bounds().Dy() != h {
+		linuxX11Cap.buf = image.NewRGBA(image.Rect(0, 0, w, h))
 	}
-	pix := linuxX11.buf.Pix
+	pix := linuxX11Cap.buf.Pix
 	total := w * h * 4
 	// X11 ZPixmap 24/32-bit on little-endian Linux is BGRX -> convert in-place to RGBA.
 	for i := 0; i < total; i += 4 {
@@ -204,61 +208,75 @@ func captureX11Native() (*image.RGBA, error) {
 	sizeMu.Lock()
 	lastW, lastH = w, h
 	sizeMu.Unlock()
-	return linuxX11.buf, nil
+	return linuxX11Cap.buf, nil
 }
 
-// applyX11Input injects mouse/wheel/keyboard events directly into X11 via XTEST (~0.1ms, zero xdotool required).
-// Returns handled=true if the event was injected natively via XTEST.
+// applyX11Input injects mouse/wheel/keyboard events directly into X11 via a DEDICATED X11 connection
+// (~0.1ms, zero contention with screen capture, zero xdotool spawn overhead!).
 func applyX11Input(ev InputEvent) (bool, error) {
-	linuxX11.mu.Lock()
-	defer linuxX11.mu.Unlock()
+	linuxX11Inp.mu.Lock()
+	defer linuxX11Inp.mu.Unlock()
 
-	if err := linuxX11.ensureLocked(); err != nil || !linuxX11.hasTest {
+	if err := linuxX11Inp.ensureLocked(); err != nil {
 		return false, nil
 	}
-	w, h := linuxX11.w, linuxX11.h
+	// Use live tracked screen size so mouse mapping stays accurate even after resolution changes.
+	sizeMu.RLock()
+	w, h := lastW, lastH
+	sizeMu.RUnlock()
+	if w <= 0 || h <= 0 {
+		w, h = linuxX11Inp.w, linuxX11Inp.h
+	}
 	if w <= 0 || h <= 0 {
 		w, h = 1920, 1080
 	}
 	px := int16(clamp(int(ev.X*float64(w)), 0, w-1))
 	py := int16(clamp(int(ev.Y*float64(h)), 0, h-1))
 
+	if !linuxX11Inp.hasTest {
+		if ev.Type == "mouse_move" {
+			xproto.WarpPointer(linuxX11Inp.conn, xproto.WindowNone, linuxX11Inp.root, 0, 0, 0, 0, px, py)
+			return true, nil
+		}
+		return false, nil
+	}
+
 	switch ev.Type {
 	case "mouse_move":
-		xtest.FakeInput(linuxX11.conn, xproto.MotionNotify, 0, 0, linuxX11.root, px, py, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.MotionNotify, 0, 0, linuxX11Inp.root, px, py, 0)
 		return true, nil
 	case "mouse_down":
-		xtest.FakeInput(linuxX11.conn, xproto.MotionNotify, 0, 0, linuxX11.root, px, py, 0)
-		xtest.FakeInput(linuxX11.conn, xproto.ButtonPress, x11MouseBtn(ev.Button), 0, linuxX11.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.MotionNotify, 0, 0, linuxX11Inp.root, px, py, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonPress, x11MouseBtn(ev.Button), 0, linuxX11Inp.root, 0, 0, 0)
 		return true, nil
 	case "mouse_up":
-		xtest.FakeInput(linuxX11.conn, xproto.MotionNotify, 0, 0, linuxX11.root, px, py, 0)
-		xtest.FakeInput(linuxX11.conn, xproto.ButtonRelease, x11MouseBtn(ev.Button), 0, linuxX11.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.MotionNotify, 0, 0, linuxX11Inp.root, px, py, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonRelease, x11MouseBtn(ev.Button), 0, linuxX11Inp.root, 0, 0, 0)
 		return true, nil
 	case "mouse_wheel":
 		btn := byte(5) // scroll down
 		if ev.DeltaY < 0 {
 			btn = 4 // scroll up
 		}
-		xtest.FakeInput(linuxX11.conn, xproto.ButtonPress, btn, 0, linuxX11.root, 0, 0, 0)
-		xtest.FakeInput(linuxX11.conn, xproto.ButtonRelease, btn, 0, linuxX11.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonPress, btn, 0, linuxX11Inp.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonRelease, btn, 0, linuxX11Inp.root, 0, 0, 0)
 		return true, nil
 	case "switch_lang":
 		// Super_L (133) + Space (65) — standard GNOME / Ubuntu input source switch
-		xtest.FakeInput(linuxX11.conn, xproto.KeyPress, 133, 0, linuxX11.root, 0, 0, 0)
-		xtest.FakeInput(linuxX11.conn, xproto.KeyPress, 65, 0, linuxX11.root, 0, 0, 0)
-		xtest.FakeInput(linuxX11.conn, xproto.KeyRelease, 65, 0, linuxX11.root, 0, 0, 0)
-		xtest.FakeInput(linuxX11.conn, xproto.KeyRelease, 133, 0, linuxX11.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.KeyPress, 133, 0, linuxX11Inp.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.KeyPress, 65, 0, linuxX11Inp.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.KeyRelease, 65, 0, linuxX11Inp.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.KeyRelease, 133, 0, linuxX11Inp.root, 0, 0, 0)
 		return true, nil
 	case "key_down":
 		if kc := codeToX11Keycode(ev.Code, ev.Key); kc != 0 {
-			xtest.FakeInput(linuxX11.conn, xproto.KeyPress, kc, 0, linuxX11.root, 0, 0, 0)
+			xtest.FakeInput(linuxX11Inp.conn, xproto.KeyPress, kc, 0, linuxX11Inp.root, 0, 0, 0)
 			return true, nil
 		}
 		return false, nil
 	case "key_up":
 		if kc := codeToX11Keycode(ev.Code, ev.Key); kc != 0 {
-			xtest.FakeInput(linuxX11.conn, xproto.KeyRelease, kc, 0, linuxX11.root, 0, 0, 0)
+			xtest.FakeInput(linuxX11Inp.conn, xproto.KeyRelease, kc, 0, linuxX11Inp.root, 0, 0, 0)
 			return true, nil
 		}
 		return false, nil

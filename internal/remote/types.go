@@ -109,6 +109,21 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Host-side mouse_move coalescer: never replay stale queued mouse_move events during brief bursts!
+	moveCh := make(chan InputEvent, 1)
+	if opts.AllowInput {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case mv := <-moveCh:
+					_ = ApplyInputEvent(mv)
+				}
+			}
+		}()
+	}
+
 	// Reader loop: handle input, ACK flow control, and live codec/quality switches
 	go func() {
 		defer cancel()
@@ -174,6 +189,18 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 					}
 				}
 				st.mu.Unlock()
+			case "mouse_move":
+				if opts.AllowInput {
+					// Latest-wins overwrite so cursor jumps directly to newest position with zero backlog!
+					select {
+					case <-moveCh:
+					default:
+					}
+					select {
+					case moveCh <- ev:
+					default:
+					}
+				}
 			default:
 				if opts.AllowInput {
 					_ = ApplyInputEvent(ev)

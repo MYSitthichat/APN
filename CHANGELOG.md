@@ -4,6 +4,18 @@
 
 ---
 
+## v1.2.6 (2026-11-23)
+- **แก้บั๊กจอดำ/ค้างหน้ากำลังโหลดตอนรีโมตเข้ามาครั้งแรก (ทั้ง Windows & Linux):**
+  - แก้บั๊ก WebGL Canvas (`preserveDrawingBuffer: true`, ไม่รีเซ็ตขนาดเป็น `0×0` และแสดง Canvas ก่อนสั่ง `drawArrays`) ที่ทำให้เฟรมแรกถูกเคลียร์เป็นจอดำจนต้องออกเข้าใหม่
+  - เพิ่มตัวป้องกันจอดำอัตโนมัติ: ส่งคำขอ Keyframe ทันทีเมื่อตัวถอดรหัสสะดุด และสลับเป็น Smart Tiles อัตโนมัติภายใน 4 วิหาก H.264 ไม่ส่งเฟรม
+  - แคช in-band SPS/PPS ใน `flvH264Reader` ให้ Keyframe ครบสมบูรณ์ทุกครั้ง
+- **แก้เมาส์ Linux ดีเลย์ให้ลื่นติดมือเหมือน Windows:**
+  - แยกการเชื่อมต่อ X11 ของฝั่ง Input (`linuxX11Inp`) ออกจากฝั่งจับภาพ (`linuxX11Cap`) ไม่ให้ `mouse_move` ติดล็อกรอ `GetImage` และเพิ่ม `WarpPointer` fallback + `mouse_move` coalescing ฝั่งโฮสต์
+  - เพิ่ม `-probesize 32 -analyzeduration 0` บน Linux `x11grab` ตัดบัฟเฟอร์ดีเลย์ 50–120ms และเพิ่มการ์ดจอ **`X11 + VAAPI GPU`** (Intel/AMD Linux)
+- **Auto-Reconnect เมื่อเครื่องปลายทางรีสตาร์ท/อัปเดต + รองรับ Linux Systemd Service:**
+  - หากหน้าจอรีโมตหลุดเพราะเครื่องปลายทางกำลังอัปเดตหรือรีสตาร์ท โปรแกรมจะขึ้นแถบสถานะและเชื่อมต่อกลับให้อัตโนมัติทุก 2.5 วิโดยไม่ค้างและไม่ต้องปิดเปิดใหม่
+  - บน Linux ที่รันผ่าน `systemd --user apn.service` ตัวอัปเดตจะปล่อยให้ systemd รีสตาร์ทเซอร์วิสอัตโนมัติแบบไร้โปรเซสซ้อน
+
 ## v1.2.5 (2026-11-23)
 - **อัปเกรดความลื่นระดับเนทีฟ Zero-Latency 60 FPS (Moonlight/Parsec-grade):**
   - **Zero-Delay FLV H.264 Framing (`h264.go`):** เปลี่ยนท่อ FFmpeg จาก raw Annex-B (ที่ต้องรอ Start Code ของเฟรมถัดไป +16.7ms ทุกเฟรมและค้างเฟรมสุดท้ายตอนจอนิ่ง) เป็น **FLV Length-Prefixed Framing** ส่งเฟรมออกทันทีใน 0.01ms ทันทีที่การ์ดจอเข้ารหัสเสร็จ พร้อมโหมด **`h264_mf -rate_control ld_vbr`** (Low-Delay VBR สำหรับ Display Remoting)

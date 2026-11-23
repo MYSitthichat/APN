@@ -373,10 +373,12 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 
 	var inputArgs []string
 	if runtime.GOOS == "darwin" {
-		inputArgs = []string{"-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", "1", "-i", "1:none"}
+		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", "1", "-i", "1:none"}
 	} else {
 		disp, _ := detectLinuxDisplayEnv()
-		inputArgs = []string{"-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", "1", "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
+		// Zero-buffer x11grab: -probesize 32 -analyzeduration 0 eliminates FFmpeg's 50-120ms input demux buffering
+		// so Linux mouse movement feels just as instantaneous as Windows!
+		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", "1", "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
 	}
 	makeUnix := func(vf string, encArgs []string) []string {
 		args := append([]string{}, inLowLatency...)
@@ -393,10 +395,26 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			args: makeUnix(nv12Filter, []string{"-c:v", "h264_videotoolbox", "-realtime", "true", "-profile:v", "baseline", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0"}),
 		})
 	} else {
-		list = append(list, encoderCandidate{
-			name: "X11 + NVENC GPU",
-			args: makeUnix(nv12Filter, []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
-		})
+		vaapiVF := "format=nv12,hwupload"
+		if needScale {
+			vaapiVF = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=nv12,hwupload", outW, outH)
+		}
+		vaapiArgs := append([]string{}, inLowLatency...)
+		vaapiArgs = append(vaapiArgs, "-vaapi_device", "/dev/dri/renderD128")
+		vaapiArgs = append(vaapiArgs, inputArgs...)
+		vaapiArgs = append(vaapiArgs, "-vf", vaapiVF, "-c:v", "h264_vaapi", "-profile:v", "constrained_baseline", "-rc_mode", "CBR", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0")
+		vaapiArgs = append(vaapiArgs, outFlags...)
+
+		list = append(list,
+			encoderCandidate{
+				name: "X11 + NVENC GPU",
+				args: makeUnix(nv12Filter, []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
+			},
+			encoderCandidate{
+				name: "X11 + VAAPI GPU",
+				args: vaapiArgs,
+			},
+		)
 	}
 	list = append(list, encoderCandidate{
 		name: "x264 ZeroLatency",
@@ -525,6 +543,7 @@ func (f *flvH264Reader) NextAccessUnit() ([]byte, bool, error) {
 			nLen = 4
 		}
 		var nals [][]byte
+		var inlineSPSPPS bytes.Buffer
 		for off+nLen <= len(avcc) {
 			nalSize := 0
 			for i := 0; i < nLen; i++ {
@@ -539,11 +558,19 @@ func (f *flvH264Reader) NextAccessUnit() ([]byte, bool, error) {
 			nalType := nal[0] & 0x1F
 			if nalType == 7 {
 				hasSPS = true
+				inlineSPSPPS.Write(sc)
+				inlineSPSPPS.Write(nal)
+			} else if nalType == 8 {
+				inlineSPSPPS.Write(sc)
+				inlineSPSPPS.Write(nal)
 			}
 			if nalType == 5 {
 				isKey = true
 			}
 			nals = append(nals, nal)
+		}
+		if inlineSPSPPS.Len() > 0 {
+			f.spsPPSAnnex = append([]byte(nil), inlineSPSPPS.Bytes()...)
 		}
 		if len(nals) == 0 {
 			continue

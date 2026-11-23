@@ -1914,15 +1914,20 @@
     let activeRenderMode = '2d'; // 'gl' for zero-copy H.264 WebGL, '2d' for Smart Tiles/PNG
 
     // Zero-Copy WebGL GPU VideoFrame Renderer (~0.2ms VRAM-to-VRAM draw, zero CPU readback!)
+    // preserveDrawingBuffer:true guarantees static/first frames NEVER flash or clear to black!
     function createWebGLVideoRenderer(el) {
       const gl = el.getContext('webgl2', {
         alpha: false, antialias: false, depth: false, stencil: false,
-        preserveDrawingBuffer: false, powerPreference: 'high-performance'
+        preserveDrawingBuffer: true, powerPreference: 'high-performance'
       }) || el.getContext('webgl', {
         alpha: false, antialias: false, depth: false, stencil: false,
-        preserveDrawingBuffer: false, powerPreference: 'high-performance'
+        preserveDrawingBuffer: true, powerPreference: 'high-performance'
       });
       if (!gl) return null;
+
+      let lost = false;
+      el.addEventListener('webglcontextlost', (e) => { e.preventDefault(); lost = true; });
+      el.addEventListener('webglcontextrestored', () => { lost = false; });
 
       const vsSrc = `attribute vec2 aPos; varying vec2 vUV;
         void main() { vUV = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5); gl_Position = vec4(aPos, 0.0, 1.0); }`;
@@ -1959,16 +1964,26 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
       return {
+        ok() { return !lost && !gl.isContextLost(); },
+        clear() {
+          if (lost || gl.isContextLost()) return;
+          gl.clearColor(0, 0, 0, 1);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+        },
         draw(frame) {
+          if (lost || gl.isContextLost()) return false;
           const w = frame.displayWidth, h = frame.displayHeight;
+          if (!w || !h) return false;
           if (el.width !== w || el.height !== h) {
             el.width = w;
             el.height = h;
-            gl.viewport(0, 0, w, h);
           }
+          gl.viewport(0, 0, w, h);
+          gl.useProgram(prog);
           gl.bindTexture(gl.TEXTURE_2D, tex);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
           gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          return true;
         }
       };
     }
@@ -1992,12 +2007,18 @@
       }
     }
 
+    let screenFallbackTimer = null;
+    let screenReconnectTimer = null;
+    let screenReconnectAttempts = 0;
+    let screenManualClose = false;
+    let activeScreenTarget = null;
+
     function resetRemoteCanvas(placeholderMsg, isErr = false) {
       canvas.width = 0;
       canvas.height = 0;
       canvas.style.display = 'none';
-      videoCanvas.width = 0;
-      videoCanvas.height = 0;
+      // NEVER set videoCanvas.width = 0 on a WebGL canvas (corrupts WebGL context/backbuffer -> black screen!)
+      glVideo?.clear?.();
       videoCanvas.style.display = 'none';
       const ph = document.getElementById('screenPlaceholder');
       if (ph) {
@@ -2007,10 +2028,9 @@
       }
     }
 
-    function markFrameReceived(mode = '2d') {
-      screenFrames++;
-      screenTotalFrames++;
-      const useGL = mode === 'gl' && !!glVideo;
+    function ensureRenderSurface(mode = '2d') {
+      screenReconnectAttempts = 0;
+      const useGL = mode === 'gl' && !!(glVideo && glVideo.ok());
       activeRenderMode = useGL ? 'gl' : '2d';
       if (useGL) {
         if (canvas.style.display !== 'none') canvas.style.display = 'none';
@@ -2029,6 +2049,13 @@
       if (ph && ph.style.display !== 'none') {
         ph.style.display = 'none';
       }
+      return useGL;
+    }
+
+    function markFrameReceived(mode = '2d') {
+      screenFrames++;
+      screenTotalFrames++;
+      ensureRenderSurface(mode);
     }
 
     function startVideoRenderLoop() {
@@ -2043,16 +2070,31 @@
         if (videoFrameQueue.length > 0) {
           const frame = videoFrameQueue.shift();
           try {
-            if (glVideo) {
-              glVideo.draw(frame);
-              markFrameReceived('gl');
+            // Make WebGL canvas visible BEFORE drawArrays so Frame #1 is NEVER lost to a hidden backbuffer!
+            if (glVideo && glVideo.ok()) {
+              ensureRenderSurface('gl');
+              if (glVideo.draw(frame)) {
+                screenFrames++;
+                screenTotalFrames++;
+              } else {
+                ensureRenderSurface('2d');
+                if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                  canvas.width = frame.displayWidth;
+                  canvas.height = frame.displayHeight;
+                }
+                ctx2d.drawImage(frame, 0, 0);
+                screenFrames++;
+                screenTotalFrames++;
+              }
             } else {
+              ensureRenderSurface('2d');
               if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
                 canvas.width = frame.displayWidth;
                 canvas.height = frame.displayHeight;
               }
               ctx2d.drawImage(frame, 0, 0);
-              markFrameReceived('2d');
+              screenFrames++;
+              screenTotalFrames++;
             }
           } catch {}
           frame.close();
@@ -2122,6 +2164,9 @@
               document.getElementById('selCodec').value = 'tiles';
               document.getElementById('selFPS').value = '24';
               sendScreenConfig();
+            } else {
+              // Immediately request a fresh keyframe on decoder glitch so it recovers in <100ms!
+              sendInput({ type: 'keyframe' });
             }
           }
         });
@@ -2141,24 +2186,49 @@
       }
     }
 
-    window.openRemoteScreen = (agentId, name, preferH264 = false) => {
-      closeScreenModal();
-      resetRemoteCanvas(`⏳ กำลังเชื่อมต่อหน้าจอ ${name || agentId}...`, false);
+    function teardownScreenStream() {
+      stopVideoRenderLoop();
+      resetH264Decoder();
+      screenTotalFrames = 0;
+      screenFrames = 0;
+      if (screenKeyRetry1) { clearTimeout(screenKeyRetry1); screenKeyRetry1 = null; }
+      if (screenKeyRetry2) { clearTimeout(screenKeyRetry2); screenKeyRetry2 = null; }
+      if (screenFallbackTimer) { clearTimeout(screenFallbackTimer); screenFallbackTimer = null; }
+      if (screenFPSTimer) { clearInterval(screenFPSTimer); screenFPSTimer = null; }
+      if (screenWS) {
+        const old = screenWS;
+        screenWS = null;
+        old.onclose = null;
+        try { old.close(); } catch {}
+      }
+    }
+
+    window.openRemoteScreen = (agentId, name, preferH264 = false, isReconnect = false) => {
+      if (screenReconnectTimer) { clearTimeout(screenReconnectTimer); screenReconnectTimer = null; }
+      teardownScreenStream();
+      screenManualClose = false;
+      if (!isReconnect) {
+        screenReconnectAttempts = 0;
+      }
+      activeScreenTarget = { agentId, name, preferH264 };
+      resetRemoteCanvas(isReconnect ? `🔄 กำลังเชื่อมต่อหน้าจอ ${name || agentId} ใหม่...` : `⏳ กำลังเชื่อมต่อหน้าจอ ${name || agentId}...`, false);
       const modal = document.getElementById('screenModal');
       const notice = document.getElementById('screenNotice');
       notice.style.display = 'none';
       notice.textContent = '';
       document.getElementById('screenTitle').textContent = `🖥 Remote Desktop — ${name || agentId}` + (appVersion ? ` (v${appVersion})` : '');
-      document.getElementById('screenMeta').textContent = 'กำลังเชื่อมต่อ...';
+      document.getElementById('screenMeta').textContent = isReconnect ? 'กำลังเชื่อมใหม่...' : 'กำลังเชื่อมต่อ...';
       modal.classList.add('open');
 
       // Auto-select 60 FPS GPU H.264 when the remote host has FFmpeg ready and browser supports WebCodecs!
-      if (preferH264 && ('VideoDecoder' in window)) {
-        document.getElementById('selCodec').value = 'h264';
-        document.getElementById('selFPS').value = '60';
-      } else {
-        document.getElementById('selCodec').value = 'tiles';
-        document.getElementById('selFPS').value = '24';
+      if (!isReconnect) {
+        if (preferH264 && ('VideoDecoder' in window)) {
+          document.getElementById('selCodec').value = 'h264';
+          document.getElementById('selFPS').value = '60';
+        } else {
+          document.getElementById('selCodec').value = 'tiles';
+          document.getElementById('selFPS').value = '24';
+        }
       }
 
       const fps = document.getElementById('selFPS').value;
@@ -2166,27 +2236,37 @@
       const codec = document.getElementById('selCodec').value;
       const maxW = document.getElementById('selScale').value;
       const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}`;
-      screenWS = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
-      screenWS.binaryType = 'arraybuffer';
+      const ws = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
+      screenWS = ws;
+      ws.binaryType = 'arraybuffer';
       screenFrames = 0;
       screenTotalFrames = 0;
       screenBytesSec = 0;
       screenEncoderLabel = codec.toUpperCase();
 
-      // Anti-black-screen watchdog: if no video frame rendered within 1.1s / 2.4s, request instant cached keyframe!
-      if (screenKeyRetry1) clearTimeout(screenKeyRetry1);
-      if (screenKeyRetry2) clearTimeout(screenKeyRetry2);
+      // Anti-black-screen watchdog:
+      // 1.0s -> request keyframe, 2.2s -> reset decoder + keyframe, 4.2s -> auto-fallback to Smart Tiles so screen NEVER stays black!
       screenKeyRetry1 = setTimeout(() => {
-        if (screenTotalFrames === 0 && screenWS && screenWS.readyState === WebSocket.OPEN) {
+        if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN) {
           sendInput({ type: 'keyframe' });
         }
-      }, 1100);
+      }, 1000);
       screenKeyRetry2 = setTimeout(() => {
-        if (screenTotalFrames === 0 && screenWS && screenWS.readyState === WebSocket.OPEN) {
+        if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN) {
           resetH264Decoder();
           sendInput({ type: 'keyframe' });
         }
-      }, 2400);
+      }, 2200);
+      screenFallbackTimer = setTimeout(() => {
+        if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN &&
+            document.getElementById('selCodec').value === 'h264') {
+          notice.textContent = 'กำลังสลับเป็น Smart Tiles อัตโนมัติเพื่อให้ภาพขึ้นทันที...';
+          notice.style.display = 'block';
+          document.getElementById('selCodec').value = 'tiles';
+          document.getElementById('selFPS').value = '24';
+          sendScreenConfig();
+        }
+      }, 4200);
 
       screenFPSTimer = setInterval(() => {
         const meta = document.getElementById('screenMeta');
@@ -2333,23 +2413,60 @@
         }
       };
 
-      screenWS.onclose = () => {
+      ws.onclose = () => {
+        if (screenWS !== ws) return;
         resetH264Decoder();
-        document.getElementById('screenMeta').textContent = 'ตัดการเชื่อมต่อแล้ว';
+        if (screenManualClose || !activeScreenTarget) {
+          document.getElementById('screenMeta').textContent = 'ตัดการเชื่อมต่อแล้ว';
+          return;
+        }
+        // Unexpected disconnect (e.g. remote PC restarted APN after update or brief network drop) -> Auto-Reconnect!
+        screenReconnectAttempts++;
+        if (screenReconnectAttempts > 24) {
+          document.getElementById('screenMeta').textContent = 'ตัดการเชื่อมต่อแล้ว';
+          notice.textContent = 'ไม่สามารถเชื่อมต่อเครื่องปลายทางได้หลังจากพยายามซ้ำ — กดปิดแล้วเชื่อมต่อใหม่อีกครั้ง';
+          notice.style.display = 'block';
+          return;
+        }
+        const target = activeScreenTarget;
+        document.getElementById('screenMeta').textContent = `🔄 เชื่อมใหม่ (${screenReconnectAttempts}/24)...`;
+        notice.textContent = `🔄 ขาดการเชื่อมต่อชั่วคราว (เครื่องปลายทางอาจกำลังรีสตาร์ทหรืออัปเดต) — กำลังเชื่อมต่อใหม่อัตโนมัติ...`;
+        notice.style.display = 'block';
+        screenReconnectTimer = setTimeout(async () => {
+          if (screenManualClose || !activeScreenTarget) return;
+          if (lastMode === 'peer') {
+            // Re-establish P2P peer connection using saved password if the remote APN restarted!
+            const savedMatch = (lastPeerData?.saved_peers || []).find(s => s.device_id === target.agentId || s.name === target.name);
+            const connMatch = (lastPeerData?.connected_peers || []).find(p => p.id === target.agentId);
+            const devId = connMatch?.device_id || savedMatch?.device_id || target.agentId;
+            if (devId) {
+              try {
+                const info = await api('/api/peer/connect', {
+                  method: 'POST',
+                  body: JSON.stringify({ device_id: devId, use_saved_password: true })
+                });
+                if (info && info.id) {
+                  target.agentId = info.id;
+                  target.preferH264 = !!info.capabilities?.has_ffmpeg;
+                }
+              } catch {}
+            }
+          }
+          if (!screenManualClose && activeScreenTarget) {
+            openRemoteScreen(target.agentId, target.name, target.preferH264, true);
+          }
+        }, 2500);
       };
     };
 
     window.closeScreenModal = () => {
-      stopVideoRenderLoop();
-      resetH264Decoder();
-      screenTotalFrames = 0;
-      screenFrames = 0;
-      if (screenKeyRetry1) { clearTimeout(screenKeyRetry1); screenKeyRetry1 = null; }
-      if (screenKeyRetry2) { clearTimeout(screenKeyRetry2); screenKeyRetry2 = null; }
+      screenManualClose = true;
+      activeScreenTarget = null;
+      if (screenReconnectTimer) { clearTimeout(screenReconnectTimer); screenReconnectTimer = null; }
+      teardownScreenStream();
       canvas.classList.remove('hide-local-cursor');
+      videoCanvas.classList.remove('hide-local-cursor');
       resetRemoteCanvas('⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...', false);
-      if (screenFPSTimer) { clearInterval(screenFPSTimer); screenFPSTimer = null; }
-      if (screenWS) { screenWS.close(); screenWS = null; }
       document.getElementById('screenModal').classList.remove('open');
     };
 
