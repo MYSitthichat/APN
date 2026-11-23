@@ -45,6 +45,7 @@ $manifest = [ordered]@{
 }
 
 $outPath = Join-Path $distDir 'latest.json'
-$manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $outPath -Encoding UTF8
+$jsonText = $manifest | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($outPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "Generated $outPath for APN v$ver ($($assets.Count) platform assets)."
 Write-Host "Upload the binaries in dist/ to $base/ and save latest.json into Cloudflare KV key 'release:latest' (Namespace RELAYVPN_PEERS)!"

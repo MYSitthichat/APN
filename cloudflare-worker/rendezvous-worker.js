@@ -42,7 +42,8 @@ async function fetchLatestRelease(env, forceRefresh = false) {
       redirect: 'follow',
     });
     if (cdnRes.ok) {
-      const parsed = await cdnRes.json();
+      const txt = (await cdnRes.text()).replace(/^\uFEFF/, '');
+      const parsed = JSON.parse(txt);
       if (parsed && parsed.version && parsed.assets) {
         parsed.repo = GITHUB_REPO;
         parsed.source = 'github-releases-cdn';
