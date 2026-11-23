@@ -353,10 +353,10 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			encoderCandidate{name: "DXGI + x264 ZeroLatency", args: makeDDA(ddaYUV, x264Args)},
 		)
 
-		// 2) Fallback: gdigrab if ddagrab is unavailable (e.g. older Windows / hybrid GPU restriction)
+		// 2) Fallback: gdigrab if ddagrab is unavailable (e.g. older Windows / hybrid GPU / headless VM)
 		makeGDI := func(vf string, encArgs []string) []string {
 			args := append([]string{}, inLowLatency...)
-			args = append(args, "-f", "gdigrab", "-framerate", fpsStr, "-draw_mouse", "1", "-i", "desktop", "-vf", vf)
+			args = append(args, "-probesize", "32", "-analyzeduration", "0", "-f", "gdigrab", "-framerate", fpsStr, "-draw_mouse", "1", "-i", "desktop", "-vf", vf)
 			args = append(args, encArgs...)
 			args = append(args, outFlags...)
 			return args

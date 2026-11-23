@@ -28,6 +28,8 @@ var (
 	procSendInput          = user32.NewProc("SendInput")
 	procMapVirtualKey      = user32.NewProc("MapVirtualKeyW")
 	procGetCursorInfo      = user32.NewProc("GetCursorInfo")
+	procGetCursorPos       = user32.NewProc("GetCursorPos")
+	procLoadCursorW        = user32.NewProc("LoadCursorW")
 	procGetIconInfo        = user32.NewProc("GetIconInfo")
 	procDrawIconEx         = user32.NewProc("DrawIconEx")
 	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
@@ -293,15 +295,32 @@ func drawWindowsCursor(hdcMem uintptr) {
 	var ci cursorInfoStruct
 	ci.Size = uint32(unsafe.Sizeof(ci))
 	ok, _, _ := procGetCursorInfo.Call(uintptr(unsafe.Pointer(&ci)))
-	if ok == 0 || (ci.Flags&cursorShowing) == 0 || ci.Cursor == 0 {
-		return
+
+	var hCursor uintptr
+	var x, y int
+	if ok != 0 && (ci.Flags&cursorShowing) != 0 && ci.Cursor != 0 {
+		hCursor = ci.Cursor
+		x = int(ci.ScreenPos.X)
+		y = int(ci.ScreenPos.Y)
+	} else {
+		// Headless / no-physical-mouse Windows PC (where Windows hides the hardware cursor):
+		// still draw the standard arrow cursor at the live pointer coordinates so it is NEVER invisible!
+		var pt pointStruct
+		if okPos, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); okPos == 0 {
+			return
+		}
+		const idcArrow = 32512
+		cur, _, _ := procLoadCursorW.Call(0, idcArrow)
+		if cur == 0 {
+			return
+		}
+		hCursor = cur
+		x = int(pt.X)
+		y = int(pt.Y)
 	}
 
-	x := int(ci.ScreenPos.X)
-	y := int(ci.ScreenPos.Y)
-
 	var ii iconInfoStruct
-	if ok2, _, _ := procGetIconInfo.Call(ci.Cursor, uintptr(unsafe.Pointer(&ii))); ok2 != 0 {
+	if ok2, _, _ := procGetIconInfo.Call(hCursor, uintptr(unsafe.Pointer(&ii))); ok2 != 0 {
 		x -= int(ii.XHotspot)
 		y -= int(ii.YHotspot)
 		if ii.HbmMask != 0 {
@@ -316,7 +335,7 @@ func drawWindowsCursor(hdcMem uintptr) {
 		hdcMem,
 		uintptr(x),
 		uintptr(y),
-		ci.Cursor,
+		hCursor,
 		0, 0, 0, 0,
 		diNormal,
 	)

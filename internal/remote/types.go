@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"relayvpn/internal/bootstrap"
 	"relayvpn/internal/protocol"
 )
 
@@ -63,12 +64,13 @@ type StreamOptions struct {
 }
 
 type streamRuntimeState struct {
-	mu            sync.Mutex
-	fps           int
-	quality       int
-	codec         string
-	maxWidth      int
-	forceKeyframe bool
+	mu                 sync.Mutex
+	fps                int
+	quality            int
+	codec              string
+	maxWidth           int
+	forceKeyframe      bool
+	pendingH264Upgrade bool
 
 	ackedSeq      atomic.Uint32
 	ackNotify     chan struct{}
@@ -173,6 +175,7 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				}
 				if ev.Codec != "" {
 					st.codec = normalizeCodec(ev.Codec)
+					st.pendingH264Upgrade = false
 				}
 				if ev.MaxWidth >= 0 {
 					if ev.MaxWidth != st.maxWidth {
@@ -259,13 +262,16 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 			st.mu.Lock()
 			stillH264 := st.codec == "h264"
 			if stillH264 {
-				// Auto-fallback to Smart Tiles cleanly if ffmpeg/H.264 unavailable
+				// Auto-fallback to Smart Tiles cleanly if ffmpeg/H.264 unavailable.
+				// If ffmpeg is still downloading on a freshly installed PC, mark pendingH264Upgrade
+				// so the live session auto-upgrades to 60 FPS GPU H.264 the instant FFmpeg finishes!
 				st.codec = "tiles"
 				st.forceKeyframe = true
+				st.pendingH264Upgrade = !bootstrap.HasFFmpeg()
 			}
 			st.mu.Unlock()
 			if stillH264 && err != nil {
-				sendInfo("tiles", "Smart Dirty-Tiles (Fallback)", "โหมด H.264 ("+encName+") ไม่พร้อมใช้งาน: "+err.Error()+" — สลับเป็น Smart Tiles ความละเอียดเต็มอัตโนมัติ")
+				sendInfo("tiles", "Smart Dirty-Tiles (Fallback)", "โหมด H.264 ("+encName+") กำลังเตรียมพร้อม: "+err.Error()+" — ใช้ Smart Tiles ชั่วคราวและจะสลับเป็น 60 FPS อัตโนมัติเมื่อพร้อม")
 			}
 			continue
 		}
@@ -372,12 +378,13 @@ func serveDirtyTileLoop(
 	sendInfo("tiles", "Zero-Alloc Dirty-Tiles (Native Sharp)", "")
 
 	var (
-		prevHashes   []uint64
-		prevW, prevH int
-		lastErrSent  time.Time
-		batchBuf     bytes.Buffer
-		scaleBuf     *image.RGBA
-		pngEncoder   = png.Encoder{CompressionLevel: png.BestSpeed}
+		prevHashes     []uint64
+		prevW, prevH   int
+		lastErrSent    time.Time
+		lastFFCheckAt  = time.Now()
+		batchBuf       bytes.Buffer
+		scaleBuf       *image.RGBA
+		pngEncoder     = png.Encoder{CompressionLevel: png.BestSpeed}
 	)
 
 	workers := runtime.NumCPU()
@@ -425,6 +432,17 @@ func serveDirtyTileLoop(
 		maxW := st.maxWidth
 		forceKF := st.forceKeyframe
 		st.forceKeyframe = false
+		pendingUp := st.pendingH264Upgrade
+		if pendingUp && time.Since(lastFFCheckAt) >= 3*time.Second {
+			lastFFCheckAt = time.Now()
+			if bootstrap.HasFFmpeg() {
+				st.codec = "h264"
+				st.fps = 60
+				st.pendingH264Upgrade = false
+				st.mu.Unlock()
+				return nil // Hot-upgrade live session straight into 60 FPS GPU H.264!
+			}
+		}
 		st.mu.Unlock()
 
 		// Cap CPU tile capture rate cleanly so encoder never starves input/OS threads.

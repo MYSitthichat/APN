@@ -1061,8 +1061,8 @@
         <label style="flex-direction:row;align-items:center;gap:6px;color:#e2e8f0;font-size:0.82rem">
           <input type="checkbox" id="chkControl" checked onchange="syncCanvasCursor()" /> ควบคุม
         </label>
-        <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="ซ่อนเคอร์เซอร์ซ้อนเพื่อให้เมาส์ลื่นเหมือน Moonlight">
-          <input type="checkbox" id="chkHideCursor" checked onchange="syncCanvasCursor()" /> เมาส์เดี่ยว
+        <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="ซ่อนเคอร์เซอร์ของเครื่องนี้ (ใช้เมื่อเห็นเมาส์ 2 ตัวซ้อนกัน)">
+          <input type="checkbox" id="chkHideCursor" onchange="syncCanvasCursor(true)" /> เมาส์เดี่ยว
         </label>
         <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="กดปุ่ม ~ (ตัวหนอน) เพื่อเปลี่ยนภาษาเครื่องปลายทางทันที (กด Shift+~ หากต้องการพิมพ์ ~)">
           <input type="checkbox" id="chkGraveSwitch" checked /> ~ เปลี่ยนภาษา
@@ -2051,9 +2051,16 @@
       return (activeRenderMode === 'gl' && glVideo) ? videoCanvas : canvas;
     }
 
-    window.syncCanvasCursor = () => {
+    window.syncCanvasCursor = (persist = false) => {
+      const chk = document.getElementById('chkHideCursor');
+      if (persist && chk) {
+        localStorage.setItem('apn_hide_local_cursor', chk.checked ? '1' : '0');
+      } else if (chk) {
+        const saved = localStorage.getItem('apn_hide_local_cursor');
+        if (saved !== null) chk.checked = saved === '1';
+      }
       const ctrl = document.getElementById('chkControl')?.checked && screenAllowInput;
-      const hideLocal = document.getElementById('chkHideCursor')?.checked;
+      const hideLocal = chk?.checked;
       const hide = !!(ctrl && hideLocal);
       canvas.classList.toggle('hide-local-cursor', hide);
       videoCanvas.classList.toggle('hide-local-cursor', hide);
@@ -2278,9 +2285,11 @@
       document.getElementById('screenMeta').textContent = isReconnect ? 'กำลังเชื่อมใหม่...' : 'กำลังเชื่อมต่อ...';
       modal.classList.add('open');
 
-      // Auto-select 60 FPS GPU H.264 when the remote host has FFmpeg ready and browser supports WebCodecs!
+      // Always prefer 60 FPS GPU H.264 when the browser supports WebCodecs!
+      // (Do NOT rely on stale peer handshake has_ffmpeg — a freshly installed PC may have just finished
+      // auto-downloading FFmpeg; the host checks live and hot-upgrades to 60 FPS H.264 automatically!)
       if (!isReconnect) {
-        if (preferH264 && ('VideoDecoder' in window)) {
+        if ('VideoDecoder' in window) {
           document.getElementById('selCodec').value = 'h264';
           document.getElementById('selFPS').value = '60';
         } else {
@@ -2356,6 +2365,9 @@
             if (msg.encoder) screenEncoderLabel = msg.encoder;
             if (msg.codec && document.getElementById('selCodec').value !== msg.codec) {
               document.getElementById('selCodec').value = msg.codec;
+              if (msg.codec === 'h264') {
+                document.getElementById('selFPS').value = '60';
+              }
             }
             // Only show the notice banner for warnings/fallbacks; normal GPU H.264 info is shown cleanly in the top badge.
             if (msg.notice && msg.codec !== 'h264') {
