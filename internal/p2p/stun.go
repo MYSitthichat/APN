@@ -183,8 +183,38 @@ func parseAddrAttr(val []byte, xor bool, txID [12]byte) (string, bool) {
 	return "", false
 }
 
-// LocalLANIPs returns usable non-loopback local IPv4 (and global IPv6) addresses on this device,
-// excluding RelayVPN's own 10.99.0.0/16 subnet and prioritizing physical LANs ahead of virtual adapters.
+// IsSlowOverlayIP reports whether ip belongs to a tunneled/overlay address range
+// that degrades P2P streaming performance (APN's own 10.99/16 VPN subnet, Windows Teredo
+// 2001:0000::/32 public relays, 6to4 2002::/16 relays, or IPv6 ULA fc00::/7 virtual NICs).
+func IsSlowOverlayIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4[0] == 10 && ip4[1] == 99
+	}
+	ip16 := ip.To16()
+	if len(ip16) != net.IPv6len {
+		return true
+	}
+	// Teredo tunneling (2001:0000::/32): slow Microsoft/ISP UDP relay, 1280 MTU, severe jitter/loss
+	if ip16[0] == 0x20 && ip16[1] == 0x01 && ip16[2] == 0x00 && ip16[3] == 0x00 {
+		return true
+	}
+	// 6to4 (2002::/16): deprecated public relay
+	if ip16[0] == 0x20 && ip16[1] == 0x02 {
+		return true
+	}
+	// IPv6 Unique Local Address (fc00::/7, e.g. fdfd:: Radmin/overlay/Hyper-V virtual NICs)
+	if ip16[0]&0xfe == 0xfc {
+		return true
+	}
+	return false
+}
+
+// LocalLANIPs returns usable non-loopback local IPv4 (and native global IPv6) addresses on this device,
+// excluding RelayVPN's own 10.99.0.0/16 subnet and slow IPv6 relays (Teredo/6to4/ULA),
+// and prioritizing physical LANs ahead of virtual adapters.
 func LocalLANIPs() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -204,11 +234,10 @@ func LocalLANIPs() []string {
 			if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() {
 				continue
 			}
+			if IsSlowOverlayIP(ipNet.IP) {
+				continue
+			}
 			if ip4 := ipNet.IP.To4(); ip4 != nil {
-				// Never advertise RelayVPN's own virtual subnet (prevents tunnel-in-tunnel routing loops!)
-				if ip4[0] == 10 && ip4[1] == 99 {
-					continue
-				}
 				// Prefer physical private LAN subnets (192.168.x.x / 10.x.x.x) ahead of virtual VPNs (26.x / 172.x)
 				if ip4[0] == 192 && ip4[1] == 168 || ip4[0] == 10 {
 					primaryV4 = append(primaryV4, ip4.String())

@@ -1342,9 +1342,24 @@ func (n *Node) ConnectByTicket(ctx context.Context, ticketStr string) (PeerInfo,
 	return PeerInfo{}, fmt.Errorf("เชื่อมต่อ P2P ไม่สำเร็จ: %s", strings.Join(errs, "; "))
 }
 
-// raceQUICAddrs tries all candidate UDP endpoints concurrently with a fast 2.5s budget so
-// direct LAN/STUN connects in milliseconds while unreachable private IPs never delay 443 fallback.
+// raceQUICAddrs tries all direct candidate UDP endpoints concurrently with a fast 2.5s budget so
+// direct LAN/STUN connects in milliseconds while slow IPv6 relays (Teredo/6to4/ULA) never hijack
+// traffic away from direct IPv4 or low-latency Cloudflare 443 WSS.
 func (n *Node) raceQUICAddrs(ctx context.Context, addrs []string, expectedFP, pairSecret string) (PeerInfo, error) {
+	filtered := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		host, _, err := net.SplitHostPort(strings.TrimSpace(a))
+		if err == nil {
+			if ip := net.ParseIP(host); ip != nil && IsSlowOverlayIP(ip) {
+				continue
+			}
+		}
+		filtered = append(filtered, a)
+	}
+	if len(filtered) == 0 {
+		return PeerInfo{}, errors.New("no direct UDP endpoints available")
+	}
+
 	raceCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 	defer cancel()
 
@@ -1352,8 +1367,8 @@ func (n *Node) raceQUICAddrs(ctx context.Context, addrs []string, expectedFP, pa
 		info PeerInfo
 		err  error
 	}
-	ch := make(chan res, len(addrs))
-	for _, a := range addrs {
+	ch := make(chan res, len(filtered))
+	for _, a := range filtered {
 		addrStr := a
 		go func() {
 			info, err := n.dialQUICPeer(raceCtx, addrStr, expectedFP, pairSecret)
@@ -1362,7 +1377,7 @@ func (n *Node) raceQUICAddrs(ctx context.Context, addrs []string, expectedFP, pa
 	}
 
 	var lastErr error
-	for i := 0; i < len(addrs); i++ {
+	for i := 0; i < len(filtered); i++ {
 		r := <-ch
 		if r.err == nil {
 			cancel()
@@ -1801,7 +1816,9 @@ func (n *Node) rememberPeerLocked(p *connectedPeer) {
 		LastConnected: time.Now().UTC().Format(time.RFC3339),
 	}
 	if strings.HasPrefix(p.transport, "QUIC") && p.remoteAddr != "" {
-		kp.QUICAddr = p.remoteAddr
+		if h, _, err := net.SplitHostPort(p.remoteAddr); err != nil || !IsSlowOverlayIP(net.ParseIP(h)) {
+			kp.QUICAddr = p.remoteAddr
+		}
 	} else if (strings.HasPrefix(p.remoteAddr, "ws://") || strings.HasPrefix(p.remoteAddr, "wss://")) &&
 		!strings.Contains(strings.ToLower(p.remoteAddr), ".trycloudflare.com") {
 		kp.WSURL = p.remoteAddr

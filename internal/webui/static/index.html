@@ -2273,6 +2273,7 @@
     let h264Configured = false;
     let h264WaitingKey = true;
     let h264Errors = 0;
+    let h264HwAccel = 'prefer-hardware';
     let h264PtsUs = 0;
     const videoFrameQueue = [];
     let videoRAF = 0;
@@ -2428,9 +2429,16 @@
       return useGL;
     }
 
+    function clearScreenFallbackTimers() {
+      if (screenKeyRetry1) { clearTimeout(screenKeyRetry1); screenKeyRetry1 = null; }
+      if (screenKeyRetry2) { clearTimeout(screenKeyRetry2); screenKeyRetry2 = null; }
+      if (screenFallbackTimer) { clearTimeout(screenFallbackTimer); screenFallbackTimer = null; }
+    }
+
     function markFrameReceived(mode = '2d') {
       screenFrames++;
       screenTotalFrames++;
+      clearScreenFallbackTimers();
       ensureRenderSurface(mode);
     }
 
@@ -2452,6 +2460,7 @@
               if (glVideo.draw(frame)) {
                 screenFrames++;
                 screenTotalFrames++;
+                clearScreenFallbackTimers();
               } else {
                 ensureRenderSurface('2d');
                 if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
@@ -2461,6 +2470,7 @@
                 ctx2d.drawImage(frame, 0, 0);
                 screenFrames++;
                 screenTotalFrames++;
+                clearScreenFallbackTimers();
               }
             } else {
               ensureRenderSurface('2d');
@@ -2471,6 +2481,7 @@
               ctx2d.drawImage(frame, 0, 0);
               screenFrames++;
               screenTotalFrames++;
+              clearScreenFallbackTimers();
             }
           } catch {}
           frame.close();
@@ -2533,7 +2544,14 @@
           error: (err) => {
             h264Errors++;
             resetH264Decoder();
-            if (h264Errors >= 3) {
+            if (h264Errors === 1 && h264HwAccel === 'prefer-hardware') {
+              // If the viewer GPU driver rejects prefer-hardware, fall back to Chromium's universal 60 FPS software/hybrid H.264 decoder!
+              h264HwAccel = 'no-preference';
+              sendInput({ type: 'keyframe' });
+            } else if (h264Errors === 2 && h264HwAccel !== 'prefer-software') {
+              h264HwAccel = 'prefer-software';
+              sendInput({ type: 'keyframe' });
+            } else if (h264Errors >= 4) {
               const notice = document.getElementById('screenNotice');
               notice.textContent = `WebCodecs H.264 (${codecStr}) ไม่รองรับบนเบราว์เซอร์นี้ — สลับกลับ Smart JPEG อัตโนมัติ`;
               notice.style.display = 'block';
@@ -2550,7 +2568,7 @@
           codec: codecStr,
           codedWidth: w,
           codedHeight: h,
-          hardwareAcceleration: 'prefer-hardware',
+          hardwareAcceleration: h264HwAccel,
           optimizeForLatency: true
         });
         h264Configured = true;
@@ -2567,9 +2585,9 @@
       resetH264Decoder();
       screenTotalFrames = 0;
       screenFrames = 0;
-      if (screenKeyRetry1) { clearTimeout(screenKeyRetry1); screenKeyRetry1 = null; }
-      if (screenKeyRetry2) { clearTimeout(screenKeyRetry2); screenKeyRetry2 = null; }
-      if (screenFallbackTimer) { clearTimeout(screenFallbackTimer); screenFallbackTimer = null; }
+      h264Errors = 0;
+      h264HwAccel = 'prefer-hardware';
+      clearScreenFallbackTimers();
       if (screenFPSTimer) { clearInterval(screenFPSTimer); screenFPSTimer = null; }
       if (screenWS) {
         const old = screenWS;
@@ -2639,13 +2657,13 @@
       screenFallbackTimer = setTimeout(() => {
         if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN &&
             document.getElementById('selCodec').value === 'h264') {
-          notice.textContent = 'กำลังสลับเป็น Smart Tiles อัตโนมัติเพื่อให้ภาพขึ้นทันที...';
+          notice.textContent = 'ยังไม่ได้รับภาพ H.264 ภายใน 12 วินาที — สลับเป็น Smart Tiles อัตโนมัติเพื่อให้ภาพขึ้นทันที...';
           notice.style.display = 'block';
           document.getElementById('selCodec').value = 'tiles';
           document.getElementById('selFPS').value = '24';
           sendScreenConfig();
         }
-      }, 9500);
+      }, 12000);
 
       screenFPSTimer = setInterval(() => {
         const meta = document.getElementById('screenMeta');

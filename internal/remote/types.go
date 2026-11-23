@@ -71,6 +71,8 @@ type streamRuntimeState struct {
 	maxWidth           int
 	forceKeyframe      bool
 	pendingH264Upgrade bool
+	h264AutoRetries    int
+	fallbackNotice     string
 
 	ackedSeq      atomic.Uint32
 	ackNotify     chan struct{}
@@ -186,6 +188,10 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				if ev.Codec != "" {
 					st.codec = normalizeCodec(ev.Codec)
 					st.pendingH264Upgrade = false
+					st.fallbackNotice = ""
+					if st.codec == "h264" {
+						st.h264AutoRetries = 0
+					}
 				}
 				if ev.MaxWidth >= 0 {
 					if ev.MaxWidth != st.maxWidth {
@@ -273,16 +279,28 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 			stillH264 := st.codec == "h264"
 			if stillH264 {
 				// Auto-fallback to Smart Tiles cleanly if ffmpeg/H.264 unavailable.
-				// If ffmpeg is still downloading on a freshly installed PC, mark pendingH264Upgrade
-				// so the live session auto-upgrades to 60 FPS GPU H.264 the instant FFmpeg finishes!
+				// Keep the real failure notice visible (never wipe it on serveDirtyTileLoop entry!)
+				// and auto-upgrade back to 60 FPS H.264 once FFmpeg finishes downloading OR after
+				// a transient screen lock / UAC interruption (up to 2 auto-retries).
 				st.codec = "tiles"
 				st.forceKeyframe = true
-				st.pendingH264Upgrade = !bootstrap.HasFFmpeg()
+				hasFF := bootstrap.HasFFmpeg()
+				if !hasFF {
+					st.pendingH264Upgrade = true
+					st.fallbackNotice = "กำลังติดตั้งตัวเข้ารหัส 60 FPS (FFmpeg) เบื้องหลัง — ใช้ Smart Tiles ชั่วคราวและจะสลับเป็น 60 FPS อัตโนมัติเมื่อพร้อม"
+				} else {
+					if st.h264AutoRetries < 2 {
+						st.h264AutoRetries++
+						st.pendingH264Upgrade = true
+					}
+					reason := "encoder unavailable"
+					if err != nil {
+						reason = err.Error()
+					}
+					st.fallbackNotice = "โหมด H.264 (" + encName + ") ไม่พร้อมชั่วคราว: " + reason + " — สลับเป็น Smart Tiles อัตโนมัติ"
+				}
 			}
 			st.mu.Unlock()
-			if stillH264 && err != nil {
-				sendInfo("tiles", "Smart Dirty-Tiles (Fallback)", "โหมด H.264 ("+encName+") กำลังเตรียมพร้อม: "+err.Error()+" — ใช้ Smart Tiles ชั่วคราวและจะสลับเป็น 60 FPS อัตโนมัติเมื่อพร้อม")
-			}
 			continue
 		}
 
@@ -385,7 +403,14 @@ func serveDirtyTileLoop(
 	capturer := NewCapturer()
 	defer capturer.Close()
 
-	sendInfo("tiles", "Zero-Alloc Dirty-Tiles (Native Sharp)", "")
+	st.mu.Lock()
+	initNotice := st.fallbackNotice
+	st.mu.Unlock()
+	encLabel := "Zero-Alloc Dirty-Tiles (Native Sharp)"
+	if initNotice != "" {
+		encLabel = "Smart Dirty-Tiles (Fallback)"
+	}
+	sendInfo("tiles", encLabel, initNotice)
 
 	var (
 		prevHashes     []uint64
@@ -443,12 +468,17 @@ func serveDirtyTileLoop(
 		forceKF := st.forceKeyframe
 		st.forceKeyframe = false
 		pendingUp := st.pendingH264Upgrade
-		if pendingUp && time.Since(lastFFCheckAt) >= 3*time.Second {
+		retryWait := 3 * time.Second
+		if st.h264AutoRetries > 0 {
+			retryWait = 12 * time.Second
+		}
+		if pendingUp && time.Since(lastFFCheckAt) >= retryWait {
 			lastFFCheckAt = time.Now()
 			if bootstrap.HasFFmpeg() {
 				st.codec = "h264"
 				st.fps = 60
 				st.pendingH264Upgrade = false
+				st.fallbackNotice = ""
 				st.mu.Unlock()
 				return nil // Hot-upgrade live session straight into 60 FPS GPU H.264!
 			}

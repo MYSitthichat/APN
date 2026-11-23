@@ -84,3 +84,31 @@ func TestFLVH264ReaderZeroDelay(t *testing.T) {
 		t.Fatalf("delta mismatch: got %x want %x", au2, want2)
 	}
 }
+
+func TestH264CandidatesSanity(t *testing.T) {
+	cands := h264EncoderCandidates(60, 1920, 1080, 1920, 1080, 82)
+	if len(cands) == 0 {
+		t.Fatalf("expected non-empty encoder candidates")
+	}
+	for _, c := range cands {
+		joined := ""
+		for _, a := range c.args {
+			joined += a + " "
+		}
+		if bytes.Contains([]byte(joined), []byte("scale_d3d11")) {
+			t.Errorf("candidate %q should not use broken scale_d3d11 filter", c.name)
+		}
+		if bytes.Contains([]byte(joined), []byte("gdigrab")) && bytes.Contains([]byte(joined), []byte("-probesize 32")) {
+			t.Errorf("gdigrab candidate %q must not pass -probesize 32 (BMP header is 54 bytes)", c.name)
+		}
+		if bytes.Contains([]byte(joined), []byte("annexb=1")) {
+			t.Errorf("FLV candidate %q must not force annexb=1 in x264-params", c.name)
+		}
+	}
+	if !isDDACaptureFailure("[Parsed_ddagrab_0] Desktop duplication access denied") {
+		t.Errorf("expected Desktop duplication error to trigger DDA skip")
+	}
+	if !isDDACaptureFailure("[Parsed_ddagrab_0] Failed to duplicate output") {
+		t.Errorf("expected Failed to duplicate output to trigger DDA skip")
+	}
+}
