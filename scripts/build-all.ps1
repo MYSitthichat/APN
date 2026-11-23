@@ -54,6 +54,23 @@ foreach ($t in $targets) {
 }
 
 Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM, Env:CGO_ENABLED -ErrorAction SilentlyContinue
-Write-Host "`nAll 7 cross-platform binaries built successfully in $outDir!"
+
+# Also generate double-clickable Ubuntu/Debian .deb installer packages (amd64, arm64, armhf)
+$iconPng = Join-Path $PSScriptRoot '..\internal\webui\static\logo.png'
+$debTargets = @(
+    @{ Bin = "APN-v$ver-linux-amd64"; Arch = 'amd64'; Out = "APN-v$ver-linux-amd64.deb" },
+    @{ Bin = "APN-v$ver-linux-arm64"; Arch = 'arm64'; Out = "APN-v$ver-linux-arm64.deb" },
+    @{ Bin = "APN-v$ver-linux-armv7"; Arch = 'armhf'; Out = "APN-v$ver-linux-armv7.deb" }
+)
+foreach ($d in $debTargets) {
+    $binFull = Join-Path $outDir $d.Bin
+    $debFull = Join-Path $outDir $d.Out
+    if (Test-Path $binFull) {
+        go run ./scripts/mkdeb -bin $binFull -icon $iconPng -version $ver -arch $d.Arch -out $debFull
+        if ($LASTEXITCODE -ne 0) { throw "DEB build failed for $($d.Out)" }
+    }
+}
+
+Write-Host "`nAll 7 cross-platform binaries + 3 Ubuntu/Debian .deb installers built successfully in $outDir!"
 Write-Host "Note: For iOS & Android native VPN bindings (.xcframework / .aar), see scripts/build-mobile.sh"
 Write-Host "      or open the built-in PWA on iPhone/iPad/Android via Safari/Chrome -> Add to Home Screen."

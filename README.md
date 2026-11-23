@@ -32,7 +32,7 @@
 | แพลตฟอร์ม | ไฟล์ |
 | :--- | :--- |
 | Windows (Intel/AMD, ARM64) | `APN-v*-windows-amd64.exe`, `APN-v*-windows-arm64.exe` |
-| Linux (x64, ARM64, ARMv7) | `APN-v*-linux-amd64`, `APN-v*-linux-arm64`, `APN-v*-linux-armv7` |
+| Linux (Ubuntu/Debian `.deb` & Binary) | `APN-v*-linux-amd64.deb`, `APN-v*-linux-arm64.deb`, `APN-v*-linux-armv7.deb` |
 | macOS (Apple Silicon, Intel) | `APN-v*-macos-arm64`, `APN-v*-macos-amd64` |
 | iOS / Android | ติดตั้งผ่านเบราว์เซอร์ (Add to Home Screen / PWA) |
 

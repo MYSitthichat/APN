@@ -48,6 +48,10 @@ jobs:
           GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-macos-arm64" ./cmd/relayvpn
           GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-macos-amd64" ./cmd/relayvpn
 
+          go run ./scripts/mkdeb -bin "release-dist/APN-v${VER}-linux-amd64" -icon "internal/webui/static/logo.png" -version "${VER}" -arch amd64 -out "release-dist/APN-v${VER}-linux-amd64.deb"
+          go run ./scripts/mkdeb -bin "release-dist/APN-v${VER}-linux-arm64" -icon "internal/webui/static/logo.png" -version "${VER}" -arch arm64 -out "release-dist/APN-v${VER}-linux-arm64.deb"
+          go run ./scripts/mkdeb -bin "release-dist/APN-v${VER}-linux-armv7" -icon "internal/webui/static/logo.png" -version "${VER}" -arch armhf -out "release-dist/APN-v${VER}-linux-armv7.deb"
+
           (cd release-dist && sha256sum APN-v* > SHA256SUMS.txt)
           ls -lh release-dist
 
