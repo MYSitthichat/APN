@@ -504,6 +504,106 @@ func Start(ctx context.Context, opts Options) error {
 			bridgeShellWS(w, r, peerOpener)
 		})
 
+		// ---- Bidirectional Native OS Clipboard Sync (Screenshots + Text, Zero Browser Permissions!) ----
+		mux.HandleFunc("POST /api/peer/clipboard/push", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID    string `json:"peer_id"`
+				AutoPaste bool   `json:"auto_paste"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			kind, data, err := remote.ReadClipboard()
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeClipboard})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyClipboardErr(err)})
+				return
+			}
+			defer st.Close()
+			if err := protocol.WriteMessage(st, remote.ClipboardRequest{
+				Action:    "set",
+				Kind:      kind,
+				AutoPaste: body.AutoPaste,
+				Size:      int64(len(data)),
+			}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var ready remote.ClipboardResponse
+			if err := protocol.ReadMessage(st, &ready); err != nil || !ready.OK {
+				errMsg := "เครื่องปลายทางไม่พร้อมรับคลิปบอร์ด"
+				if err != nil {
+					errMsg = err.Error()
+				} else if ready.Error != "" {
+					errMsg = ready.Error
+				}
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": errMsg})
+				return
+			}
+			if _, err := st.Write(data); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var done remote.ClipboardResponse
+			if err := protocol.ReadMessage(st, &done); err != nil || !done.OK {
+				errMsg := "วางคลิปบอร์ดที่เครื่องปลายทางไม่สำเร็จ"
+				if err != nil {
+					errMsg = err.Error()
+				} else if done.Error != "" {
+					errMsg = done.Error
+				}
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": errMsg})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kind": kind, "bytes": len(data)})
+		}))
+
+		mux.HandleFunc("POST /api/peer/clipboard/pull", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID string `json:"peer_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			st, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeClipboard})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyClipboardErr(err)})
+				return
+			}
+			defer st.Close()
+			if err := protocol.WriteMessage(st, remote.ClipboardRequest{Action: "get"}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var hdr remote.ClipboardResponse
+			if err := protocol.ReadMessage(st, &hdr); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !hdr.OK {
+				writeJSON(w, http.StatusBadRequest, hdr)
+				return
+			}
+			data := make([]byte, hdr.Size)
+			if hdr.Size > 0 {
+				if _, err := io.ReadFull(st, data); err != nil {
+					writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+					return
+				}
+			}
+			if err := remote.ApplyClipboardPayload(hdr.Kind, data); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kind": hdr.Kind, "bytes": len(data)})
+		}))
+
 		// ---- Local File Browser & Direct P2P Dual-Pane Transfer (TeamViewer-Style) ----
 		mux.HandleFunc("GET /api/local/files/list", func(w http.ResponseWriter, r *http.Request) {
 			resp := remote.ListLocalFiles(r.URL.Query().Get("path"))
@@ -1394,6 +1494,16 @@ func copyWithProgress(dst io.Writer, src io.Reader, buf []byte) (int64, error) {
 			return total, rerr
 		}
 	}
+}
+
+func friendlyClipboardErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "unsupported stream mode") {
+		return "เครื่องปลายทางยังเป็นเวอร์ชันเก่ากว่า v1.2.10 — กรุณาอัปเดตทั้ง 2 ฝั่งเพื่อซิงค์คลิปบอร์ดรูป/ข้อความ"
+	}
+	return err.Error()
 }
 
 func friendlyFileStreamErr(err error) string {

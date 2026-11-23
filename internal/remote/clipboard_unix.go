@@ -4,10 +4,69 @@ package remote
 
 import (
 	"bytes"
+	"errors"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
+
+// ReadClipboard reads the current Linux/macOS system clipboard (PNG screenshot or UTF-8 text).
+func ReadClipboard() (byte, []byte, error) {
+	if runtime.GOOS == "darwin" {
+		if out, err := exec.Command("pbpaste").Output(); err == nil && len(out) > 0 {
+			return 0, out, nil
+		}
+		return 0, nil, errors.New("คลิปบอร์ดว่างเปล่า")
+	}
+
+	// Linux Wayland: wl-paste
+	if isLinuxWayland() && hasCmd("wl-paste") {
+		typesCmd := exec.Command("wl-paste", "--list-types")
+		typesCmd.Env = linuxCmdEnv()
+		if typesOut, err := typesCmd.Output(); err == nil && strings.Contains(string(typesOut), "image/png") {
+			imgCmd := exec.Command("wl-paste", "--type", "image/png")
+			imgCmd.Env = linuxCmdEnv()
+			if out, err := imgCmd.Output(); err == nil && len(out) > 16 {
+				return 1, out, nil
+			}
+		}
+		txtCmd := exec.Command("wl-paste", "--no-newline")
+		txtCmd.Env = linuxCmdEnv()
+		if out, err := txtCmd.Output(); err == nil && len(out) > 0 {
+			return 0, out, nil
+		}
+	}
+
+	// Linux X11: xclip
+	if hasCmd("xclip") {
+		tCmd := exec.Command("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o")
+		tCmd.Env = linuxCmdEnv()
+		if tOut, err := tCmd.Output(); err == nil && strings.Contains(string(tOut), "image/png") {
+			imgCmd := exec.Command("xclip", "-selection", "clipboard", "-t", "image/png", "-o")
+			imgCmd.Env = linuxCmdEnv()
+			if out, err := imgCmd.Output(); err == nil && len(out) > 16 {
+				return 1, out, nil
+			}
+		}
+		txtCmd := exec.Command("xclip", "-selection", "clipboard", "-o")
+		txtCmd.Env = linuxCmdEnv()
+		if out, err := txtCmd.Output(); err == nil && len(out) > 0 {
+			return 0, out, nil
+		}
+	}
+
+	// Fallback: xsel (text)
+	if hasCmd("xsel") {
+		txtCmd := exec.Command("xsel", "--clipboard", "--output")
+		txtCmd.Env = linuxCmdEnv()
+		if out, err := txtCmd.Output(); err == nil && len(out) > 0 {
+			return 0, out, nil
+		}
+	}
+
+	return 0, nil, errors.New("คลิปบอร์ดว่างเปล่า หรือยังไม่ได้ติดตั้ง xclip / wl-clipboard บน Linux")
+}
 
 // ApplyClipboardPayload writes text or a PNG image into the Linux/macOS system clipboard
 // and optionally triggers Ctrl+V immediately!
@@ -20,14 +79,13 @@ func ApplyClipboardPayload(kind byte, data []byte) error {
 		return err
 	}
 	if kind == 2 || kind == 3 {
-		time.Sleep(50 * time.Millisecond)
-		// Send Ctrl+V on Linux (X11 XTEST / xdotool)
+		time.Sleep(55 * time.Millisecond)
 		_ = ApplyInputEvent(InputEvent{Type: "key_down", Code: "ControlLeft", Key: "Control", Ctrl: true})
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(12 * time.Millisecond)
 		_ = ApplyInputEvent(InputEvent{Type: "key_down", Code: "KeyV", Key: "v", Ctrl: true})
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 		_ = ApplyInputEvent(InputEvent{Type: "key_up", Code: "KeyV", Key: "v", Ctrl: true})
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(12 * time.Millisecond)
 		_ = ApplyInputEvent(InputEvent{Type: "key_up", Code: "ControlLeft", Key: "Control"})
 	}
 	return nil
@@ -52,7 +110,7 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		cmd := exec.Command("wl-copy", args...)
 		cmd.Env = linuxCmdEnv()
 		cmd.Stdin = bytes.NewReader(data)
-		return cmd.Start() // wl-copy stays resident to serve clipboard requests
+		return cmd.Start()
 	}
 	if hasCmd("xclip") {
 		args := []string{"-selection", "clipboard", "-i"}
@@ -70,5 +128,5 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		cmd.Stdin = bytes.NewReader(data)
 		return cmd.Run()
 	}
-	return nil
+	return errors.New("กรุณาติดตั้ง xclip (sudo apt install xclip) บน Linux เพื่อซิงค์คลิปบอร์ด")
 }

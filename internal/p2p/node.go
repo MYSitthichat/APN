@@ -1882,6 +1882,8 @@ func (n *Node) handleIncomingRemoteStream(ctx context.Context, p *connectedPeer,
 		n.serveIncomingShell(ctx, p, stream)
 	case protocol.ModeFiles:
 		n.serveIncomingFiles(p, stream)
+	case protocol.ModeClipboard:
+		n.serveIncomingClipboard(p, stream)
 	case protocol.ModeTUN:
 		n.serveIncomingTUN(p, stream)
 	default:
@@ -1891,6 +1893,19 @@ func (n *Node) handleIncomingRemoteStream(ctx context.Context, p *connectedPeer,
 		})
 		_ = stream.Close()
 	}
+}
+
+func (n *Node) serveIncomingClipboard(p *connectedPeer, stream io.ReadWriteCloser) {
+	if !n.cfg.AllowInput {
+		_ = protocol.WriteMessage(stream, protocol.StreamOpenResponse{OK: false, Error: "remote clipboard is disabled by host"})
+		_ = stream.Close()
+		return
+	}
+	if err := protocol.WriteMessage(stream, protocol.StreamOpenResponse{OK: true}); err != nil {
+		_ = stream.Close()
+		return
+	}
+	_ = remote.ServeClipboardStream(stream)
 }
 
 func (n *Node) serveIncomingFiles(p *connectedPeer, stream io.ReadWriteCloser) {

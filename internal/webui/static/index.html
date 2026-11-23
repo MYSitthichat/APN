@@ -534,6 +534,48 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .modal-bar.remote-slim-bar {
+      padding: 5px 12px;
+      gap: 8px;
+      flex-wrap: nowrap;
+      min-height: 40px;
+    }
+    .modal-bar.remote-slim-bar button {
+      padding: 5px 10px;
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    .remote-settings-pop {
+      position: fixed;
+      top: 46px;
+      right: 12px;
+      z-index: 1090;
+      width: min(350px, 92vw);
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+      background: rgba(15, 23, 42, 0.97);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 22px 54px rgba(0, 0, 0, 0.72);
+      display: none;
+      flex-direction: column;
+      gap: 11px;
+      color: #f1f5f9;
+    }
+    .remote-settings-pop.open {
+      display: flex;
+    }
+    .remote-settings-pop select,
+    .remote-settings-pop input[type="text"] {
+      width: 100%;
+      background: rgba(7, 11, 20, 0.92);
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      padding: 7px 10px;
+      font-size: 0.82rem;
+    }
     .screen-stage {
       flex: 1;
       min-height: 0;
@@ -541,7 +583,7 @@
       align-items: center;
       justify-content: center;
       overflow: auto;
-      padding: 8px;
+      padding: 2px;
       background: #03050c;
       position: relative;
     }
@@ -1187,67 +1229,96 @@
     </div>
   </div>
 
-  <!-- Live Remote Desktop Modal -->
+  <!-- Live Remote Desktop Modal (Ultra-Slim 1-Row Bar + Floating Settings Popover = Maximum Screen Size!) -->
   <div id="screenModal" class="modal">
-    <div class="modal-bar">
-      <div class="modal-controls">
-        <strong id="screenTitle">🖥 Remote Desktop</strong>
-        <span id="screenMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">กำลังเชื่อมต่อ...</span>
+    <div class="modal-bar remote-slim-bar">
+      <div class="modal-controls" style="flex-wrap:nowrap;overflow:hidden">
+        <strong id="screenTitle" style="font-size:0.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🖥 Remote Desktop</strong>
+        <span id="screenMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0;padding:3px 9px;font-size:0.74rem">กำลังเชื่อมต่อ...</span>
       </div>
-      <div class="modal-controls">
-        <label style="flex-direction:row;align-items:center;gap:6px;color:#e2e8f0;font-size:0.82rem">
-          <input type="checkbox" id="chkControl" checked onchange="syncCanvasCursor()" /> ควบคุม
-        </label>
-        <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="ซ่อนเคอร์เซอร์ของเครื่องนี้ (ใช้เมื่อเห็นเมาส์ 2 ตัวซ้อนกัน)">
-          <input type="checkbox" id="chkHideCursor" onchange="syncCanvasCursor(true)" /> เมาส์เดี่ยว
-        </label>
-        <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="กดปุ่ม ~ (ตัวหนอน) เพื่อเปลี่ยนภาษาเครื่องปลายทางทันที (กด Shift+~ หากต้องการพิมพ์ ~)">
-          <input type="checkbox" id="chkGraveSwitch" checked /> ~ เปลี่ยนภาษา
-        </label>
-        <select id="selCodec" onchange="sendScreenConfig()" title="โหมดภาพ">
-          <option value="h264">🎬 วิดีโอ 60 FPS (H.264 GPU)</option>
-          <option value="tiles" selected>⚡ ลื่น + คมชัด (Smart JPEG)</option>
-          <option value="png">💎 ตัวหนังสือคมกริบ (Hybrid PNG)</option>
-        </select>
-        <select id="selScale" onchange="sendScreenConfig()" title="ความละเอียด">
-          <option value="0" selected>Native 100% (คมสุด)</option>
-          <option value="1920">1080p</option>
-          <option value="1280">720p (เน็ตช้า)</option>
-        </select>
-        <select id="selFPS" onchange="sendScreenConfig()" title="เฟรมเรต">
-          <option value="15">15 FPS</option>
-          <option value="24" selected>24 FPS</option>
-          <option value="30">30 FPS</option>
-          <option value="60">60 FPS</option>
-        </select>
-        <select id="selQuality" onchange="sendScreenConfig()" title="คุณภาพ / บิตเรต">
-          <option value="65">ประหยัดเน็ต (2.5M / Q65)</option>
-          <option value="82" selected>สมดุลคมชัด (5M CBR)</option>
-          <option value="90">🎮 เล่นเกม 60FPS (8M CBR)</option>
-          <option value="95">💎 Ultra คมสุด (14M CBR)</option>
-        </select>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)">📁 โอนไฟล์</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'keyframe'})" title="รีเฟรชทั้งหน้าจอ">↻</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleFullscreen()">⛶ เต็มจอ</button>
+      <div class="modal-controls" style="flex-wrap:nowrap;flex-shrink:0">
+        <button class="success icon-btn" onclick="pasteClipboardToRemote(true)" title="วางรูปแคปหน้าจอ (Win+Shift+S) หรือข้อความจากเครื่องเราลงแชทเครื่องปลายทางทันที (หรือกด Ctrl+V)">📋 วาง</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="pullClipboardFromRemote(true)" title="ดึงรูปแคปหรือข้อความจากคลิปบอร์ดเครื่องปลายทางมาวางในเครื่องเรา (กด Ctrl+C ก็ซิงค์อัตโนมัติ)">📥 ดึง</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่องแบบ 2 ฝั่ง (ฟรี 100%)">📁 ไฟล์</button>
+        <button id="btnRemoteSettings" class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleRemoteSettingsPop()" title="ตั้งค่าภาพ FPS, เมาส์, ภาษา และปุ่มลัด">⚙️ ตั้งค่า</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleFullscreen()" title="เข้าโหมดเต็มจอ (กด Esc ค้างเพื่อออก)">⛶ เต็มจอ</button>
         <button class="danger icon-btn" onclick="closeScreenModal()">✕ ปิด</button>
       </div>
     </div>
-    <div id="screenNotice" style="display:none;padding:7px 16px;background:#1e293b;color:#fde68a;font-size:0.82rem;border-bottom:1px solid rgba(148,163,184,0.2)"></div>
+
+    <!-- Floating Settings Popover (takes 0px of remote screen height!) -->
+    <div id="remoteSettingsPop" class="remote-settings-pop">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong style="font-size:0.9rem">⚙️ ตั้งค่าหน้าจอรีโมต</strong>
+        <button class="secondary icon-btn" style="padding:3px 8px;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleRemoteSettingsPop(false)">✕</button>
+      </div>
+      <div style="display:grid;gap:8px">
+        <label style="font-size:0.78rem;color:#94a3b8">โหมดภาพ
+          <select id="selCodec" onchange="sendScreenConfig()">
+            <option value="h264">🎬 วิดีโอ 60 FPS (H.264 GPU)</option>
+            <option value="tiles" selected>⚡ ลื่น + คมชัด (Smart JPEG)</option>
+            <option value="png">💎 ตัวหนังสือคมกริบ (Hybrid PNG)</option>
+          </select>
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label style="font-size:0.78rem;color:#94a3b8">ความละเอียด
+            <select id="selScale" onchange="sendScreenConfig()">
+              <option value="0" selected>Native 100%</option>
+              <option value="1920">1080p</option>
+              <option value="1280">720p</option>
+            </select>
+          </label>
+          <label style="font-size:0.78rem;color:#94a3b8">เฟรมเรต
+            <select id="selFPS" onchange="sendScreenConfig()">
+              <option value="15">15 FPS</option>
+              <option value="24" selected>24 FPS</option>
+              <option value="30">30 FPS</option>
+              <option value="60">60 FPS</option>
+            </select>
+          </label>
+        </div>
+        <label style="font-size:0.78rem;color:#94a3b8">คุณภาพ / บิตเรต
+          <select id="selQuality" onchange="sendScreenConfig()">
+            <option value="65">ประหยัดเน็ต (2.5M / Q65)</option>
+            <option value="82" selected>สมดุลคมชัด (5M LD-VBR)</option>
+            <option value="90">🎮 เล่นเกม 60FPS (8M)</option>
+            <option value="95">💎 Ultra คมสุด (14M)</option>
+          </select>
+        </label>
+      </div>
+      <div style="display:grid;gap:7px;padding:8px 10px;border-radius:10px;background:rgba(7,11,20,0.65);border:1px solid rgba(148,163,184,0.16)">
+        <label style="flex-direction:row;align-items:center;gap:7px;color:#e2e8f0;font-size:0.82rem;cursor:pointer">
+          <input type="checkbox" id="chkControl" checked onchange="syncCanvasCursor()" style="margin:0" /> อนุญาตควบคุมเมาส์และคีย์บอร์ด
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer">
+          <input type="checkbox" id="chkHideCursor" onchange="syncCanvasCursor(true)" style="margin:0" /> ซ่อนเคอร์เซอร์เครื่องเรา (เมาส์เดี่ยว)
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer">
+          <input type="checkbox" id="chkGraveSwitch" checked style="margin:0" /> กด ~ (ตัวหนอน) เพื่อเปลี่ยนภาษาปลายทาง
+        </label>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'keyframe'}); toggleRemoteSettingsPop(false);">↻ รีเฟรชหน้าจอ</button>
+        <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'}); toggleRemoteSettingsPop(false);">🌐 เปลี่ยนภาษา</button>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Meta')">⊞ Win</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Escape')">Esc</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Backspace')">⌫</button>
+      </div>
+      <div style="display:flex;gap:6px">
+        <input id="txtSendText" type="text" placeholder="พิมพ์ข้อความส่งตรงเข้าปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
+        <button style="padding:6px 11px;font-size:0.78rem;white-space:nowrap" onclick="sendQuickText()">ส่ง</button>
+      </div>
+    </div>
+
+    <div id="screenNotice" style="display:none;padding:6px 14px;background:#1e293b;color:#fde68a;font-size:0.8rem;border-bottom:1px solid rgba(148,163,184,0.2)"></div>
     <div class="screen-stage" id="screenStage">
       <div id="screenPlaceholder" class="screen-placeholder">⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...</div>
       <canvas id="remoteVideoCanvas" tabindex="0" style="display:none"></canvas>
       <canvas id="remoteCanvas" tabindex="0" style="display:none"></canvas>
-    </div>
-    <div class="quick-bar">
-      <input id="txtSendText" placeholder="พิมพ์ข้อความไทย/อังกฤษแล้วกด Enter เพื่อส่งเข้าเครื่องปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
-      <button onclick="sendQuickText()">ส่งข้อความ</button>
-      <button class="success" onclick="pasteClipboardToRemote(true)" title="วางรูปแคปหน้าจอ (Win+Shift+S) หรือข้อความจากคลิปบอร์ดเครื่องเราลงในแชทเครื่องปลายทางทันที (หรือกด Ctrl+V บนจอได้เลย)">📋 วางรูป/ข้อความ</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'})" title="ส่ง Win+Space เปลี่ยนภาษาไทย/อังกฤษที่เครื่องปลายทาง">🌐 เปลี่ยนภาษา</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Escape')">Esc</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Backspace')">⌫</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Meta')">⊞ Win</button>
     </div>
   </div>
 
@@ -2705,6 +2776,7 @@
     };
 
     window.closeScreenModal = () => {
+      toggleRemoteSettingsPop(false);
       screenManualClose = true;
       activeScreenTarget = null;
       if (screenReconnectTimer) { clearTimeout(screenReconnectTimer); screenReconnectTimer = null; }
@@ -2760,7 +2832,47 @@
       return new Uint8Array(await pngBlob.arrayBuffer());
     }
 
+    window.toggleRemoteSettingsPop = (force) => {
+      const pop = document.getElementById('remoteSettingsPop');
+      if (!pop) return;
+      if (typeof force === 'boolean') pop.classList.toggle('open', force);
+      else pop.classList.toggle('open');
+    };
+    document.addEventListener('click', (e) => {
+      const pop = document.getElementById('remoteSettingsPop');
+      if (!pop || !pop.classList.contains('open')) return;
+      if (!pop.contains(e.target) && !e.target.closest('#btnRemoteSettings')) {
+        pop.classList.remove('open');
+      }
+    });
+
     window.pasteClipboardToRemote = async (autoPaste = true, fallbackToRemoteCtrlV = false) => {
+      // 1) Preferred (100% Native OS Clipboard via local Go backend — ZERO browser permission popups!):
+      // Reads Windows CF_DIB / PNG screenshots (Win+Shift+S, PrintScreen) & UTF-8 text natively!
+      if (lastMode === 'peer' && activeScreenTarget?.agentId) {
+        try {
+          const res = await api('/api/peer/clipboard/push', {
+            method: 'POST',
+            body: JSON.stringify({ peer_id: activeScreenTarget.agentId, auto_paste: !!autoPaste })
+          });
+          if (res && res.ok) {
+            if (!fallbackToRemoteCtrlV || res.kind === 1) {
+              showToast(res.kind === 1
+                ? `📋 วางรูปจากคลิปบอร์ด (${fmtBytes(res.bytes)}) ลงเครื่องปลายทางแล้ว!`
+                : '📋 วางข้อความจากคลิปบอร์ดลงเครื่องปลายทางแล้ว!');
+            }
+            activeRemoteCanvas().focus();
+            return true;
+          }
+        } catch (err) {
+          // If local clipboard is genuinely empty or remote is older than v1.2.10, fall through cleanly
+          if (!fallbackToRemoteCtrlV && err?.message && !err.message.includes('ว่างเปล่า')) {
+            // Try browser clipboard fallback for older v1.2.9 remote hosts (FrameTypeClipboard 0x07)!
+          }
+        }
+      }
+
+      // 2) Fallback: Browser Clipboard API -> FrameTypeClipboard (0x07) (works on remote Web Portal / v1.2.9 hosts)
       try {
         if (navigator.clipboard?.read) {
           const items = await navigator.clipboard.read();
@@ -2770,7 +2882,7 @@
               const blob = await item.getBlob(imgType);
               const bytes = await blobToPNGBytes(blob);
               if (sendClipboardFrame(autoPaste ? 3 : 1, bytes)) {
-                showToast(`📋 ส่งรูปจากคลิปบอร์ด (${fmtBytes(bytes.length)}) วางที่เครื่องปลายทางแล้ว!`);
+                showToast(`📋 วางรูปจากคลิปบอร์ด (${fmtBytes(bytes.length)}) ลงเครื่องปลายทางแล้ว!`);
                 activeRemoteCanvas().focus();
                 return true;
               }
@@ -2782,7 +2894,7 @@
               if (txt) {
                 const bytes = new TextEncoder().encode(txt);
                 if (sendClipboardFrame(autoPaste ? 2 : 0, bytes)) {
-                  if (!fallbackToRemoteCtrlV) showToast('📋 วางข้อความจากคลิปบอร์ดที่เครื่องปลายทางแล้ว!');
+                  if (!fallbackToRemoteCtrlV) showToast('📋 วางข้อความจากคลิปบอร์ดลงเครื่องปลายทางแล้ว!');
                   activeRemoteCanvas().focus();
                   return true;
                 }
@@ -2794,7 +2906,7 @@
           if (txt) {
             const bytes = new TextEncoder().encode(txt);
             if (sendClipboardFrame(autoPaste ? 2 : 0, bytes)) {
-              if (!fallbackToRemoteCtrlV) showToast('📋 วางข้อความจากคลิปบอร์ดที่เครื่องปลายทางแล้ว!');
+              if (!fallbackToRemoteCtrlV) showToast('📋 วางข้อความจากคลิปบอร์ดลงเครื่องปลายทางแล้ว!');
               activeRemoteCanvas().focus();
               return true;
             }
@@ -2802,7 +2914,6 @@
         }
       } catch {}
       if (fallbackToRemoteCtrlV) {
-        // Fallback: send normal Ctrl+V directly to remote PC's own clipboard
         sendInput({ type: 'key_down', key: 'Control', code: 'ControlLeft', ctrl: true });
         sendInput({ type: 'key_down', key: 'v', code: 'KeyV', ctrl: true });
         sendInput({ type: 'key_up', key: 'v', code: 'KeyV', ctrl: true });
@@ -2810,6 +2921,27 @@
         return false;
       }
       showToast('💡 คัดลอกรูป (Win+Shift+S) หรือข้อความบนเครื่องนี้ก่อน แล้วกดวางอีกครั้ง');
+      return false;
+    };
+
+    window.pullClipboardFromRemote = async (notify = false) => {
+      if (lastMode !== 'peer' || !activeScreenTarget?.agentId) return false;
+      try {
+        const res = await api('/api/peer/clipboard/pull', {
+          method: 'POST',
+          body: JSON.stringify({ peer_id: activeScreenTarget.agentId })
+        });
+        if (res && res.ok) {
+          if (notify) {
+            showToast(res.kind === 1
+              ? `📥 ดึงรูป (${fmtBytes(res.bytes)}) เข้าคลิปบอร์ดเครื่องนี้แล้ว — กด Ctrl+V วางได้เลย!`
+              : '📥 ดึงข้อความเข้าคลิปบอร์ดเครื่องนี้แล้ว — กด Ctrl+V วางได้เลย!');
+          }
+          return true;
+        }
+      } catch (err) {
+        if (notify) showToast('⚠ ' + err.message);
+      }
       return false;
     };
 
@@ -2971,6 +3103,10 @@
             pasteClipboardToRemote(true, true);
           }
           return;
+        }
+        // 5) Seamless Ctrl+C: let remote PC copy, then automatically pull its clipboard into our local PC!
+        if (e.code === 'KeyC' && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !e.repeat) {
+          setTimeout(() => pullClipboardFromRemote(false), 180);
         }
         if (e.code) heldCodes.add(e.code);
         sendInput({ type: 'key_down', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });

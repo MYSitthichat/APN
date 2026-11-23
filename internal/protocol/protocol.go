@@ -26,8 +26,9 @@ const (
 	ModeControl = "control"
 	ModeScreen  = "screen"
 	ModeShell   = "shell"
-	ModeTUN     = "tun"
-	ModeFiles   = "files"
+	ModeTUN       = "tun"
+	ModeFiles     = "files"
+	ModeClipboard = "clipboard"
 
 	// Typed binary frame tags used inside ModeScreen streams.
 	FrameTypeJPEG      byte = 0x01 // Agent -> Client: [w:u16][h:u16][jpeg bytes] (legacy full frame)
