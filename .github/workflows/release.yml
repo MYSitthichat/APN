@@ -1,0 +1,72 @@
+name: Build & Publish APN Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: |
+          go vet ./...
+          go test -v ./...
+
+      - name: Build all 7 cross-platform APN binaries
+        env:
+          CGO_ENABLED: "0"
+          RDV_URL: "https://rdv.psms-center.com"
+        run: |
+          mkdir -p release-dist
+          VER="${GITHUB_REF_NAME#v}"
+          if [ -z "$VER" ] || [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            VER=$(grep -oP 'Version\s*=\s*"\K[^"]+' internal/version/version.go)
+          fi
+          echo "VERSION=$VER" >> "$GITHUB_ENV"
+
+          BASE_LD="-s -w -X relayvpn/internal/config.DefaultRendezvousURL=${RDV_URL}"
+
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsgui ${BASE_LD}" -o "release-dist/APN-v${VER}-windows-amd64.exe" ./cmd/relayvpn
+          GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-H=windowsgui ${BASE_LD}" -o "release-dist/APN-v${VER}-windows-arm64.exe" ./cmd/relayvpn
+          GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-linux-amd64" ./cmd/relayvpn
+          GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-linux-arm64" ./cmd/relayvpn
+          GOOS=linux   GOARCH=arm GOARM=7 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-linux-armv7" ./cmd/relayvpn
+          GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-macos-arm64" ./cmd/relayvpn
+          GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags="${BASE_LD}" -o "release-dist/APN-v${VER}-macos-amd64" ./cmd/relayvpn
+
+          (cd release-dist && sha256sum APN-v* > SHA256SUMS.txt)
+          ls -lh release-dist
+
+      - name: Extract Release Notes from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          NOTES=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}")
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" > release-notes.md
+          else
+            printf 'APN %s release\n' "${GITHUB_REF_NAME}" > release-notes.md
+          fi
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          generate_release_notes: false
+          files: |
+            release-dist/APN-v*
+            release-dist/SHA256SUMS.txt

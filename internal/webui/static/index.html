@@ -1,0 +1,2610 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="midnight">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="APN" />
+  <meta name="theme-color" content="#0b1026" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/logo.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/logo-192.png" />
+  <title>APN — Remote Desktop &amp; VPN</title>
+  <style>
+    :root, [data-theme="midnight"] {
+      --bg: #070b14;
+      --bg-glow-1: rgba(99, 102, 241, 0.16);
+      --bg-glow-2: rgba(14, 165, 233, 0.12);
+      --surface: rgba(17, 24, 39, 0.78);
+      --surface-solid: #111827;
+      --surface-2: rgba(30, 41, 59, 0.55);
+      --input-bg: rgba(9, 13, 24, 0.75);
+      --border: rgba(148, 163, 184, 0.16);
+      --border-strong: rgba(148, 163, 184, 0.28);
+      --text: #f1f5f9;
+      --text-soft: #cbd5e1;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-2: #38bdf8;
+      --accent-glow: rgba(99, 102, 241, 0.32);
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65);
+      --radius: 16px;
+    }
+
+    [data-theme="light"] {
+      --bg: #f3f6fb;
+      --bg-glow-1: rgba(99, 102, 241, 0.10);
+      --bg-glow-2: rgba(14, 165, 233, 0.09);
+      --surface: rgba(255, 255, 255, 0.88);
+      --surface-solid: #ffffff;
+      --surface-2: rgba(241, 245, 249, 0.9);
+      --input-bg: #f8fafc;
+      --border: rgba(15, 23, 42, 0.10);
+      --border-strong: rgba(15, 23, 42, 0.18);
+      --text: #0f172a;
+      --text-soft: #334155;
+      --muted: #64748b;
+      --accent: #4f46e5;
+      --accent-2: #0284c7;
+      --accent-glow: rgba(79, 70, 229, 0.22);
+      --ok: #16a34a;
+      --warn: #d97706;
+      --danger: #dc2626;
+      --shadow: 0 12px 30px -14px rgba(15, 23, 42, 0.14);
+    }
+
+    [data-theme="emerald"] {
+      --bg: #05110e;
+      --bg-glow-1: rgba(16, 185, 129, 0.18);
+      --bg-glow-2: rgba(6, 182, 212, 0.12);
+      --surface: rgba(11, 27, 23, 0.82);
+      --surface-solid: #0b1b17;
+      --surface-2: rgba(20, 46, 39, 0.58);
+      --input-bg: rgba(5, 14, 12, 0.8);
+      --border: rgba(52, 211, 153, 0.18);
+      --border-strong: rgba(52, 211, 153, 0.34);
+      --text: #ecfdf5;
+      --text-soft: #a7f3d0;
+      --muted: #6ee7b7;
+      --accent: #10b981;
+      --accent-2: #06b6d4;
+      --accent-glow: rgba(16, 185, 129, 0.32);
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+    }
+
+    [data-theme="rose"] {
+      --bg: #120813;
+      --bg-glow-1: rgba(244, 63, 94, 0.18);
+      --bg-glow-2: rgba(168, 85, 247, 0.14);
+      --surface: rgba(29, 15, 31, 0.82);
+      --surface-solid: #1d0f1f;
+      --surface-2: rgba(49, 25, 54, 0.58);
+      --input-bg: rgba(15, 7, 17, 0.8);
+      --border: rgba(244, 114, 182, 0.18);
+      --border-strong: rgba(244, 114, 182, 0.34);
+      --text: #fdf2f8;
+      --text-soft: #fbcfe8;
+      --muted: #c084fc;
+      --accent: #f43f5e;
+      --accent-2: #a855f7;
+      --accent-glow: rgba(244, 63, 94, 0.32);
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --danger: #fb7185;
+      --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.72);
+    }
+
+    [data-theme="amber"] {
+      --bg: #110d08;
+      --bg-glow-1: rgba(245, 158, 11, 0.17);
+      --bg-glow-2: rgba(234, 88, 12, 0.12);
+      --surface: rgba(28, 22, 16, 0.84);
+      --surface-solid: #1c1610;
+      --surface-2: rgba(48, 38, 26, 0.6);
+      --input-bg: rgba(15, 11, 7, 0.82);
+      --border: rgba(251, 191, 36, 0.18);
+      --border-strong: rgba(251, 191, 36, 0.34);
+      --text: #fffbeb;
+      --text-soft: #fde68a;
+      --muted: #d6b68a;
+      --accent: #f59e0b;
+      --accent-2: #fb923c;
+      --accent-glow: rgba(245, 158, 11, 0.30);
+      --ok: #22c55e;
+      --warn: #fbbf24;
+      --danger: #ef4444;
+      --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.72);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Inter", "Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", Roboto, sans-serif;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(900px 520px at 10% -5%, var(--bg-glow-1), transparent 60%),
+        radial-gradient(800px 480px at 95% 0%, var(--bg-glow-2), transparent 60%);
+      background-attachment: fixed;
+      color: var(--text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      overflow: hidden;
+      filter: drop-shadow(0 4px 12px rgba(56, 189, 248, 0.35));
+    }
+    .brand-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .brand-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .version-pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-strong);
+      color: var(--accent-2);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 600;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22); }
+    .dot.danger { background: var(--danger); box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22); }
+
+    main {
+      max-width: 1180px;
+      margin: 26px auto 48px;
+      padding: 0 20px;
+      display: grid;
+      gap: 20px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .hero-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
+
+    .card {
+      background: var(--surface);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+      box-shadow: var(--shadow);
+      transition: border-color 0.2s ease;
+    }
+    .card:hover { border-color: var(--border-strong); }
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 1.02rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .stat-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
+    .stat-value { font-size: 1.25rem; font-weight: 800; margin-top: 4px; word-break: break-all; }
+
+    .id-tile {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 15px 16px;
+      margin-bottom: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    .id-tile.accent-tile {
+      border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--input-bg)), var(--input-bg));
+    }
+    .id-number {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: 2.5px;
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1.2;
+    }
+    .pin-number {
+      font-size: 1.65rem;
+      font-weight: 800;
+      letter-spacing: 3.5px;
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      color: var(--ok);
+      line-height: 1.2;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.89rem; }
+    th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--surface-2); }
+
+    code {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 7px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.83em;
+      color: var(--text-soft);
+    }
+
+    button {
+      background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 78%, var(--accent-2)));
+      color: #ffffff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.12s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 4px 14px -4px var(--accent-glow);
+    }
+    button:hover { transform: translateY(-1px); opacity: 0.96; }
+    button:active { transform: translateY(0); }
+    button.secondary {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      box-shadow: none;
+    }
+    button.secondary:hover { background: color-mix(in srgb, var(--surface-2) 70%, var(--accent) 18%); }
+    button.success {
+      background: linear-gradient(135deg, #16a34a, #10b981);
+      box-shadow: 0 6px 18px -5px rgba(22, 163, 74, 0.45);
+    }
+    button.danger {
+      background: linear-gradient(135deg, #dc2626, #ef4444);
+      box-shadow: 0 4px 14px -5px rgba(239, 68, 68, 0.4);
+    }
+    button.warn {
+      background: linear-gradient(135deg, #f59e0b, #fbbf24);
+      color: #111827;
+      box-shadow: none;
+    }
+    button.icon-btn {
+      padding: 7px 10px;
+      border-radius: 9px;
+    }
+
+    form.inline { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+    input, select {
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    input:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    /* Modern Toggle Switch */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 11px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .switch {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .slider {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: var(--border-strong);
+      transition: background 0.2s ease;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      top: 3px;
+      border-radius: 50%;
+      background: #ffffff;
+      transition: transform 0.2s ease;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    }
+    .switch input:checked + .slider { background: var(--accent); }
+    .switch input:checked + .slider::before { transform: translateX(18px); }
+
+    .row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    .err { color: var(--danger); font-size: 0.84rem; font-weight: 600; margin-top: 6px; }
+
+    /* LAN Device Chip */
+    .lan-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-strong);
+      color: var(--text);
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.12s ease;
+      box-shadow: none;
+    }
+    .lan-chip:hover { border-color: var(--accent); transform: translateY(-1px); }
+
+    /* Theme Customizer Popover */
+    .theme-panel {
+      position: fixed;
+      top: 68px;
+      right: 22px;
+      width: 310px;
+      z-index: 200;
+      background: var(--surface-solid);
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 24px 54px -12px rgba(0, 0, 0, 0.55);
+      display: none;
+      gap: 14px;
+    }
+    .theme-panel.open { display: grid; }
+    .theme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .theme-opt {
+      padding: 9px 10px;
+      border-radius: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 600;
+      justify-content: flex-start;
+      box-shadow: none;
+    }
+    .theme-opt.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+    .swatch-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .swatch {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      padding: 0;
+      box-shadow: none;
+      cursor: pointer;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 22px;
+      right: 22px;
+      z-index: 1500;
+      background: var(--surface-solid);
+      color: var(--text);
+      border: 1px solid var(--accent);
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: all 0.2s ease;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* Remote Desktop & Terminal Modal */
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: #04070f;
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      color: #f1f5f9;
+    }
+    .modal.open { display: flex; }
+    .modal-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .modal-bar select, .modal-bar input {
+      background: rgba(15, 23, 42, 0.95);
+      color: #f1f5f9;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      padding: 6px 10px;
+      font-size: 0.82rem;
+    }
+    .modal-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .screen-stage {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      padding: 8px;
+      background: #03050c;
+    }
+    #remoteCanvas {
+      max-width: 100%;
+      max-height: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 8px;
+      cursor: default;
+      outline: none;
+      touch-action: none;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.7);
+    }
+    #remoteCanvas.hide-local-cursor {
+      cursor: none;
+    }
+    .saved-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(265px, 1fr));
+      gap: 12px;
+      align-content: start;
+    }
+    .saved-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 13px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      transition: border-color 0.16s ease, transform 0.12s ease, box-shadow 0.16s ease;
+    }
+    .saved-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px -12px var(--accent-glow);
+    }
+    .saved-card.is-online {
+      border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+    }
+
+    /* Full-Viewport AnyDesk / RustDesk Desktop Shell (Zero outer scroll, full width) */
+    body.peer-desktop {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    body.peer-desktop header {
+      padding: 9px 18px;
+      flex-shrink: 0;
+    }
+    body.peer-desktop main {
+      max-width: none;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      gap: 0;
+      overflow: hidden;
+    }
+    body.peer-desktop footer {
+      display: none;
+    }
+
+    .desk-shell {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .desk-sidebar {
+      width: 342px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      background: color-mix(in srgb, var(--surface-solid) 84%, transparent);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 14px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+    }
+    .desk-sidebar::-webkit-scrollbar,
+    .desk-content::-webkit-scrollbar,
+    .drawer-body::-webkit-scrollbar {
+      width: 6px;
+    }
+    .desk-sidebar::-webkit-scrollbar-thumb,
+    .desk-content::-webkit-scrollbar-thumb,
+    .drawer-body::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 999px;
+    }
+    .side-tile {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 13px;
+    }
+    .side-tile.accent-tile {
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--input-bg)), var(--input-bg));
+    }
+    .side-id {
+      font-size: 1.65rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1.15;
+    }
+    .side-pin {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: 3px;
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      color: var(--ok);
+      line-height: 1.15;
+    }
+    .side-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 11px;
+      border-radius: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      font-size: 0.81rem;
+    }
+    .side-bottom {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .desk-main {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .connect-bar {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--surface) 76%, transparent);
+      flex-shrink: 0;
+      display: grid;
+      gap: 10px;
+    }
+    .connect-form {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: nowrap;
+    }
+    .connect-form input[type="text"],
+    .connect-form input[type="password"] {
+      padding: 10px 13px;
+      font-size: 0.94rem;
+    }
+    .desk-tabs {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .tab-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+      padding: 6px 12px;
+      border-radius: 9px;
+      font-size: 0.83rem;
+      font-weight: 700;
+      box-shadow: none;
+    }
+    .tab-btn:hover {
+      background: var(--surface-2);
+      color: var(--text);
+      transform: none;
+    }
+    .tab-btn.active {
+      background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+      color: var(--text);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    }
+    .desk-content {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 16px 20px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .desk-statusbar {
+      padding: 7px 20px;
+      border-top: 1px solid var(--border);
+      background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+      font-size: 0.76rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    /* Slide-over Settings Drawer */
+    .drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 240;
+      background: rgba(2, 6, 23, 0.55);
+      backdrop-filter: blur(4px);
+      display: none;
+      justify-content: flex-end;
+    }
+    .drawer-backdrop.open {
+      display: flex;
+    }
+    .drawer-panel {
+      width: min(460px, 94vw);
+      height: 100%;
+      background: var(--surface-solid);
+      border-left: 1px solid var(--border-strong);
+      box-shadow: -18px 0 48px rgba(0, 0, 0, 0.48);
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px 24px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    @media (max-width: 860px) {
+      body.peer-desktop {
+        height: auto;
+        overflow: auto;
+      }
+      body.peer-desktop main,
+      .desk-shell {
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+      }
+      .desk-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        overflow: visible;
+      }
+      .connect-form {
+        flex-wrap: wrap;
+      }
+    }
+    .quick-bar {
+      display: flex;
+      gap: 8px;
+      padding: 9px 16px;
+      background: rgba(15, 23, 42, 0.94);
+      border-top: 1px solid rgba(148, 163, 184, 0.18);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .quick-bar input {
+      flex: 1;
+      min-width: 180px;
+      background: rgba(7, 11, 20, 0.9);
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+    .term-output {
+      flex: 1;
+      margin: 0;
+      padding: 16px 18px;
+      background: #060913;
+      color: #6ee7b7;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.88rem;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .login-box { max-width: 440px; margin: 48px auto; }
+
+    details.card summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--text);
+    }
+    details.card summary::-webkit-details-marker { display: none; }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.78rem;
+      padding: 0 20px 28px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-icon">
+        <img src="/logo.png" alt="APN Logo" />
+      </div>
+      <div>
+        <div class="brand-title">
+          <span>APN</span>
+          <span id="versionBadge" class="version-pill">v...</span>
+          <span id="modeBadge" class="badge" style="padding:2px 9px;font-size:0.71rem">Loading</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="statusBadge" class="badge"><span class="dot"></span><span>Connecting...</span></div>
+      <button id="btnSettings" class="secondary icon-btn" style="display:none" onclick="toggleSettingsDrawer(true)" title="ตั้งค่าและเครื่องมือเครือข่าย">⚙️ ตั้งค่า</button>
+      <button class="secondary icon-btn" onclick="peerCheckUpdate()" title="เช็กอัปเดตเวอร์ชันใหม่">🔄 อัปเดต</button>
+      <button class="secondary icon-btn" onclick="toggleThemePanel()" title="ปรับแต่งธีม">🎨 ธีม</button>
+    </div>
+  </header>
+
+  <!-- Theme Customizer Popover -->
+  <div id="themePanel" class="theme-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:0.95rem">🎨 ปรับแต่งธีม (Theme)</strong>
+      <button class="secondary icon-btn" style="padding:4px 8px" onclick="toggleThemePanel()">✕</button>
+    </div>
+    <div>
+      <div class="stat-label" style="margin-bottom:8px">เลือกโทนสีหลัก</div>
+      <div class="theme-grid">
+        <button class="theme-opt" data-t="midnight" onclick="applyTheme('midnight')">🌌 Midnight</button>
+        <button class="theme-opt" data-t="light" onclick="applyTheme('light')">☀️ Clean Light</button>
+        <button class="theme-opt" data-t="emerald" onclick="applyTheme('emerald')">🌿 Emerald</button>
+        <button class="theme-opt" data-t="rose" onclick="applyTheme('rose')">🌸 Rose Aurora</button>
+        <button class="theme-opt" data-t="amber" onclick="applyTheme('amber')">🌅 Amber Warm</button>
+      </div>
+    </div>
+    <div>
+      <div class="stat-label" style="margin-bottom:8px">ปรับสีปุ่ม/ไฮไลต์เอง (Accent)</div>
+      <div class="swatch-row">
+        <button class="swatch" style="background:#6366f1" onclick="applyAccent('#6366f1')" title="Indigo"></button>
+        <button class="swatch" style="background:#0ea5e9" onclick="applyAccent('#0ea5e9')" title="Sky"></button>
+        <button class="swatch" style="background:#10b981" onclick="applyAccent('#10b981')" title="Emerald"></button>
+        <button class="swatch" style="background:#8b5cf6" onclick="applyAccent('#8b5cf6')" title="Violet"></button>
+        <button class="swatch" style="background:#f43f5e" onclick="applyAccent('#f43f5e')" title="Rose"></button>
+        <button class="swatch" style="background:#f59e0b" onclick="applyAccent('#f59e0b')" title="Amber"></button>
+        <input id="customAccentPicker" type="color" value="#6366f1" onchange="applyAccent(this.value)" style="width:32px;height:28px;padding:2px;border-radius:8px;cursor:pointer" title="เลือกสีอิสระ" />
+        <button class="secondary" style="padding:4px 8px;font-size:0.74rem" onclick="resetAccent()">รีเซ็ต</button>
+      </div>
+    </div>
+  </div>
+
+  <main id="app">
+    <div class="card muted">กำลังโหลดข้อมูล...</div>
+  </main>
+
+  <!-- Slide-over Settings & Tools Drawer (Peer Mode) -->
+  <div id="settingsDrawer" class="drawer-backdrop" onclick="if(event.target===this)toggleSettingsDrawer(false)">
+    <div class="drawer-panel">
+      <div class="drawer-head">
+        <strong style="font-size:0.98rem">⚙️ ตั้งค่า APN และเครื่องมือเครือข่าย</strong>
+        <button class="secondary icon-btn" style="padding:5px 9px" onclick="toggleSettingsDrawer(false)">✕</button>
+      </div>
+      <div id="settingsDrawerBody" class="drawer-body"></div>
+    </div>
+  </div>
+
+  <footer id="appFooter">APN Remote &amp; VPN · TLS 1.3 End-to-End Encrypted</footer>
+  <div id="toast" class="toast"></div>
+
+  <!-- Live Remote Desktop Modal -->
+  <div id="screenModal" class="modal">
+    <div class="modal-bar">
+      <div class="modal-controls">
+        <strong id="screenTitle">🖥 Remote Desktop</strong>
+        <span id="screenMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">กำลังเชื่อมต่อ...</span>
+      </div>
+      <div class="modal-controls">
+        <label style="flex-direction:row;align-items:center;gap:6px;color:#e2e8f0;font-size:0.82rem">
+          <input type="checkbox" id="chkControl" checked onchange="syncCanvasCursor()" /> ควบคุม
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="ซ่อนเคอร์เซอร์ซ้อนเพื่อให้เมาส์ลื่นเหมือน Moonlight">
+          <input type="checkbox" id="chkHideCursor" checked onchange="syncCanvasCursor()" /> เมาส์เดี่ยว
+        </label>
+        <select id="selCodec" onchange="sendScreenConfig()" title="โหมดภาพ">
+          <option value="h264">🎬 วิดีโอ 60 FPS (H.264 GPU)</option>
+          <option value="tiles" selected>⚡ ลื่น + คมชัด (Smart JPEG)</option>
+          <option value="png">💎 ตัวหนังสือคมกริบ (Hybrid PNG)</option>
+        </select>
+        <select id="selScale" onchange="sendScreenConfig()" title="ความละเอียด">
+          <option value="0" selected>Native 100% (คมสุด)</option>
+          <option value="1920">1080p</option>
+          <option value="1280">720p (เน็ตช้า)</option>
+        </select>
+        <select id="selFPS" onchange="sendScreenConfig()" title="เฟรมเรต">
+          <option value="15">15 FPS</option>
+          <option value="24" selected>24 FPS</option>
+          <option value="30">30 FPS</option>
+          <option value="60">60 FPS</option>
+        </select>
+        <select id="selQuality" onchange="sendScreenConfig()" title="คุณภาพ / บิตเรต">
+          <option value="65">ประหยัดเน็ต (3M / Q65)</option>
+          <option value="82" selected>สมดุลคมชัด (6M / Q82)</option>
+          <option value="92">Ultra ลื่นคมสุด (12M / Q92)</option>
+        </select>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'keyframe'})" title="รีเฟรชทั้งหน้าจอ">↻</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleFullscreen()">⛶ เต็มจอ</button>
+        <button class="danger icon-btn" onclick="closeScreenModal()">✕ ปิด</button>
+      </div>
+    </div>
+    <div id="screenNotice" style="display:none;padding:7px 16px;background:#1e293b;color:#fde68a;font-size:0.82rem;border-bottom:1px solid rgba(148,163,184,0.2)"></div>
+    <div class="screen-stage" id="screenStage">
+      <canvas id="remoteCanvas" tabindex="0"></canvas>
+    </div>
+    <div class="quick-bar">
+      <input id="txtSendText" placeholder="พิมพ์ข้อความไทย/อังกฤษแล้วกด Enter เพื่อส่งเข้าเครื่องปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
+      <button onclick="sendQuickText()">ส่งข้อความ</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'})" title="สลับภาษาไทย/อังกฤษที่เครื่องปลายทาง (Alt+Shift)">🌐 เปลี่ยนภาษา</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Escape')">Esc</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Backspace')">⌫</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Meta')">⊞ Win</button>
+    </div>
+  </div>
+
+  <!-- Interactive Remote Terminal Modal -->
+  <div id="shellModal" class="modal">
+    <div class="modal-bar">
+      <div class="modal-controls">
+        <strong id="shellTitle">💻 Remote Terminal</strong>
+        <span id="shellMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">กำลังเชื่อมต่อ...</span>
+      </div>
+      <div class="modal-controls">
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="document.getElementById('termOut').textContent=''">ล้างหน้าจอ</button>
+        <button class="danger icon-btn" onclick="closeShellModal()">✕ ปิด</button>
+      </div>
+    </div>
+    <pre id="termOut" class="term-output"></pre>
+    <div class="quick-bar">
+      <input id="termInput" placeholder="พิมพ์คำสั่ง (เช่น whoami, ipconfig, dir) แล้วกด Enter..." onkeydown="if(event.key==='Enter'){sendShellCmd();}" />
+      <button onclick="sendShellCmd()">ส่งคำสั่ง</button>
+    </div>
+  </div>
+
+  <script>
+    const app = document.getElementById('app');
+    const modeBadge = document.getElementById('modeBadge');
+    const statusBadge = document.getElementById('statusBadge');
+    const versionBadge = document.getElementById('versionBadge');
+    const appFooter = document.getElementById('appFooter');
+    let lastMode = '';
+    let appVersion = '';
+    let hidePIN = false;
+    let peerTab = 'saved';
+    let peerSearch = '';
+    let lastPeerData = null;
+    let toastTimer = null;
+
+    window.toggleSettingsDrawer = (open, focusId = '') => {
+      const el = document.getElementById('settingsDrawer');
+      if (!el) return;
+      el.classList.toggle('open', !!open);
+      if (open && lastPeerData) {
+        renderSettingsDrawer(lastPeerData);
+        if (focusId) {
+          setTimeout(() => document.getElementById(focusId)?.focus(), 60);
+        }
+      }
+    };
+    window.setPeerTab = (tab) => {
+      peerTab = tab;
+      if (lastPeerData) renderPeer(lastPeerData);
+    };
+    window.onPeerSearch = (val) => {
+      peerSearch = val || '';
+      if (lastPeerData) renderPeer(lastPeerData);
+      const sb = document.getElementById('peerSearchBox');
+      if (sb) { sb.focus(); sb.setSelectionRange(sb.value.length, sb.value.length); }
+    };
+
+    // ---- Theme Customizer (Persisted in localStorage) ----
+    function initTheme() {
+      const savedTheme = localStorage.getItem('relayvpn_theme') || 'midnight';
+      const savedAccent = localStorage.getItem('relayvpn_accent') || '';
+      applyTheme(savedTheme, true);
+      if (savedAccent) applyAccent(savedAccent, true);
+    }
+    window.toggleThemePanel = () => {
+      document.getElementById('themePanel').classList.toggle('open');
+    };
+    window.applyTheme = (name, silent = false) => {
+      document.documentElement.setAttribute('data-theme', name);
+      localStorage.setItem('relayvpn_theme', name);
+      document.querySelectorAll('.theme-opt').forEach(el => {
+        el.classList.toggle('active', el.dataset.t === name);
+      });
+      if (!silent) showToast(`เปลี่ยนธีมเป็น ${name} แล้ว`);
+    };
+    window.applyAccent = (hex, silent = false) => {
+      document.documentElement.style.setProperty('--accent', hex);
+      document.documentElement.style.setProperty('--accent-glow', hex + '4d');
+      localStorage.setItem('relayvpn_accent', hex);
+      const picker = document.getElementById('customAccentPicker');
+      if (picker) picker.value = hex;
+      if (!silent) showToast('เปลี่ยนสีไฮไลต์แล้ว');
+    };
+    window.resetAccent = () => {
+      document.documentElement.style.removeProperty('--accent');
+      document.documentElement.style.removeProperty('--accent-glow');
+      localStorage.removeItem('relayvpn_accent');
+      showToast('รีเซ็ตสีไฮไลต์ตามธีมหลักแล้ว');
+    };
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('themePanel');
+      if (!panel.classList.contains('open')) return;
+      if (!panel.contains(e.target) && !e.target.closest('button[onclick="toggleThemePanel()"]')) {
+        panel.classList.remove('open');
+      }
+    });
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    }
+
+    function fmtBytes(n) {
+      if (!n || n <= 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0, v = n;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function fmtDevID(id) {
+      const d = String(id || '').replace(/\D/g, '');
+      return d.length === 9 ? `${d.slice(0,3)} ${d.slice(3,6)} ${d.slice(6,9)}` : (id || '-');
+    }
+
+    function fmtPIN(pin) {
+      if (hidePIN) return '••• •••';
+      const p = String(pin || '');
+      return p.length === 6 ? `${p.slice(0,3)} ${p.slice(3,6)}` : p;
+    }
+
+    function fmtTimeAgo(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+      if (sec < 60) return 'เมื่อสักครู่';
+      if (sec < 3600) return `${Math.floor(sec / 60)} นาทีที่แล้ว`;
+      if (sec < 86400) return `${Math.floor(sec / 3600)} ชม. ที่แล้ว`;
+      return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function setHeaderBadge(mode, stateText, dotClass) {
+      modeBadge.textContent = mode.toUpperCase().replace('_', ' ');
+      statusBadge.innerHTML = `<span class="dot ${dotClass}"></span><span>${esc(stateText)}</span>`;
+      if (appVersion) {
+        versionBadge.textContent = 'v' + appVersion;
+        appFooter.textContent = `APN Remote & VPN · v${appVersion} · TLS 1.3 End-to-End Encrypted · ซ่อนใน System Tray เมื่อปิดหน้าต่าง`;
+      }
+    }
+
+    async function api(url, opts = {}) {
+      const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function wsBaseURL() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${location.host}`;
+    }
+
+    function renderAgentRemoteButtons(a) {
+      const caps = a.capabilities || {};
+      const btns = [];
+      if (caps.allow_screen) {
+        const hasFF = !!caps.has_ffmpeg;
+        btns.push(`<button class="success" onclick="openRemoteScreen('${esc(a.id)}','${esc(a.name)}',${hasFF})">🖥 Remote Desktop${hasFF ? ' (60 FPS)' : ''}</button>`);
+      }
+      if (caps.allow_shell) {
+        btns.push(`<button class="secondary" onclick="openRemoteShell('${esc(a.id)}','${esc(a.name)}')">💻 Terminal</button>`);
+      }
+      return btns.length ? `<div class="row-actions">${btns.join('')}</div>` : '<span class="muted">ปิดใช้งาน</span>';
+    }
+
+    function renderPortalLogin() {
+      setHeaderBadge('portal', 'Sign in required', 'warn');
+      if (document.getElementById('loginForm')) return;
+      app.innerHTML = `
+        <div class="card login-box">
+          <h2>เข้าสู่ระบบ Web Remote Portal (HTTPS 443)</h2>
+          <p class="muted">ใช้ Client ID และ Token จากไฟล์ <code>client.json</code> เพื่อรีโมตเครื่องจากเบราว์เซอร์ได้ทันทีทุกอุปกรณ์</p>
+          <form id="loginForm" onsubmit="portalLogin(event)" style="display:grid;gap:12px">
+            <label>Client ID<input id="lClientId" required placeholder="admin-client" value="admin-client" /></label>
+            <label>Token<input id="lToken" type="password" required placeholder="วาง Client Token ที่นี่" /></label>
+            <button type="submit" style="padding:11px">เข้าสู่ระบบ</button>
+            <div id="loginErr" class="err"></div>
+          </form>
+        </div>
+      `;
+    }
+
+    function renderPortal(d) {
+      setHeaderBadge('portal', `Signed in: ${d.client_id}`, 'ok');
+      const agents = d.agents || [];
+      app.innerHTML = `
+        <div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div><strong>Web Remote Portal (TLS 1.3 / 443)</strong> — ผู้ใช้: <code>${esc(d.client_id)}</code></div>
+          <button class="secondary" onclick="portalLogout()">ออกจากระบบ</button>
+        </div>
+        <div class="card">
+          <h2>เครื่องที่พร้อมรีโมตตอนนี้ (Online Agents)</h2>
+          ${agents.length === 0 ? '<p class="muted">ยังไม่มี Agent ออนไลน์</p>' : `
+          <table>
+            <thead><tr><th>เครื่อง</th><th>OS</th><th>รีโมตผ่านเบราว์เซอร์</th></tr></thead>
+            <tbody>
+              ${agents.map(a => `
+                <tr>
+                  <td><strong>${esc(a.name)}</strong><br/><code>${esc(a.id)}</code></td>
+                  <td>${esc(a.os)}</td>
+                  <td>${renderAgentRemoteButtons(a)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`}
+        </div>
+      `;
+    }
+
+    function renderServer(d) {
+      setHeaderBadge('server', `Listening ${d.listen_addr}`, 'ok');
+      const agents = d.agents || [];
+      const clients = d.clients || [];
+      app.innerHTML = `
+        <div class="grid">
+          <div class="card"><div class="stat-label">พอร์ต TLS 1.3 / WSS</div><div class="stat-value"><code>${esc(d.listen_addr)}</code></div></div>
+          <div class="card"><div class="stat-label">Agents ออนไลน์</div><div class="stat-value">${agents.length}</div></div>
+          <div class="card"><div class="stat-label">Clients ออนไลน์</div><div class="stat-value">${clients.length}</div></div>
+          <div class="card"><div class="stat-label">สตรีม / รับส่งรวม</div><div class="stat-value">${d.active_streams} · ${fmtBytes(d.total_bytes_sent + d.total_bytes_recv)}</div></div>
+        </div>
+        <div class="card">
+          <h2>เครื่องปลายทางที่ออนไลน์ (Online Agents)</h2>
+          ${agents.length === 0 ? '<p class="muted">ยังไม่มี Agent เชื่อมต่อเข้ามา</p>' : `
+          <table>
+            <thead><tr><th>ID / ชื่อ</th><th>OS</th><th>IP ต้นทาง</th><th>สิทธิ์รีโมต</th><th>Sessions</th></tr></thead>
+            <tbody>
+              ${agents.map(a => `
+                <tr>
+                  <td><strong>${esc(a.name)}</strong><br/><code>${esc(a.id)}</code></td>
+                  <td>${esc(a.os)}</td>
+                  <td><code>${esc(a.remote_addr)}</code></td>
+                  <td>
+                    ${a.capabilities?.allow_screen ? '<code>Screen</code> ' : ''}
+                    ${a.capabilities?.allow_input ? '<code>Input</code> ' : ''}
+                    ${a.capabilities?.allow_shell ? '<code>Shell</code> ' : ''}
+                    ${(a.targets || []).map(t => `<code>${esc(t.name)}</code>`).join(' ')}
+                  </td>
+                  <td>${a.active_conns}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`}
+        </div>
+        <div class="card">
+          <h2>ผู้ควบคุมที่เชื่อมต่ออยู่ (Connected Clients)</h2>
+          ${clients.length === 0 ? '<p class="muted">ยังไม่มี Client เชื่อมต่อเข้ามา</p>' : `
+          <table>
+            <thead><tr><th>ID / ชื่อ</th><th>OS</th><th>IP ต้นทาง</th></tr></thead>
+            <tbody>
+              ${clients.map(c => `<tr><td><strong>${esc(c.name)}</strong> (<code>${esc(c.id)}</code>)</td><td>${esc(c.os)}</td><td><code>${esc(c.remote_addr)}</code></td></tr>`).join('')}
+            </tbody>
+          </table>`}
+        </div>
+      `;
+    }
+
+    function renderAgent(d) {
+      const ok = d.state === 'connected';
+      setHeaderBadge('agent', d.paused ? 'PAUSED' : d.state.toUpperCase(), d.paused ? 'warn' : (ok ? 'ok' : 'danger'));
+      const sessions = d.active_sessions || [];
+      const targets = d.allowed_targets || [];
+      const caps = d.capabilities || {};
+      app.innerHTML = `
+        <div class="grid">
+          <div class="card"><div class="stat-label">Agent ID</div><div class="stat-value"><code>${esc(d.agent_id)}</code></div></div>
+          <div class="card"><div class="stat-label">Relay Server</div><div class="stat-value" style="font-size:0.95rem"><code>${esc(d.server_url)}</code></div>${d.last_error ? `<div class="err">${esc(d.last_error)}</div>` : ''}</div>
+          <div class="card"><div class="stat-label">การเชื่อมต่อรีโมตตอนนี้</div><div class="stat-value">${sessions.length}</div></div>
+          <div class="card"><div class="stat-label">ปริมาณข้อมูลสะสม</div><div class="stat-value">↑ ${fmtBytes(d.total_bytes_sent)} / ↓ ${fmtBytes(d.total_bytes_recv)}</div></div>
+        </div>
+        <div class="card">
+          <h2>การควบคุมความปลอดภัย (Owner Controls)</h2>
+          <p class="muted" style="margin-top:0">
+            สิทธิ์: <code>Screen: ${caps.allow_screen ? 'ON' : 'OFF'}</code>
+            <code>Input: ${caps.allow_input ? 'ON' : 'OFF'}</code>
+            <code>Shell: ${caps.allow_shell ? 'ON' : 'OFF'}</code>
+          </p>
+          <div class="row-actions">
+            <button class="${d.paused ? '' : 'warn'}" onclick="toggleAgentPause(${!d.paused})">
+              ${d.paused ? '▶ เปิดรับการรีโมตอีกครั้ง' : '⏸ พักการรับรีโมตชั่วคราว'}
+            </button>
+            <button class="danger" onclick="killAgentSessions()">⛔ ตัดการเชื่อมต่อรีโมตทั้งหมดทันที</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>เซสชันรีโมตที่กำลังทำงาน</h2>
+          ${sessions.length === 0 ? '<p class="muted">ไม่มีการเชื่อมต่อรีโมตในขณะนี้</p>' : `
+          <table>
+            <thead><tr><th>Session</th><th>Client ID</th><th>ปลายทาง</th><th>รับ / ส่ง</th></tr></thead>
+            <tbody>
+              ${sessions.map(s => `<tr><td><code>${esc(s.id)}</code></td><td><code>${esc(s.client_id)}</code></td><td><code>${esc(s.target_addr)}</code></td><td>↑ ${fmtBytes(s.bytes_sent)} / ↓ ${fmtBytes(s.bytes_recv)}</td></tr>`).join('')}
+            </tbody>
+          </table>`}
+        </div>
+        <div class="card">
+          <h2>พอร์ต TCP ที่อนุญาต (Allowed Targets)</h2>
+          <table>
+            <thead><tr><th>ชื่อบริการ</th><th>ที่อยู่ปลายทาง</th></tr></thead>
+            <tbody>
+              ${targets.map(t => `<tr><td>${esc(t.name)}</td><td><code>${esc(t.address)}</code></td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderClient(d) {
+      const ok = d.state === 'connected';
+      setHeaderBadge('client', d.state.toUpperCase(), ok ? 'ok' : 'danger');
+      const agents = d.agents || [];
+      const tunnels = d.tunnels || [];
+
+      const prevName = document.getElementById('fName')?.value || '';
+      const prevLocal = document.getElementById('fLocal')?.value || '127.0.0.1:13389';
+      const prevAgent = document.getElementById('fAgent')?.value || (agents[0]?.id || '');
+      const prevTarget = document.getElementById('fTarget')?.value || '127.0.0.1:3389';
+
+      app.innerHTML = `
+        <div class="grid">
+          <div class="card"><div class="stat-label">Client ID</div><div class="stat-value"><code>${esc(d.client_id)}</code></div></div>
+          <div class="card"><div class="stat-label">Relay Server (TLS 1.3 / 443)</div><div class="stat-value" style="font-size:0.95rem"><code>${esc(d.server_url)}</code></div>${d.last_error ? `<div class="err">${esc(d.last_error)}</div>` : ''}</div>
+          <div class="card"><div class="stat-label">Agents ที่พร้อมใช้งาน</div><div class="stat-value">${agents.length}</div></div>
+          <div class="card"><div class="stat-label">TCP Tunnels ที่เปิดอยู่</div><div class="stat-value">${tunnels.filter(t => t.running).length} / ${tunnels.length}</div></div>
+        </div>
+        <div class="card">
+          <h2><span>เครื่องปลายทางออนไลน์ (Online Agents)</span><button class="secondary" onclick="refreshAgents()">↻ รีเฟรช</button></h2>
+          ${agents.length === 0 ? '<p class="muted">ยังไม่พบ Agent ออนไลน์</p>' : `
+          <table>
+            <thead><tr><th>เครื่อง</th><th>OS</th><th>รีโมตทันที</th><th>TCP Port Forward</th></tr></thead>
+            <tbody>
+              ${agents.map(a => `
+                <tr>
+                  <td><strong>${esc(a.name)}</strong><br/><code>${esc(a.id)}</code></td>
+                  <td>${esc(a.os)}</td>
+                  <td>${renderAgentRemoteButtons(a)}</td>
+                  <td>${(a.targets || []).map(t =>
+                    `<button class="secondary" style="margin:2px" onclick="quickFill('${esc(a.id)}','${esc(t.name)}','${esc(t.address)}')">+ ${esc(t.name)}</button>`
+                  ).join('') || '<span class="muted">-</span>'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`}
+        </div>
+        <div class="card">
+          <h2>สร้าง TCP Tunnel ใหม่</h2>
+          <form class="inline" onsubmit="createTunnel(event)">
+            <label>ชื่อเรียก<input id="fName" placeholder="เช่น Home RDP" value="${esc(prevName)}" /></label>
+            <label>Local Address<input id="fLocal" required value="${esc(prevLocal)}" /></label>
+            <label>Agent ID<input id="fAgent" required value="${esc(prevAgent)}" placeholder="agent-id" /></label>
+            <label>Target บน Agent<input id="fTarget" required value="${esc(prevTarget)}" /></label>
+            <button type="submit">+ เปิด Tunnel</button>
+          </form>
+          <div id="formErr" class="err"></div>
+        </div>
+        <div class="card">
+          <h2>รายการ TCP Tunnels</h2>
+          ${tunnels.length === 0 ? '<p class="muted">ยังไม่มี Tunnel</p>' : `
+          <table>
+            <thead><tr><th>ชื่อ</th><th>Local</th><th>ปลายทาง</th><th>สถานะ</th><th>รับ / ส่ง</th><th>จัดการ</th></tr></thead>
+            <tbody>
+              ${tunnels.map(t => `
+                <tr>
+                  <td><strong>${esc(t.name)}</strong>${t.last_error ? `<div class="err">${esc(t.last_error)}</div>` : ''}</td>
+                  <td><code>${esc(t.local_addr)}</code></td>
+                  <td><code>${esc(t.agent_id)}</code> → <code>${esc(t.target_addr)}</code></td>
+                  <td><span class="badge"><span class="dot ${t.running ? 'ok' : ''}"></span>${t.running ? `Active (${t.active_conns})` : 'Stopped'}</span></td>
+                  <td>↑ ${fmtBytes(t.bytes_sent)} / ↓ ${fmtBytes(t.bytes_recv)}</td>
+                  <td class="row-actions">
+                    <button class="secondary" onclick="toggleTunnel('${esc(t.id)}', ${!t.running})">${t.running ? 'หยุด' : 'เริ่ม'}</button>
+                    <button class="danger" onclick="deleteTunnel('${esc(t.id)}')">ลบ</button>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`}
+        </div>
+      `;
+    }
+
+    function renderSettingsDrawer(d) {
+      const body = document.getElementById('settingsDrawerBody');
+      if (!body) return;
+      const peers = d.connected_peers || [];
+      const tunnels = d.tunnels || [];
+      const prevPermPass = document.getElementById('pPermPass')?.value || '';
+      const prevRdv = document.getElementById('pRdvURL')?.value ?? (d.rendezvous_url || '');
+      const prevTName = document.getElementById('ptName')?.value || '';
+      const prevTLocal = document.getElementById('ptLocal')?.value || '127.0.0.1:13389';
+      const prevTPeer = document.getElementById('ptPeer')?.value || (peers[0]?.id || '');
+      const prevTTarget = document.getElementById('ptTarget')?.value || '127.0.0.1:3389';
+
+      body.innerHTML = `
+        <div class="side-tile">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <strong style="font-size:0.88rem">🔑 รหัสผ่านถาวร (Permanent Password)</strong>
+            <span class="badge"><span class="dot ${d.has_permanent_password ? 'ok' : ''}"></span>${d.has_permanent_password ? 'ตั้งไว้แล้ว' : 'ยังไม่ได้ตั้ง'}</span>
+          </div>
+          <div class="muted" style="font-size:0.78rem;margin-bottom:9px">ตั้งไว้เพื่อให้เครื่องอื่นกด <strong>รีโมตเลย (คลิกเดียว)</strong> เข้าเครื่องนี้ได้ตลอดแม้รีสตาร์ท</div>
+          <form onsubmit="peerSavePermPass(event)" style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="pPermPass" type="password" placeholder="อย่างน้อย 4 ตัวอักษร" value="${esc(prevPermPass)}" style="flex:1;min-width:150px" />
+            <button type="submit" class="success">บันทึก</button>
+            ${d.has_permanent_password ? '<button type="button" class="danger" onclick="peerClearPermPass()">ลบ</button>' : ''}
+          </form>
+        </div>
+
+        <div class="side-tile">
+          <strong style="font-size:0.88rem;display:block;margin-bottom:6px">📦 การติดตั้งบนเครื่อง &amp; System Tray</strong>
+          <div class="muted" style="font-size:0.78rem;margin-bottom:10px">
+            ${d.install?.installed
+              ? `ติดตั้งอยู่ที่ <code>${esc(d.install.install_path)}</code> · เปิดอัตโนมัติพร้อม Windows และซ่อนไว้ที่ System Tray`
+              : `กำลังรันโหมดพกพา — กดติดตั้งเพื่อสร้างไอคอน Desktop/Start Menu + เปิดพร้อม Windows`}
+          </div>
+          <div class="row-actions">
+            ${d.install?.installed
+              ? `<button class="danger" onclick="peerUninstallApp()">🗑 ถอนการติดตั้ง APN</button>`
+              : `<button class="success" onclick="peerInstallApp()">📥 ติดตั้ง APN ลงเครื่องนี้</button>`}
+            <button class="secondary" onclick="peerCheckUpdate()">🔄 เช็กอัปเดต</button>
+          </div>
+        </div>
+
+        <div class="side-tile">
+          <strong style="font-size:0.88rem;display:block;margin-bottom:8px">🔧 Local TCP Port Forward (RDP / SSH / VNC)</strong>
+          <form onsubmit="peerCreateTunnel(event)" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label>ชื่อ<input id="ptName" placeholder="เช่น Home RDP" value="${esc(prevTName)}" /></label>
+            <label>Local Addr<input id="ptLocal" required value="${esc(prevTLocal)}" /></label>
+            <label>Peer ID<input id="ptPeer" required value="${esc(prevTPeer)}" /></label>
+            <label>Target<input id="ptTarget" required value="${esc(prevTTarget)}" /></label>
+            <button type="submit" style="grid-column:span 2">+ เปิด Tunnel</button>
+          </form>
+          ${tunnels.length > 0 ? `
+            <div style="display:grid;gap:8px;margin-top:10px">
+              ${tunnels.map(t => `
+                <div class="side-row" style="flex-direction:column;align-items:stretch;gap:6px">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <strong>${esc(t.name)}</strong>
+                    <span class="badge"><span class="dot ${t.running ? 'ok' : ''}"></span>${t.running ? `Active (${t.active_conns})` : 'Stopped'}</span>
+                  </div>
+                  <div class="muted" style="font-size:0.75rem"><code>${esc(t.local_addr)}</code> → <code>${esc(t.peer_id)}</code> (<code>${esc(t.target_addr)}</code>)</div>
+                  <div class="row-actions">
+                    <button class="secondary" style="padding:4px 9px;font-size:0.75rem" onclick="peerToggleTunnel('${esc(t.id)}', ${!t.running})">${t.running ? 'หยุด' : 'เริ่ม'}</button>
+                    <button class="danger" style="padding:4px 9px;font-size:0.75rem" onclick="peerDeleteTunnel('${esc(t.id)}')">ลบ</button>
+                  </div>
+                </div>`).join('')}
+            </div>` : ''}
+        </div>
+
+        <div class="side-tile">
+          <strong style="font-size:0.88rem;display:block;margin-bottom:8px">🌐 ข้อมูลเครือข่าย &amp; Cloud Directory</strong>
+          <div class="muted" style="font-size:0.78rem;display:grid;gap:5px;margin-bottom:10px">
+            <div>Public UDP (STUN): <code>${esc(d.public_udp_addr || 'กำลังค้นหา...')}</code></div>
+            <div>Cloud Directory: <code>${esc(d.rendezvous_status || 'พร้อม')}</code></div>
+            <div>ไฟล์ตั้งค่า: <code>${esc(d.install?.config_path || '-')}</code></div>
+          </div>
+          <div class="row-actions" style="margin-bottom:10px">
+            <button class="secondary" style="padding:6px 10px;font-size:0.78rem" onclick="peerRefreshSTUN()">↻ ตรวจ STUN ใหม่</button>
+            ${(!d.deps?.ffmpeg_ready || !d.deps?.wintun_ready) && !d.deps?.installing ? `<button class="secondary" style="padding:6px 10px;font-size:0.78rem" onclick="peerRunBootstrap()">⬇ ติดตั้ง FFmpeg/Wintun</button>` : ''}
+          </div>
+          <form onsubmit="saveRendezvous(event)" style="display:flex;gap:8px">
+            <input id="pRdvURL" placeholder="https://rdv.psms-center.com" value="${esc(prevRdv)}" style="flex:1;font-size:0.82rem" />
+            <button type="submit" class="secondary" style="padding:7px 11px;font-size:0.8rem">บันทึก</button>
+          </form>
+        </div>
+      `;
+    }
+
+    function renderPeer(d) {
+      lastPeerData = d;
+      const peers = d.connected_peers || [];
+      const saved = d.saved_peers || [];
+      const disc = d.discovered_peers || [];
+      const sessions = d.active_sessions || [];
+      const approvals = d.pending_approvals || [];
+
+      setHeaderBadge('p2p remote', d.paused ? 'PAUSED' : (d.bridge?.ready ? `พร้อมใช้งาน · 443 ✓` : `พร้อมใช้งาน · ${peers.length} Peer`), d.paused ? 'warn' : 'ok');
+
+      const prevRemoteID = document.getElementById('pRemoteID')?.value || '';
+      const prevRemotePass = document.getElementById('pRemotePass')?.value || '';
+      const prevRemember = document.getElementById('chkRememberPass')?.checked ?? true;
+      const prevErr = document.getElementById('peerErr')?.textContent || '';
+
+      const connectedByDev = {};
+      peers.forEach(p => {
+        const k = String(p.device_id || '').replace(/\D/g, '');
+        if (k) connectedByDev[k] = p;
+      });
+
+      if (peerTab === 'incoming' && sessions.length === 0) {
+        peerTab = 'saved';
+      }
+
+      const q = peerSearch.trim().toLowerCase();
+      const filteredSaved = q
+        ? saved.filter(s => (s.name || '').toLowerCase().includes(q) || (s.device_id || '').includes(q.replace(/\s+/g, '')))
+        : saved;
+
+      // Render active workspace tab content
+      let tabContentHTML = '';
+      if (peerTab === 'saved') {
+        if (filteredSaved.length === 0) {
+          tabContentHTML = `
+            <div style="margin:auto;text-align:center;max-width:460px;padding:24px 12px">
+              <div style="font-size:2.1rem;margin-bottom:8px">🖥️</div>
+              <div style="font-weight:700;font-size:1rem;margin-bottom:6px">${q ? 'ไม่พบเครื่องที่ค้นหา' : 'ยังไม่มีประวัติเครื่องที่บันทึกไว้'}</div>
+              <div class="muted" style="font-size:0.84rem">${q ? 'ลองค้นหาด้วยชื่อหรือเลข 9 หลักอื่น' : 'กรอกเลข 9 หลัก + รหัสผ่านด้านบนเพื่อเริ่มรีโมต — เครื่องที่เชื่อมต่อแล้วจะถูกบันทึกไว้ที่นี่พร้อมสถานะออนไลน์สดและกดรีโมตคลิกเดียว'}</div>
+              ${disc.length > 0 && !q ? `
+                <div style="margin-top:16px">
+                  <div class="stat-label" style="margin-bottom:8px">📡 พบเครื่องในวง LAN เดียวกัน (คลิกเพื่อกรอก ID)</div>
+                  <div class="row-actions" style="justify-content:center">
+                    ${disc.map(dp => `<button type="button" class="lan-chip" onclick="fillEasyLAN('${esc(dp.device_id || dp.quic_addr)}')"><span class="dot ok"></span><span>${esc(dp.name)}</span><code>${esc(fmtDevID(dp.device_id))}</code></button>`).join('')}
+                  </div>
+                </div>` : ''}
+            </div>`;
+        } else {
+          tabContentHTML = `
+            <div class="saved-grid">
+              ${filteredSaved.map(sp => {
+                const cp = connectedByDev[sp.device_id];
+                const statusDot = sp.connected ? 'ok' : (sp.online ? 'ok' : '');
+                const statusLabel = sp.connected
+                  ? (cp?.transport?.startsWith('QUIC') ? 'เชื่อมตรง QUIC' : 'เชื่อมต่ออยู่')
+                  : (sp.online ? (sp.online_via === 'lan' ? 'ออนไลน์ (LAN)' : 'ออนไลน์') : 'ออฟไลน์');
+                return `
+                  <div class="saved-card ${sp.online ? 'is-online' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                      <div style="min-width:0">
+                        <div style="font-weight:700;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.name)}</div>
+                        <div style="margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                          <code>${esc(fmtDevID(sp.device_id))}</code>
+                          ${sp.os ? `<span class="muted" style="font-size:0.74rem">${esc(sp.os)}</span>` : ''}
+                        </div>
+                      </div>
+                      <span class="badge" style="flex-shrink:0;padding:3px 9px;font-size:0.72rem"><span class="dot ${statusDot}"></span>${statusLabel}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem" class="muted">
+                      ${sp.has_saved_password ? '<span class="badge" style="padding:2px 7px;font-size:0.7rem">🔑 จำรหัสแล้ว</span>' : '<span class="badge" style="padding:2px 7px;font-size:0.7rem;opacity:0.7">ยังไม่จำรหัส</span>'}
+                      ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText('${esc(sp.vpn_ip)}','คัดลอก VPN IP ${esc(sp.vpn_ip)} แล้ว')">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
+                      ${sp.last_connected ? `<span>${esc(fmtTimeAgo(sp.last_connected))}</span>` : ''}
+                    </div>
+                    <div class="row-actions" style="margin-top:auto;padding-top:3px">
+                      ${cp ? `
+                        <button class="success" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="openRemoteScreen('${esc(cp.id)}','${esc(cp.name)}',${!!cp.capabilities?.has_ffmpeg})">🖥 เปิดหน้าจอ</button>
+                        <button class="secondary icon-btn" title="เปิด Terminal" onclick="openRemoteShell('${esc(cp.id)}','${esc(cp.name)}')">💻</button>
+                        <button class="danger icon-btn" title="ตัดการเชื่อมต่อ" onclick="peerDisconnect('${esc(cp.id)}')">✕</button>
+                      ` : (sp.has_saved_password ? `
+                        <button class="${sp.online ? 'success' : 'secondary'}" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect('${esc(sp.device_id)}','${esc(sp.name)}',true)">🖥 รีโมตเลย</button>
+                      ` : `
+                        <button class="secondary" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect('${esc(sp.device_id)}','${esc(sp.name)}',false)">🔑 กรอกรหัสต่อ</button>
+                      `)}
+                      <button class="secondary icon-btn" style="padding:6px 8px" title="เปลี่ยนชื่อเครื่อง" onclick="peerRenameSaved('${esc(sp.device_id)}','${esc(sp.name)}')">✏️</button>
+                      ${sp.has_saved_password ? `<button class="secondary icon-btn" style="padding:6px 8px" title="ลืมรหัสผ่าน" onclick="peerClearSavedPass('${esc(sp.device_id)}')">🔓</button>` : ''}
+                      <button class="secondary icon-btn" style="padding:6px 8px" title="ลบออกจากประวัติ" onclick="peerDeleteSaved('${esc(sp.device_id)}')">🗑</button>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>`;
+        }
+      } else if (peerTab === 'connected') {
+        tabContentHTML = peers.length === 0
+          ? `<div style="margin:auto;text-align:center" class="muted">ยังไม่มีเครื่องที่เชื่อมต่ออยู่ตอนนี้ — กรอกเลข 9 หลักด้านบนหรือคลิกจากแท็บประวัติเครื่อง</div>`
+          : `<div class="saved-grid">
+              ${peers.map(p => `
+                <div class="saved-card is-online">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                    <div>
+                      <strong>${esc(p.name)}</strong>
+                      <div style="margin-top:3px"><code>${esc(fmtDevID(p.device_id || p.id))}</code> <span class="muted" style="font-size:0.75rem">${esc(p.os)}</span></div>
+                    </div>
+                    <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>${esc(p.transport)}</span>
+                  </div>
+                  ${p.vpn_ip ? `<div class="muted" style="font-size:0.76rem">VPN IP: <code style="cursor:pointer" onclick="copyText('${esc(p.vpn_ip)}','คัดลอก VPN IP แล้ว')">🛡 ${esc(p.vpn_ip)}</code></div>` : ''}
+                  <div class="row-actions">${renderAgentRemoteButtons(p)}</div>
+                  <div class="row-actions" style="margin-top:auto;padding-top:4px;border-top:1px solid var(--border)">
+                    ${(p.targets || []).map(t => `<button class="secondary" style="padding:4px 8px;font-size:0.74rem" onclick="peerQuickFill('${esc(p.id)}','${esc(t.name)}','${esc(t.address)}')">+ ${esc(t.name)}</button>`).join('')}
+                    <button class="danger" style="margin-left:auto;padding:5px 10px;font-size:0.76rem" onclick="peerDisconnect('${esc(p.id)}')">ตัด</button>
+                  </div>
+                </div>`).join('')}
+            </div>`;
+      } else if (peerTab === 'lan') {
+        tabContentHTML = disc.length === 0
+          ? `<div style="margin:auto;text-align:center" class="muted">ยังไม่พบเครื่องอื่นในวง Wi-Fi / LAN เดียวกัน — เปิด APN บนอีกเครื่องในวงเดียวกันจะขึ้นที่นี่อัตโนมัติ</div>`
+          : `<div class="saved-grid">
+              ${disc.map(dp => `
+                <div class="saved-card is-online">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <strong>${esc(dp.name)}</strong>
+                    <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>LAN Direct</span>
+                  </div>
+                  <div><code>${esc(fmtDevID(dp.device_id))}</code> <span class="muted" style="font-size:0.75rem">${esc(dp.os)}</span></div>
+                  <button class="success" style="margin-top:auto;padding:7px 10px;font-size:0.82rem" onclick="fillEasyLAN('${esc(dp.device_id || dp.quic_addr)}')">⚡ เลือกเครื่องนี้</button>
+                </div>`).join('')}
+            </div>`;
+      } else if (peerTab === 'incoming') {
+        tabContentHTML = `
+          <div class="card" style="padding:14px">
+            <table>
+              <thead><tr><th>Session</th><th>จากเครื่อง</th><th>ประเภท / ปลายทาง</th><th>รับ / ส่ง</th></tr></thead>
+              <tbody>
+                ${sessions.map(s => `<tr><td><code>${esc(s.id)}</code></td><td><code>${esc(s.peer_id)}</code></td><td><code>${esc(s.target_addr)}</code></td><td>↑ ${fmtBytes(s.bytes_sent)} / ↓ ${fmtBytes(s.bytes_recv)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      }
+
+      app.innerHTML = `
+        <div class="desk-shell">
+          <!-- LEFT SIDEBAR: YOUR DESK (Fixed 342px, AnyDesk/RustDesk style) -->
+          <aside class="desk-sidebar">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <strong style="font-size:0.9rem">💻 เครื่องนี้ (Your Desk)</strong>
+              <span class="badge" style="padding:3px 8px;font-size:0.7rem">${esc(d.name)}</span>
+            </div>
+
+            <div class="side-tile accent-tile">
+              <div class="stat-label" style="font-size:0.72rem">รหัสเครื่องของคุณ (ID 9 หลัก)</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
+                <div class="side-id">${esc(fmtDevID(d.device_id))}</div>
+                <button class="secondary icon-btn" style="padding:6px 10px;font-size:0.78rem" onclick="copyText('${esc(d.device_id)}','คัดลอก ID 9 หลักแล้ว')">📋 คัดลอก</button>
+              </div>
+            </div>
+
+            <div class="side-tile">
+              <div class="stat-label" style="font-size:0.72rem">รหัสผ่านชั่วคราว (PIN 6 หลัก)</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:4px">
+                <div class="side-pin">${esc(fmtPIN(d.temp_pin))}</div>
+                <div class="row-actions" style="gap:5px">
+                  <button class="secondary icon-btn" style="padding:5px 7px" onclick="toggleHidePIN()" title="ซ่อน/แสดง PIN">${hidePIN ? '👁️' : '🙈'}</button>
+                  <button class="secondary icon-btn" style="padding:5px 8px;font-size:0.76rem" onclick="copyText('${esc(d.temp_pin)}','คัดลอก PIN 6 หลักแล้ว')">📋</button>
+                  <button class="secondary icon-btn" style="padding:5px 8px" onclick="peerRotatePIN()" title="สุ่ม PIN ใหม่">↻</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="side-row">
+              <div>
+                <div style="font-weight:700">🌐 ข้ามเน็ตอัตโนมัติ (443)</div>
+                <div class="muted" style="font-size:0.72rem">${d.bridge?.ready ? `<span style="color:var(--ok);font-weight:700">✓ ออนไลน์พร้อมรับรีโมต</span>` : (d.bridge?.enabled ? `⏳ กำลังเปิดท่อ 443...` : `ปิดอยู่ (เฉพาะ LAN)`)}</div>
+              </div>
+              <label class="switch" style="margin:0"><input type="checkbox" ${d.bridge?.enabled ? 'checked' : ''} onchange="peerToggleBridge(this.checked)" /><span class="slider"></span></label>
+            </div>
+
+            <div class="side-row">
+              <div style="min-width:0">
+                <div style="font-weight:700">🛡 Built-in L3 VPN</div>
+                <div class="muted" style="font-size:0.72rem">
+                  <code style="cursor:pointer;font-size:0.74rem" title="คลิกคัดลอก VPN IP" onclick="copyText('${esc(d.vpn?.vpn_ip || '')}','คัดลอก VPN IP แล้ว')">${esc(d.vpn?.vpn_ip || '-')}</code>
+                  ${d.vpn?.enabled ? ` · <span style="color:var(--ok)">ON</span>` : ' · ปิด'}
+                </div>
+              </div>
+              <label class="switch" style="margin:0"><input type="checkbox" ${d.vpn?.enabled ? 'checked' : ''} onchange="peerToggleVPN(this.checked)" /><span class="slider"></span></label>
+            </div>
+            ${d.vpn?.last_error ? `<div class="err" style="font-size:0.73rem;margin-top:-4px">${esc(d.vpn.last_error)}</div>` : ''}
+
+            <div class="side-row">
+              <span style="font-weight:600">🔒 ขออนุมัติก่อนเข้าควบคุม</span>
+              <label class="switch" style="margin:0"><input type="checkbox" ${d.require_approval ? 'checked' : ''} onchange="peerToggleApprovalMode(this.checked)" /><span class="slider"></span></label>
+            </div>
+
+            <div class="side-row">
+              <div>
+                <div style="font-weight:700">🔑 รหัสผ่านถาวร</div>
+                <div class="muted" style="font-size:0.72rem">${d.has_permanent_password ? '<span style="color:var(--ok)">✓ ตั้งไว้แล้ว</span>' : 'ยังไม่ได้ตั้ง'}</div>
+              </div>
+              <button class="secondary" style="padding:5px 10px;font-size:0.75rem" onclick="toggleSettingsDrawer(true,'pPermPass')">ตั้งค่า</button>
+            </div>
+
+            <div class="side-tile" style="padding:8px 11px">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem">
+                <span style="display:inline-flex;align-items:center;gap:5px"><span class="dot ${d.deps?.ffmpeg_ready ? 'ok' : 'warn'}"></span>60FPS</span>
+                <span style="display:inline-flex;align-items:center;gap:5px"><span class="dot ${d.deps?.cloudflared_ready ? 'ok' : 'warn'}"></span>443</span>
+                <span style="display:inline-flex;align-items:center;gap:5px"><span class="dot ${d.deps?.wintun_ready ? 'ok' : 'warn'}"></span>VPN</span>
+                ${(!d.deps?.ffmpeg_ready || !d.deps?.wintun_ready) && !d.deps?.installing ? `<button class="secondary" style="padding:2px 7px;font-size:0.7rem" onclick="peerRunBootstrap()">⬇ โหลด</button>` : `<span class="muted" style="font-size:0.71rem">${d.deps?.installing ? `${d.deps.progress || 0}%` : 'พร้อม ✓'}</span>`}
+              </div>
+              ${d.deps?.installing ? `
+                <div style="height:4px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin-top:6px">
+                  <div style="height:100%;width:${Math.max(4, d.deps.progress || 0)}%;background:linear-gradient(90deg,var(--accent),var(--accent-2))"></div>
+                </div>` : ''}
+            </div>
+
+            <div class="side-bottom">
+              ${d.install?.installed ? `
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;color:var(--muted);padding:0 2px">
+                  <span><span style="color:var(--ok);font-weight:700">✓ ติดตั้งแล้ว</span> · ซ่อนที่ Tray</span>
+                  <button class="secondary" style="padding:3px 8px;font-size:0.71rem" onclick="toggleSettingsDrawer(true)">จัดการ</button>
+                </div>` : `
+                <button class="secondary" style="width:100%;padding:8px 10px;font-size:0.8rem;border-color:color-mix(in srgb,var(--accent) 45%,var(--border))" onclick="peerInstallApp()">📥 ติดตั้ง APN ลงเครื่องนี้ (Auto-Start + Tray)</button>
+              `}
+              <div class="row-actions" style="gap:7px">
+                <button class="${d.paused ? 'success' : 'warn'}" style="flex:1;padding:7px 10px;font-size:0.8rem" onclick="peerTogglePause(${!d.paused})">${d.paused ? '▶ เปิดรับรีโมต' : '⏸ พักรับรีโมต'}</button>
+                <button class="danger" style="padding:7px 10px;font-size:0.8rem" onclick="peerKillAll()">⛔ ตัด (${sessions.length})</button>
+              </div>
+            </div>
+          </aside>
+
+          <!-- RIGHT MAIN WORKSPACE (Full remaining width & height) -->
+          <section class="desk-main">
+            <!-- Horizontal AnyDesk/RustDesk Quick Connect Bar -->
+            <div class="connect-bar">
+              ${(d.update?.update_available || d.update?.updating) ? `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface))">
+                  <span style="font-size:0.84rem;font-weight:700">⬆️ มี APN เวอร์ชันใหม่ v${esc(d.update.latest_version)} พร้อมอัปเดต!</span>
+                  ${d.update.updating
+                    ? `<span class="badge"><span class="dot warn"></span>${esc(d.update.stage || 'กำลังอัปเดต...')} (${d.update.progress || 0}%)</span>`
+                    : `<button class="success" style="padding:6px 12px;font-size:0.8rem" onclick="peerApplyUpdate()">⚡ อัปเดตเลย</button>`}
+                </div>` : ''}
+
+              ${approvals.map(a => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 13px;border-radius:10px;border:2px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,var(--surface))">
+                  <div style="font-size:0.86rem"><strong>🔔 มีคำขอรีโมตเข้าเครื่องนี้:</strong> ${esc(a.name || a.peer_id)} (<code>${esc(fmtDevID(a.device_id))}</code>)</div>
+                  <div class="row-actions">
+                    <button class="success" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove('${esc(a.id)}', true)">✓ อนุญาต</button>
+                    <button class="danger" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove('${esc(a.id)}', false)">✕ ปฏิเสธ</button>
+                  </div>
+                </div>`).join('')}
+
+              <form class="connect-form" onsubmit="peerEasyConnect(event, true)">
+                <input id="pRemoteID" type="text" required placeholder="🚀 กรอกรหัสเครื่องปลายทาง (ID 9 หลัก เช่น 606 639 334)" value="${esc(prevRemoteID)}" style="flex:1.35;min-width:210px;font-weight:700;letter-spacing:0.8px" />
+                <input id="pRemotePass" type="password" placeholder="รหัสผ่าน (PIN / ถาวร)" value="${esc(prevRemotePass)}" style="flex:0.85;min-width:150px" />
+                <label style="flex-direction:row;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:0.8rem;color:var(--text-soft)" title="จดจำรหัสผ่านไว้กดเชื่อมต่อคลิกเดียวในครั้งถัดไป">
+                  <input type="checkbox" id="chkRememberPass" ${prevRemember ? 'checked' : ''} style="width:15px;height:15px;margin:0;cursor:pointer" />
+                  <span>จำรหัส</span>
+                </label>
+                <button type="submit" class="success" style="padding:10px 16px;white-space:nowrap">🖥 เชื่อมต่อและเปิดหน้าจอ</button>
+                <button type="button" class="secondary" style="padding:10px 12px;white-space:nowrap" onclick="peerEasyConnect(event, false)" title="เชื่อมต่อโดยยังไม่เปิดหน้าจอ">🔗 เชื่อมก่อน</button>
+              </form>
+              <div id="peerErr" class="err" style="margin:0;display:${prevErr ? 'block' : 'none'}">${esc(prevErr)}</div>
+            </div>
+
+            <!-- Workspace Tabs + Search -->
+            <div class="desk-tabs">
+              <div class="tab-group">
+                <button type="button" class="tab-btn ${peerTab === 'saved' ? 'active' : ''}" onclick="setPeerTab('saved')">🕘 ประวัติเครื่อง (${saved.filter(s => s.online).length}/${saved.length})</button>
+                <button type="button" class="tab-btn ${peerTab === 'connected' ? 'active' : ''}" onclick="setPeerTab('connected')">🔗 เชื่อมต่ออยู่ (${peers.length})</button>
+                <button type="button" class="tab-btn ${peerTab === 'lan' ? 'active' : ''}" onclick="setPeerTab('lan')">📡 พบใน LAN (${disc.length})</button>
+                ${sessions.length > 0 ? `<button type="button" class="tab-btn ${peerTab === 'incoming' ? 'active' : ''}" onclick="setPeerTab('incoming')">👁️ กำลังควบคุม (${sessions.length})</button>` : ''}
+              </div>
+              <div class="row-actions" style="gap:7px">
+                <input id="peerSearchBox" type="text" placeholder="🔍 ค้นหาชื่อ / ID..." value="${esc(peerSearch)}" oninput="onPeerSearch(this.value)" style="padding:6px 10px;font-size:0.8rem;width:170px" />
+                <button type="button" class="secondary" style="padding:6px 10px;font-size:0.78rem" onclick="peerRefreshSaved()">↻ เช็กออนไลน์</button>
+              </div>
+            </div>
+
+            <!-- Full-Width Responsive Device Grid (scrolls internally ONLY if many devices) -->
+            <div class="desk-content">
+              ${tabContentHTML}
+            </div>
+
+            <!-- Compact Native-Style Status Bar -->
+            <div class="desk-statusbar">
+              <span>
+                <strong style="color:var(--ok)">●</strong> Cloud Directory: ${esc(d.rendezvous_status || 'พร้อม')}
+                ${d.public_udp_addr ? ` · UDP: <code>${esc(d.public_udp_addr)}</code>` : ''}
+                · รับส่งรวม: ↑${fmtBytes(d.total_bytes_sent)} ↓${fmtBytes(d.total_bytes_recv)}
+              </span>
+              <span>APN v${esc(appVersion || '1.1.1')} · ปิดหน้าต่างเพื่อซ่อนใน System Tray (คลิกขวาที่ Tray เพื่อออก)</span>
+            </div>
+          </section>
+        </div>
+      `;
+
+      if (document.getElementById('settingsDrawer')?.classList.contains('open')) {
+        renderSettingsDrawer(d);
+      }
+    }
+
+    // ---- Remote Desktop Viewer (VSync WebCodecs GPU H.264 + Parallel Dirty-Tile Canvas) ----
+    let screenWS = null;
+    let screenFrames = 0;
+    let screenTotalFrames = 0;
+    let screenKeyRetry1 = null;
+    let screenKeyRetry2 = null;
+    let screenBytesSec = 0;
+    let screenEncoderLabel = 'Smart Tiles';
+    let screenFPSTimer = null;
+    let screenAllowInput = false;
+    let lastMoveSent = 0;
+    let h264Decoder = null;
+    let h264Configured = false;
+    let h264WaitingKey = true;
+    let h264Errors = 0;
+    let latestVideoFrame = null;
+    let videoRAF = 0;
+    const canvas = document.getElementById('remoteCanvas');
+    const ctx2d = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+    window.syncCanvasCursor = () => {
+      const ctrl = document.getElementById('chkControl')?.checked && screenAllowInput;
+      const hideLocal = document.getElementById('chkHideCursor')?.checked;
+      canvas.classList.toggle('hide-local-cursor', !!(ctrl && hideLocal));
+    };
+
+    function startVideoRenderLoop() {
+      if (videoRAF) return;
+      const tick = () => {
+        if (latestVideoFrame) {
+          const frame = latestVideoFrame;
+          latestVideoFrame = null;
+          if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+            canvas.width = frame.displayWidth;
+            canvas.height = frame.displayHeight;
+          }
+          ctx2d.drawImage(frame, 0, 0);
+          frame.close();
+          screenFrames++;
+          screenTotalFrames++;
+        }
+        videoRAF = requestAnimationFrame(tick);
+      };
+      videoRAF = requestAnimationFrame(tick);
+    }
+
+    function stopVideoRenderLoop() {
+      if (videoRAF) {
+        cancelAnimationFrame(videoRAF);
+        videoRAF = 0;
+      }
+      if (latestVideoFrame) {
+        try { latestVideoFrame.close(); } catch {}
+        latestVideoFrame = null;
+      }
+    }
+
+    function resetH264Decoder() {
+      if (latestVideoFrame) {
+        try { latestVideoFrame.close(); } catch {}
+        latestVideoFrame = null;
+      }
+      if (h264Decoder) {
+        try { h264Decoder.close(); } catch {}
+        h264Decoder = null;
+      }
+      h264Configured = false;
+      h264WaitingKey = true;
+    }
+
+    function extractAVC1Codec(nal) {
+      for (let i = 0; i + 6 < nal.length; i++) {
+        if (nal[i] === 0 && nal[i + 1] === 0) {
+          let start = -1;
+          if (nal[i + 2] === 1) start = i + 3;
+          else if (nal[i + 2] === 0 && nal[i + 3] === 1) start = i + 4;
+          if (start >= 0 && (nal[start] & 0x1F) === 7 && start + 3 < nal.length) {
+            const hex = (b) => b.toString(16).padStart(2, '0').toUpperCase();
+            return `avc1.${hex(nal[start + 1])}${hex(nal[start + 2])}${hex(nal[start + 3])}`;
+          }
+        }
+      }
+      return 'avc1.42E033'; // Constrained Baseline Level 5.1 (supports 1080p60 & 4K)
+    }
+
+    function ensureH264Decoder(nal, w, h) {
+      if (!('VideoDecoder' in window)) return false;
+      if (h264Decoder && h264Configured) return true;
+      resetH264Decoder();
+      const codecStr = extractAVC1Codec(nal);
+      try {
+        h264Decoder = new VideoDecoder({
+          output: (frame) => {
+            h264Errors = 0;
+            // Moonlight-style VSync frame replacement: always display the newest frame on next VSync (zero queue lag!)
+            if (latestVideoFrame) {
+              latestVideoFrame.close();
+            }
+            latestVideoFrame = frame;
+          },
+          error: (err) => {
+            h264Errors++;
+            resetH264Decoder();
+            if (h264Errors >= 3) {
+              const notice = document.getElementById('screenNotice');
+              notice.textContent = `WebCodecs H.264 (${codecStr}) ไม่รองรับบนเบราว์เซอร์นี้ — สลับกลับ Smart JPEG อัตโนมัติ`;
+              notice.style.display = 'block';
+              document.getElementById('selCodec').value = 'tiles';
+              document.getElementById('selFPS').value = '24';
+              sendScreenConfig();
+            }
+          }
+        });
+        h264Decoder.configure({
+          codec: codecStr,
+          codedWidth: w,
+          codedHeight: h,
+          hardwareAcceleration: 'prefer-hardware',
+          optimizeForLatency: true
+        });
+        h264Configured = true;
+        startVideoRenderLoop();
+        return true;
+      } catch {
+        resetH264Decoder();
+        return false;
+      }
+    }
+
+    window.openRemoteScreen = (agentId, name, preferH264 = false) => {
+      closeScreenModal();
+      const modal = document.getElementById('screenModal');
+      const notice = document.getElementById('screenNotice');
+      notice.style.display = 'none';
+      notice.textContent = '';
+      document.getElementById('screenTitle').textContent = `🖥 Remote Desktop — ${name || agentId}` + (appVersion ? ` (v${appVersion})` : '');
+      document.getElementById('screenMeta').textContent = 'กำลังเชื่อมต่อ...';
+      modal.classList.add('open');
+
+      // Auto-select 60 FPS GPU H.264 when the remote host has FFmpeg ready and browser supports WebCodecs!
+      if (preferH264 && ('VideoDecoder' in window)) {
+        document.getElementById('selCodec').value = 'h264';
+        document.getElementById('selFPS').value = '60';
+      } else {
+        document.getElementById('selCodec').value = 'tiles';
+        document.getElementById('selFPS').value = '24';
+      }
+
+      const fps = document.getElementById('selFPS').value;
+      const quality = document.getElementById('selQuality').value;
+      const codec = document.getElementById('selCodec').value;
+      const maxW = document.getElementById('selScale').value;
+      const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}`;
+      screenWS = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
+      screenWS.binaryType = 'arraybuffer';
+      screenFrames = 0;
+      screenTotalFrames = 0;
+      screenBytesSec = 0;
+      screenEncoderLabel = codec.toUpperCase();
+
+      // Anti-black-screen watchdog: if no video frame rendered within 1.1s / 2.4s, request instant cached keyframe!
+      if (screenKeyRetry1) clearTimeout(screenKeyRetry1);
+      if (screenKeyRetry2) clearTimeout(screenKeyRetry2);
+      screenKeyRetry1 = setTimeout(() => {
+        if (screenTotalFrames === 0 && screenWS && screenWS.readyState === WebSocket.OPEN) {
+          sendInput({ type: 'keyframe' });
+        }
+      }, 1100);
+      screenKeyRetry2 = setTimeout(() => {
+        if (screenTotalFrames === 0 && screenWS && screenWS.readyState === WebSocket.OPEN) {
+          resetH264Decoder();
+          sendInput({ type: 'keyframe' });
+        }
+      }, 2400);
+
+      screenFPSTimer = setInterval(() => {
+        const meta = document.getElementById('screenMeta');
+        if (screenWS && screenWS.readyState === WebSocket.OPEN && canvas.width > 0) {
+          if (screenFrames === 0 && screenBytesSec === 0) {
+            meta.textContent = `${canvas.width}×${canvas.height} · Idle (จอนิ่ง) · ${screenEncoderLabel}`;
+          } else {
+            meta.textContent = `${canvas.width}×${canvas.height} · ${screenFrames} FPS · ${fmtBytes(screenBytesSec)}/s · ${screenEncoderLabel}`;
+          }
+        }
+        screenFrames = 0;
+        screenBytesSec = 0;
+      }, 1000);
+
+      let tileQueue = Promise.resolve();
+
+      screenWS.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'init') {
+            screenAllowInput = !!msg.allow_input;
+            document.getElementById('chkControl').checked = screenAllowInput;
+            document.getElementById('chkControl').disabled = !screenAllowInput;
+            syncCanvasCursor();
+            document.getElementById('screenMeta').textContent = `เชื่อมต่อสำเร็จ (${msg.width}×${msg.height})`;
+            canvas.focus();
+          } else if (msg.type === 'info') {
+            if (msg.encoder) screenEncoderLabel = msg.encoder;
+            if (msg.codec && document.getElementById('selCodec').value !== msg.codec) {
+              document.getElementById('selCodec').value = msg.codec;
+            }
+            // Only show the notice banner for warnings/fallbacks; normal GPU H.264 info is shown cleanly in the top badge.
+            if (msg.notice && msg.codec !== 'h264') {
+              notice.textContent = msg.notice;
+              notice.style.display = 'block';
+            } else {
+              notice.style.display = 'none';
+            }
+          } else if (msg.type === 'error') {
+            document.getElementById('screenMeta').textContent = `ข้อผิดพลาด: ${msg.error}`;
+          }
+          return;
+        }
+
+        const raw = new Uint8Array(ev.data);
+        if (raw.length < 2) return;
+        screenBytesSec += raw.length;
+        const fType = raw[0];
+        const buf = raw.subarray(1);
+        const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+        if (fType === 0x04) {
+          if (buf.length < 10) return;
+          const seq = dv.getUint32(0);
+          const sw = dv.getUint16(4);
+          const sh = dv.getUint16(6);
+          const count = dv.getUint16(8);
+          const tiles = [];
+          let off = 10;
+          for (let i = 0; i < count && off + 13 <= buf.length; i++) {
+            const x = dv.getUint16(off);
+            const y = dv.getUint16(off + 2);
+            const tw = dv.getUint16(off + 4);
+            const th = dv.getUint16(off + 6);
+            const tCodec = buf[off + 8];
+            const dLen = dv.getUint32(off + 9);
+            off += 13;
+            if (off + dLen > buf.length) break;
+            const mime = tCodec === 1 ? 'image/png' : 'image/jpeg';
+            tiles.push({ x, y, tw, th, blob: new Blob([buf.subarray(off, off + dLen)], { type: mime }) });
+            off += dLen;
+          }
+          tileQueue = tileQueue.then(async () => {
+            try {
+              const bitmaps = await Promise.all(tiles.map(t => createImageBitmap(t.blob)));
+              if (canvas.width !== sw || canvas.height !== sh) {
+                canvas.width = sw;
+                canvas.height = sh;
+              }
+              for (let i = 0; i < bitmaps.length; i++) {
+                const t = tiles[i];
+                ctx2d.drawImage(bitmaps[i], t.x, t.y, t.tw, t.th);
+                bitmaps[i].close();
+              }
+              screenFrames++;
+            } catch {}
+            if (screenWS && screenWS.readyState === WebSocket.OPEN) {
+              screenWS.send(JSON.stringify({ type: 'ack', seq }));
+            }
+          });
+        } else if (fType === 0x05) {
+          if (buf.length < 10) return;
+          const seq = dv.getUint32(0);
+          const sw = dv.getUint16(4);
+          const sh = dv.getUint16(6);
+          const isKey = (buf[8] & 1) === 1;
+          const nal = buf.subarray(9);
+          if (h264WaitingKey && !isKey) return;
+          if (!ensureH264Decoder(nal, sw, sh)) {
+            notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.264 — สลับกลับ Smart Tiles อัตโนมัติ';
+            notice.style.display = 'block';
+            document.getElementById('selCodec').value = 'tiles';
+            sendScreenConfig();
+            return;
+          }
+          h264WaitingKey = false;
+          // Only recover decoder on genuine severe stall (>24 queued frames = 400ms), NOT normal TCP micro-bursts!
+          // (Previous >5 threshold killed the decoder on normal 6-frame WSS TCP bursts, dropping FPS to ~25!)
+          if (h264Decoder.decodeQueueSize > 24 && !isKey) {
+            resetH264Decoder();
+            sendInput({ type: 'keyframe' });
+            return;
+          }
+          try {
+            h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: Math.round(performance.now() * 1000), data: nal }));
+          } catch {
+            h264WaitingKey = true;
+          }
+        } else if (fType === 0x01) {
+          if (buf.length <= 4) return;
+          const sw = dv.getUint16(0);
+          const sh = dv.getUint16(2);
+          const blob = new Blob([buf.subarray(4)], { type: 'image/jpeg' });
+          tileQueue = tileQueue.then(async () => {
+            try {
+              const bmp = await createImageBitmap(blob);
+              if (canvas.width !== sw || canvas.height !== sh) {
+                canvas.width = sw;
+                canvas.height = sh;
+              }
+              ctx2d.drawImage(bmp, 0, 0, sw, sh);
+              bmp.close();
+              screenFrames++;
+            } catch {}
+          });
+        }
+      };
+
+      screenWS.onclose = () => {
+        resetH264Decoder();
+        document.getElementById('screenMeta').textContent = 'ตัดการเชื่อมต่อแล้ว';
+      };
+    };
+
+    window.closeScreenModal = () => {
+      stopVideoRenderLoop();
+      resetH264Decoder();
+      if (screenKeyRetry1) { clearTimeout(screenKeyRetry1); screenKeyRetry1 = null; }
+      if (screenKeyRetry2) { clearTimeout(screenKeyRetry2); screenKeyRetry2 = null; }
+      canvas.classList.remove('hide-local-cursor');
+      if (screenFPSTimer) { clearInterval(screenFPSTimer); screenFPSTimer = null; }
+      if (screenWS) { screenWS.close(); screenWS = null; }
+      document.getElementById('screenModal').classList.remove('open');
+    };
+
+    function sendInput(ev) {
+      if (!screenWS || screenWS.readyState !== WebSocket.OPEN) return;
+      if (ev.type !== 'config' && ev.type !== 'keyframe' && ev.type !== 'ack' &&
+          (!screenAllowInput || !document.getElementById('chkControl').checked)) return;
+      screenWS.send(JSON.stringify(ev));
+    }
+
+    window.sendScreenConfig = () => {
+      resetH264Decoder();
+      sendInput({
+        type: 'config',
+        fps: parseInt(document.getElementById('selFPS').value, 10),
+        quality: parseInt(document.getElementById('selQuality').value, 10),
+        codec: document.getElementById('selCodec').value,
+        max_width: parseInt(document.getElementById('selScale').value, 10)
+      });
+    };
+
+    window.sendQuickText = () => {
+      const el = document.getElementById('txtSendText');
+      if (!el.value) return;
+      sendInput({ type: 'key_text', text: el.value });
+      el.value = '';
+    };
+    window.sendSpecialKey = (key) => {
+      sendInput({ type: 'key_down', key });
+      sendInput({ type: 'key_up', key });
+    };
+    window.toggleFullscreen = () => {
+      const el = document.getElementById('screenModal');
+      if (!document.fullscreenElement) el.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    };
+
+    function normCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      };
+    }
+    function btnName(b) { return b === 2 ? 'right' : (b === 1 ? 'middle' : 'left'); }
+
+    let pendingMovePos = null;
+    let pendingMoveTimer = null;
+    function flushPendingMove() {
+      if (pendingMoveTimer) { clearTimeout(pendingMoveTimer); pendingMoveTimer = null; }
+      if (!pendingMovePos) return;
+      const p = pendingMovePos;
+      pendingMovePos = null;
+      lastMoveSent = performance.now();
+      sendInput({ type: 'mouse_move', x: p.x, y: p.y });
+    }
+
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+    canvas.addEventListener('pointermove', e => {
+      const p = normCoords(e);
+      const now = performance.now();
+      if (now - lastMoveSent >= 6) {
+        pendingMovePos = p;
+        flushPendingMove();
+      } else {
+        pendingMovePos = p;
+        if (!pendingMoveTimer) {
+          pendingMoveTimer = setTimeout(flushPendingMove, 6 - (now - lastMoveSent));
+        }
+      }
+    });
+    canvas.addEventListener('pointerdown', e => {
+      canvas.focus();
+      flushPendingMove();
+      const p = normCoords(e);
+      sendInput({ type: 'mouse_down', x: p.x, y: p.y, button: btnName(e.button) });
+    });
+    canvas.addEventListener('pointerup', e => {
+      flushPendingMove();
+      const p = normCoords(e);
+      sendInput({ type: 'mouse_up', x: p.x, y: p.y, button: btnName(e.button) });
+    });
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const p = normCoords(e);
+      sendInput({ type: 'mouse_wheel', x: p.x, y: p.y, delta_y: Math.round(e.deltaY) });
+    }, { passive: false });
+    const heldCodes = new Set();
+    canvas.addEventListener('keydown', e => {
+      e.preventDefault();
+      if (e.code) heldCodes.add(e.code);
+      sendInput({ type: 'key_down', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
+    });
+    canvas.addEventListener('keyup', e => {
+      e.preventDefault();
+      if (e.code) heldCodes.delete(e.code);
+      sendInput({ type: 'key_up', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
+    });
+    window.addEventListener('blur', () => {
+      if (heldCodes.size === 0) return;
+      heldCodes.forEach(code => sendInput({ type: 'key_up', code }));
+      heldCodes.clear();
+    });
+
+    // ---- Remote Terminal ----
+    let shellWS = null;
+    window.openRemoteShell = (agentId, name) => {
+      closeShellModal();
+      const modal = document.getElementById('shellModal');
+      const out = document.getElementById('termOut');
+      out.textContent = `กำลังเชื่อมต่อ Terminal ไปยัง ${name || agentId}...\n`;
+      document.getElementById('shellTitle').textContent = `💻 Remote Terminal — ${name || agentId}`;
+      document.getElementById('shellMeta').textContent = 'Connecting...';
+      modal.classList.add('open');
+
+      shellWS = new WebSocket(`${wsBaseURL()}/ws/remote/shell?agent_id=${encodeURIComponent(agentId)}`);
+      shellWS.onopen = () => {
+        document.getElementById('shellMeta').textContent = 'Connected';
+        document.getElementById('termInput').focus();
+      };
+      shellWS.onmessage = (ev) => {
+        out.textContent += ev.data;
+        out.scrollTop = out.scrollHeight;
+      };
+      shellWS.onclose = () => {
+        document.getElementById('shellMeta').textContent = 'Disconnected';
+        out.textContent += '\n[Session Closed]\n';
+      };
+    };
+    window.closeShellModal = () => {
+      if (shellWS) { shellWS.close(); shellWS = null; }
+      document.getElementById('shellModal').classList.remove('open');
+    };
+    window.sendShellCmd = () => {
+      const el = document.getElementById('termInput');
+      if (!shellWS || shellWS.readyState !== WebSocket.OPEN) return;
+      const cmd = el.value;
+      const out = document.getElementById('termOut');
+      out.textContent += `> ${cmd}\n`;
+      out.scrollTop = out.scrollHeight;
+      shellWS.send(cmd + '\n');
+      el.value = '';
+    };
+
+    // ---- Actions ----
+    window.portalLogin = async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('loginErr');
+      errEl.textContent = '';
+      try {
+        await api('/api/portal/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            client_id: document.getElementById('lClientId').value,
+            token: document.getElementById('lToken').value
+          })
+        });
+        poll();
+      } catch (err) { errEl.textContent = err.message; }
+    };
+    window.portalLogout = async () => { await api('/api/portal/logout', { method: 'POST' }); poll(); };
+    window.toggleAgentPause = async (paused) => { await api('/api/agent/pause', { method: 'POST', body: JSON.stringify({ paused }) }); poll(); };
+    window.killAgentSessions = async () => { await api('/api/agent/disconnect-all', { method: 'POST' }); showToast('ตัดเซสชันทั้งหมดแล้ว'); poll(); };
+    window.refreshAgents = async () => { await api('/api/client/refresh', { method: 'POST' }).catch(() => {}); poll(); };
+    window.quickFill = (agentId, name, targetAddr) => {
+      const port = targetAddr.split(':').pop();
+      const lp = port === '3389' ? '13389' : (port === '22' ? '2222' : '1' + port);
+      document.getElementById('fName').value = `${agentId} ${name}`;
+      document.getElementById('fLocal').value = `127.0.0.1:${lp}`;
+      document.getElementById('fAgent').value = agentId;
+      document.getElementById('fTarget').value = targetAddr;
+    };
+    window.createTunnel = async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('formErr');
+      errEl.textContent = '';
+      try {
+        await api('/api/client/tunnels', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: document.getElementById('fName').value,
+            local_addr: document.getElementById('fLocal').value,
+            agent_id: document.getElementById('fAgent').value,
+            target_addr: document.getElementById('fTarget').value,
+            enabled: true
+          })
+        });
+        document.getElementById('fName').value = '';
+        showToast('เปิด Tunnel แล้ว');
+        poll();
+      } catch (err) { errEl.textContent = err.message; }
+    };
+    window.toggleTunnel = async (id, enabled) => {
+      await api(`/api/client/tunnels/${encodeURIComponent(id)}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) });
+      poll();
+    };
+    window.deleteTunnel = async (id) => {
+      await api(`/api/client/tunnels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      poll();
+    };
+
+    // ---- Peer Actions ----
+    window.toggleHidePIN = () => { hidePIN = !hidePIN; poll(); };
+    window.copyText = async (txt, msg = 'คัดลอกแล้ว') => {
+      try { await navigator.clipboard.writeText(txt); } catch {}
+      showToast('✓ ' + msg);
+    };
+    window.copyMyTicket = async () => {
+      const box = document.getElementById('myTicketBox');
+      if (!box) return;
+      try { await navigator.clipboard.writeText(box.value); } catch { box.select(); document.execCommand('copy'); }
+      showToast('✓ คัดลอก Peer Ticket แล้ว');
+    };
+    window.peerRotatePIN = async () => {
+      await api('/api/peer/pin/rotate', { method: 'POST' });
+      showToast('สุ่ม PIN ใหม่แล้ว');
+      poll();
+    };
+    window.peerSavePermPass = async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/peer/password', {
+          method: 'POST',
+          body: JSON.stringify({ password: document.getElementById('pPermPass').value })
+        });
+        document.getElementById('pPermPass').value = '';
+        showToast('✓ บันทึกรหัสผ่านถาวรแล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerClearPermPass = async () => {
+      await api('/api/peer/password', { method: 'POST', body: JSON.stringify({ password: '' }) });
+      showToast('ลบรหัสผ่านถาวรแล้ว');
+      poll();
+    };
+    window.peerToggleApprovalMode = async (req) => {
+      await api('/api/peer/approval-mode', { method: 'POST', body: JSON.stringify({ require_approval: req }) });
+      showToast(req ? 'เปิดโหมดขออนุมัติก่อนเชื่อมต่อแล้ว' : 'ปิดโหมดขออนุมัติแล้ว');
+      poll();
+    };
+    window.peerToggleVPN = async (enabled) => {
+      try {
+        await api('/api/peer/vpn', { method: 'POST', body: JSON.stringify({ enabled }) });
+        showToast(enabled ? '🛡 เปิดการ์ดแลนจำลอง L3 VPN สำเร็จ!' : 'ปิด L3 VPN แล้ว');
+      } catch (err) {
+        showToast('⚠ ' + err.message);
+      }
+      poll();
+    };
+    window.peerRunBootstrap = async () => {
+      await api('/api/peer/bootstrap', { method: 'POST' });
+      showToast('⬇ เริ่มติดตั้ง FFmpeg + Cloudflared + Wintun อัตโนมัติแล้ว');
+      poll();
+    };
+    window.peerInstallApp = async () => {
+      try {
+        showToast('📦 กำลังติดตั้ง APN ลงเครื่อง...');
+        await api('/api/peer/install', { method: 'POST' });
+        showToast('✓ ติดตั้ง APN สำเร็จ! สร้างไอคอน Desktop + Start Menu + Auto-Start แล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerUninstallApp = async () => {
+      if (!confirm('ถอนการติดตั้ง APN และลบ Shortcut / Auto-Start ใช่หรือไม่? (ประวัติเครื่องจะยังคงเก็บไว้)')) return;
+      try {
+        await api('/api/peer/uninstall', { method: 'POST' });
+        showToast('✓ ถอนการติดตั้ง APN แล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerCheckUpdate = async () => {
+      try {
+        showToast('🔄 กำลังเช็กเวอร์ชันใหม่...');
+        const res = await api('/api/peer/update/check', { method: 'POST' });
+        await poll();
+        if (res.update?.update_available) {
+          showToast(`⬆️ พบ APN เวอร์ชันใหม่ v${res.update.latest_version}!`);
+        } else {
+          showToast(`✓ คุณใช้ APN เวอร์ชันล่าสุดแล้ว (v${appVersion || '1.1.0'})`);
+        }
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerApplyUpdate = async () => {
+      try {
+        await api('/api/peer/update/apply', { method: 'POST' });
+        showToast('⚡ กำลังดาวน์โหลดและอัปเดต APN อัตโนมัติ...');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerToggleBridge = async (enabled) => {
+      try {
+        await api('/api/peer/bridge', { method: 'POST', body: JSON.stringify({ enabled }) });
+        showToast(enabled ? '🌐 กำลังเปิดท่อข้ามเน็ต 443 อัตโนมัติ...' : 'ปิดท่อข้ามเน็ต 443 แล้ว');
+      } catch (err) {
+        showToast('⚠ ' + err.message);
+      }
+      poll();
+    };
+    window.peerApprove = async (id, allow) => {
+      await api(`/api/peer/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ allow }) });
+      showToast(allow ? '✓ อนุญาตการเชื่อมต่อแล้ว' : '✕ ปฏิเสธการเชื่อมต่อแล้ว');
+      poll();
+    };
+    window.saveRendezvous = async (e) => {
+      e.preventDefault();
+      await api('/api/peer/rendezvous', { method: 'POST', body: JSON.stringify({ url: document.getElementById('pRdvURL').value }) });
+      showToast('✓ บันทึก Rendezvous URL แล้ว');
+      poll();
+    };
+    window.fillEasyLAN = (idOrAddr) => {
+      document.getElementById('pRemoteID').value = idOrAddr;
+      document.getElementById('pRemotePass').focus();
+      showToast('กรอก ID แล้ว ใส่ PIN เพื่อเชื่อมต่อได้เลย');
+    };
+    function setPeerErr(msg) {
+      const el = document.getElementById('peerErr');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.style.display = msg ? 'block' : 'none';
+    }
+    window.peerEasyConnect = async (e, openDesktopNow) => {
+      if (e) e.preventDefault();
+      const target = document.getElementById('pRemoteID').value.trim();
+      const password = document.getElementById('pRemotePass').value;
+      const rememberPassword = document.getElementById('chkRememberPass')?.checked ?? true;
+      if (!target) { setPeerErr('กรุณากรอกรหัสเครื่องปลายทาง'); return; }
+      setPeerErr('กำลังเชื่อมต่อ...');
+      try {
+        const info = await api('/api/peer/connect', {
+          method: 'POST',
+          body: JSON.stringify({
+            device_id: target,
+            password,
+            remember_password: rememberPassword,
+            use_saved_password: password === ''
+          })
+        });
+        setPeerErr('');
+        document.getElementById('pRemotePass').value = '';
+        showToast('✓ เชื่อมต่อสำเร็จ!');
+        await poll();
+        if (openDesktopNow && info && info.id && info.capabilities?.allow_screen) {
+          openRemoteScreen(info.id, info.name || info.device_id, !!info.capabilities?.has_ffmpeg);
+        }
+      } catch (err) { setPeerErr(err.message); }
+    };
+    window.peerQuickReconnect = async (deviceId, name, hasSavedPass) => {
+      const idBox = document.getElementById('pRemoteID');
+      const passBox = document.getElementById('pRemotePass');
+      if (!hasSavedPass) {
+        if (idBox) idBox.value = deviceId;
+        if (passBox) { passBox.value = ''; passBox.focus(); }
+        showToast(`กรอกรหัสผ่านของ ${name || fmtDevID(deviceId)} เพื่อเชื่อมต่อ`);
+        return;
+      }
+      showToast(`⏳ กำลังเชื่อมต่อ ${name || fmtDevID(deviceId)}...`);
+      setPeerErr(`กำลังเชื่อมต่อ ${name || fmtDevID(deviceId)}...`);
+      try {
+        const info = await api('/api/peer/connect', {
+          method: 'POST',
+          body: JSON.stringify({ device_id: deviceId, use_saved_password: true })
+        });
+        setPeerErr('');
+        showToast('✓ เชื่อมต่อสำเร็จ!');
+        await poll();
+        if (info && info.id && info.capabilities?.allow_screen) {
+          openRemoteScreen(info.id, info.name || info.device_id, !!info.capabilities?.has_ffmpeg);
+        }
+      } catch (err) {
+        if (idBox) idBox.value = deviceId;
+        if (passBox) passBox.focus();
+        setPeerErr(err.message);
+        showToast('⚠ ' + err.message);
+      }
+    };
+    window.peerRefreshSaved = async () => {
+      showToast('↻ กำลังเช็กสถานะออนไลน์...');
+      try {
+        await api('/api/peer/saved/refresh', { method: 'POST' });
+        await poll();
+        showToast('✓ อัปเดตสถานะออนไลน์แล้ว');
+      } catch {}
+    };
+    window.peerRenameSaved = async (deviceId, currentName) => {
+      const next = prompt('ตั้งชื่อเครื่องสำหรับแสดงในประวัติ:', currentName || '');
+      if (!next || !next.trim()) return;
+      try {
+        await api(`/api/peer/saved/${encodeURIComponent(deviceId)}/rename`, {
+          method: 'POST',
+          body: JSON.stringify({ name: next.trim() })
+        });
+        showToast('✓ เปลี่ยนชื่อเครื่องแล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerClearSavedPass = async (deviceId) => {
+      try {
+        await api(`/api/peer/saved/${encodeURIComponent(deviceId)}/clear-password`, { method: 'POST' });
+        showToast('🔓 ลืมรหัสผ่านที่จำไว้แล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerDeleteSaved = async (deviceId) => {
+      if (!confirm('ลบเครื่องนี้ออกจากประวัติใช่หรือไม่?')) return;
+      try {
+        await api(`/api/peer/saved/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+        showToast('🗑 ลบออกจากประวัติแล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerRefreshSTUN = async () => {
+      await api('/api/peer/stun', { method: 'POST' }).catch(() => {});
+      showToast('อัปเดต STUN แล้ว');
+      poll();
+    };
+    window.savePublicWS = async (e) => {
+      e.preventDefault();
+      await api('/api/peer/public-ws', { method: 'POST', body: JSON.stringify({ url: document.getElementById('pPubWS').value }) });
+      showToast('✓ บันทึก WSS URL แล้ว');
+      poll();
+    };
+    window.peerConnectTicket = async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('peerErr');
+      errEl.textContent = 'กำลังเชื่อมต่อด้วย Ticket...';
+      try {
+        await api('/api/peer/connect', { method: 'POST', body: JSON.stringify({ ticket: document.getElementById('pTicket').value }) });
+        document.getElementById('pTicket').value = '';
+        errEl.textContent = '';
+        showToast('✓ เชื่อมต่อสำเร็จ!');
+        poll();
+      } catch (err) { errEl.textContent = err.message; }
+    };
+    window.peerDisconnect = async (id) => {
+      await api(`/api/peer/peers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      showToast('ตัดการเชื่อมต่อแล้ว');
+      poll();
+    };
+    window.peerTogglePause = async (paused) => {
+      await api('/api/peer/pause', { method: 'POST', body: JSON.stringify({ paused }) });
+      showToast(paused ? '⏸ พักการรับรีโมตแล้ว' : '▶ เปิดรับรีโมตแล้ว');
+      poll();
+    };
+    window.peerKillAll = async () => {
+      await api('/api/peer/disconnect-all', { method: 'POST' });
+      showToast('⛔ ตัดเซสชันทั้งหมดแล้ว');
+      poll();
+    };
+    window.peerQuickFill = (peerId, name, targetAddr) => {
+      toggleSettingsDrawer(true);
+      setTimeout(() => {
+        const port = targetAddr.split(':').pop();
+        const lp = port === '3389' ? '13389' : (port === '22' ? '2222' : '1' + port);
+        const n = document.getElementById('ptName');
+        const l = document.getElementById('ptLocal');
+        const p = document.getElementById('ptPeer');
+        const t = document.getElementById('ptTarget');
+        if (n) n.value = `${peerId} ${name}`;
+        if (l) l.value = `127.0.0.1:${lp}`;
+        if (p) p.value = peerId;
+        if (t) t.value = targetAddr;
+      }, 40);
+    };
+    window.peerCreateTunnel = async (e) => {
+      e.preventDefault();
+      await api('/api/peer/tunnels', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('ptName').value,
+          local_addr: document.getElementById('ptLocal').value,
+          peer_id: document.getElementById('ptPeer').value,
+          target_addr: document.getElementById('ptTarget').value,
+          enabled: true
+        })
+      });
+      document.getElementById('ptName').value = '';
+      showToast('✓ เปิด TCP Tunnel แล้ว');
+      poll();
+    };
+    window.peerToggleTunnel = async (id, enabled) => {
+      await api(`/api/peer/tunnels/${encodeURIComponent(id)}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) });
+      poll();
+    };
+    window.peerDeleteTunnel = async (id) => {
+      await api(`/api/peer/tunnels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      poll();
+    };
+
+    async function poll() {
+      const activeTag = document.activeElement?.tagName;
+      if ((lastMode === 'client' || lastMode === 'portal_login' || lastMode === 'peer') &&
+          (activeTag === 'INPUT' || activeTag === 'SELECT')) {
+        return;
+      }
+      if (document.getElementById('screenModal').classList.contains('open') ||
+          document.getElementById('shellModal').classList.contains('open')) {
+        return;
+      }
+      try {
+        const res = await api('/api/status');
+        lastMode = res.mode;
+        if (res.version) appVersion = res.version;
+        const isPeer = res.mode === 'peer';
+        document.body.classList.toggle('peer-desktop', isPeer);
+        const btnSet = document.getElementById('btnSettings');
+        if (btnSet) btnSet.style.display = isPeer ? 'inline-flex' : 'none';
+        if (res.mode === 'server') renderServer(res.data);
+        else if (res.mode === 'agent') renderAgent(res.data);
+        else if (res.mode === 'client') renderClient(res.data);
+        else if (res.mode === 'peer') renderPeer(res.data);
+        else if (res.mode === 'portal') renderPortal(res.data);
+        else if (res.mode === 'portal_login') renderPortalLogin();
+      } catch (e) {
+        setHeaderBadge(lastMode || 'offline', 'Disconnected', 'danger');
+      }
+    }
+
+    initTheme();
+    poll();
+    setInterval(poll, 2500);
+  </script>
+</body>
+</html>

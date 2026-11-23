@@ -1,0 +1,14 @@
+# Built binaries & local runtime configs/secrets (never commit private keys or peer.json!)
+dist/
+release-dist/
+peer-config/
+peer-*/
+config/
+*.exe
+*.dll
+*.old
+*.tmp
+*.log
+*.crt
+*.key
+!cmd/relayvpn/rsrc_windows_*.syso
