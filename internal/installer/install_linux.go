@@ -84,6 +84,7 @@ Description=APN Remote Desktop & VPN
 After=network-online.target
 
 [Service]
+Environment=APN_SYSTEMD_SERVICE=1
 ExecStart=%s peer -tray
 Restart=always
 RestartSec=3
