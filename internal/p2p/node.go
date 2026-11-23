@@ -344,6 +344,7 @@ func NewNode(cfg *config.PeerConfig, logger *slog.Logger) (*Node, error) {
 		node.SetPublicWSURL(u)
 	})
 	node.depsMgr.SetOnReady(func() {
+		remote.WarmupH264Encoder()
 		if node.cfg.EnableBridge && node.rootCtx != nil && node.wsPort > 0 {
 			_ = node.bridge.Start(node.rootCtx, node.wsPort)
 		}
@@ -406,6 +407,9 @@ func (n *Node) ApplyUpdate(ctx context.Context) error {
 
 // StartAutoDeps installs missing runtime dependencies (wintun.dll + stable ffmpeg.exe) in the background.
 func (n *Node) StartAutoDeps(ctx context.Context) bool {
+	if bootstrap.HasFFmpeg() {
+		remote.WarmupH264Encoder()
+	}
 	if n.depsMgr == nil {
 		return false
 	}

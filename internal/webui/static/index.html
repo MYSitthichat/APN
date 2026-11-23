@@ -2623,18 +2623,19 @@
       screenEncoderLabel = codec.toUpperCase();
 
       // Anti-black-screen watchdog:
-      // 1.0s -> request keyframe, 2.2s -> reset decoder + keyframe, 4.2s -> auto-fallback to Smart Tiles so screen NEVER stays black!
+      // 1.5s -> request keyframe, 3.5s -> reset decoder + keyframe,
+      // 9.5s -> auto-fallback to Smart Tiles (gives a brand-new host enough time to finish first-run GPU probe!)
       screenKeyRetry1 = setTimeout(() => {
         if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN) {
           sendInput({ type: 'keyframe' });
         }
-      }, 1000);
+      }, 1500);
       screenKeyRetry2 = setTimeout(() => {
         if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN) {
           resetH264Decoder();
           sendInput({ type: 'keyframe' });
         }
-      }, 2200);
+      }, 3500);
       screenFallbackTimer = setTimeout(() => {
         if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN &&
             document.getElementById('selCodec').value === 'h264') {
@@ -2644,7 +2645,7 @@
           document.getElementById('selFPS').value = '24';
           sendScreenConfig();
         }
-      }, 4200);
+      }, 9500);
 
       screenFPSTimer = setInterval(() => {
         const meta = document.getElementById('screenMeta');

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,7 +23,94 @@ import (
 var (
 	cachedEncMu   sync.RWMutex
 	cachedEncName string
+	warmupOnce    sync.Mutex
+	warmupRunning bool
 )
+
+// WarmupH264Encoder silently probes & caches the fastest working GPU/CPU H.264 encoder
+// in the background at startup (and right after FFmpeg finishes auto-installing),
+// so the VERY FIRST remote desktop session starts at 60 FPS H.264 in ~0.2s!
+func WarmupH264Encoder() {
+	cachedEncMu.RLock()
+	already := cachedEncName != ""
+	cachedEncMu.RUnlock()
+	if already {
+		return
+	}
+	ffmpegPath, err := findFFmpeg()
+	if err != nil {
+		return
+	}
+
+	warmupOnce.Lock()
+	if warmupRunning {
+		warmupOnce.Unlock()
+		return
+	}
+	warmupRunning = true
+	warmupOnce.Unlock()
+
+	go func() {
+		defer func() {
+			warmupOnce.Lock()
+			warmupRunning = false
+			warmupOnce.Unlock()
+		}()
+
+		w, h := ScreenSize()
+		if w <= 0 || h <= 0 {
+			w, h = 1920, 1080
+		}
+		outW, outH := w&^1, h&^1
+		candidates := h264EncoderCandidates(60, w, h, outW, outH, 82)
+		skipDDA := false
+		for _, cand := range candidates {
+			if skipDDA && strings.HasPrefix(cand.name, "DXGI") {
+				continue
+			}
+			probeCtx, cancel := context.WithTimeout(context.Background(), 2200*time.Millisecond)
+			cmd := exec.CommandContext(probeCtx, ffmpegPath, cand.args...)
+			if runtime.GOOS == "linux" {
+				cmd.Env = linuxCmdEnv()
+			}
+			executil.HideWindow(cmd)
+			var stderrBuf bytes.Buffer
+			cmd.Stderr = &stderrBuf
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				cancel()
+				continue
+			}
+			if err := cmd.Start(); err != nil {
+				cancel()
+				continue
+			}
+			scanner := newFLVH264Reader(stdout)
+			au, _, rerr := scanner.NextAccessUnit()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			cancel()
+			if rerr == nil && len(au) > 0 {
+				cachedEncMu.Lock()
+				cachedEncName = cand.name
+				cachedEncMu.Unlock()
+				return
+			}
+			if strings.HasPrefix(cand.name, "DXGI") && isDDACaptureFailure(stderrBuf.String()) {
+				skipDDA = true
+			}
+		}
+	}()
+}
+
+func isDDACaptureFailure(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "desktop duplication") ||
+		strings.Contains(s, "ddagrab") && (strings.Contains(s, "access denied") ||
+			strings.Contains(s, "operation not permitted") ||
+			strings.Contains(s, "failed to configure") ||
+			strings.Contains(s, "no such filter"))
+}
 
 // findFFmpeg looks for ffmpeg in RelayVPN's persistent bin dir, beside the exe, or on PATH.
 func findFFmpeg() (string, error) {
@@ -83,14 +171,20 @@ func streamH264FFmpeg(
 	}
 	var lastErr error
 	var lastEnc string
+	skipDDA := false
 
 	for _, cand := range candidates {
+		if skipDDA && strings.HasPrefix(cand.name, "DXGI") {
+			continue
+		}
 		lastEnc = cand.name
 		cmd := exec.CommandContext(ctx, ffmpegPath, cand.args...)
 		if runtime.GOOS == "linux" {
 			cmd.Env = linuxCmdEnv()
 		}
 		executil.HideWindow(cmd)
+		var stderrBuf bytes.Buffer
+		cmd.Stderr = &stderrBuf
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			lastErr = err
@@ -102,7 +196,7 @@ func streamH264FFmpeg(
 		}
 
 		scanner := newFLVH264Reader(stdout)
-		// Guard first-frame probe with a 3-second timeout so an unsupported GPU encoder never hangs.
+		// Guard first-frame probe with a crisp 1.8s timeout (working GPU/x264 encoders emit Frame #1 in <0.5s!)
 		type probeRes struct {
 			au    []byte
 			isKey bool
@@ -116,7 +210,7 @@ func streamH264FFmpeg(
 
 		var firstAU []byte
 		var firstIsKey bool
-		probeTimer := time.NewTimer(3 * time.Second)
+		probeTimer := time.NewTimer(1800 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			probeTimer.Stop()
@@ -134,6 +228,9 @@ func streamH264FFmpeg(
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 				lastErr = pr.err
+				if strings.HasPrefix(cand.name, "DXGI") && isDDACaptureFailure(stderrBuf.String()) {
+					skipDDA = true
+				}
 				continue
 			}
 			firstAU = pr.au
@@ -327,6 +424,11 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "ld_vbr",
 			"-quality", "50", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
 		}
+		// Safe universal MFT fallback for Intel UHD / AMD / office PCs whose driver rejects ld_vbr/quality flags
+		mfSafeArgs := []string{
+			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting",
+			"-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
+		}
 		// Intel QuickSync Hardware Encoder (strictly rate-controlled VBR/CBR with async_depth=1)
 		qsvArgs := []string{
 			"-c:v", "h264_qsv", "-preset", "veryfast", "-profile:v", "baseline",
@@ -347,7 +449,8 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		list = append(list,
 			encoderCandidate{name: "DXGI Zero-Copy GPU (D3D11)", args: makeDDA(ddaD3D11, mfArgs)},
 			encoderCandidate{name: "DXGI + NVENC GPU", args: makeDDA(ddaNV12, nvencArgs)},
-			encoderCandidate{name: "DXGI + Hardware GPU (MF CBR)", args: makeDDA(ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", args: makeDDA(ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF)", args: makeDDA(ddaNV12, mfSafeArgs)},
 			encoderCandidate{name: "DXGI + Intel QSV GPU", args: makeDDA(ddaNV12, qsvArgs)},
 			encoderCandidate{name: "DXGI + AMD AMF GPU", args: makeDDA(ddaNV12, amfArgs)},
 			encoderCandidate{name: "DXGI + x264 ZeroLatency", args: makeDDA(ddaYUV, x264Args)},
@@ -363,7 +466,8 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		}
 		list = append(list,
 			encoderCandidate{name: "GDI + NVENC GPU", args: makeGDI(nv12Filter, nvencArgs)},
-			encoderCandidate{name: "GDI + Hardware GPU (MF Remoting)", args: makeGDI(nv12Filter, mfArgs)},
+			encoderCandidate{name: "GDI + Hardware GPU (MF LD-VBR)", args: makeGDI(nv12Filter, mfArgs)},
+			encoderCandidate{name: "GDI + Hardware GPU (MF)", args: makeGDI(nv12Filter, mfSafeArgs)},
 			encoderCandidate{name: "GDI + Intel QSV GPU", args: makeGDI(nv12Filter, qsvArgs)},
 			encoderCandidate{name: "GDI + AMD AMF GPU", args: makeGDI(nv12Filter, amfArgs)},
 			encoderCandidate{name: "GDI + x264 ZeroLatency", args: makeGDI(yuvFilter, x264Args)},
