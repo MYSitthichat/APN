@@ -61,10 +61,22 @@ Terminal=false
 X-GNOME-Autostart-enabled=true
 `
 
+	launcherScript := `#!/bin/sh
+# Prefer user-updated binary (~/.local/bin/apn) when newer than system .deb binary
+USER_BIN="$HOME/.local/bin/apn"
+if [ -x "$USER_BIN" ] && [ "$USER_BIN" -nt /usr/lib/apn/apn ]; then
+  exec "$USER_BIN" "$@"
+fi
+exec /usr/lib/apn/apn "$@"
+`
+
 	dataEntries := []tarEntry{
 		{name: "./usr/", isDir: true, mode: 0o755},
 		{name: "./usr/bin/", isDir: true, mode: 0o755},
-		{name: "./usr/bin/apn", data: binData, mode: 0o755},
+		{name: "./usr/bin/apn", data: []byte(launcherScript), mode: 0o755},
+		{name: "./usr/lib/", isDir: true, mode: 0o755},
+		{name: "./usr/lib/apn/", isDir: true, mode: 0o755},
+		{name: "./usr/lib/apn/apn", data: binData, mode: 0o755},
 		{name: "./usr/share/", isDir: true, mode: 0o755},
 		{name: "./usr/share/applications/", isDir: true, mode: 0o755},
 		{name: "./usr/share/applications/apn.desktop", data: []byte(desktopEntry), mode: 0o644},

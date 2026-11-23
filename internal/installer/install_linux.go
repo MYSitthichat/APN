@@ -16,21 +16,36 @@ func InstallPath() string {
 	return filepath.Join(home, ".local", "bin", "apn")
 }
 
-// GetStatus checks whether APN is installed into ~/.local/bin/apn and systemd user service.
+// GetStatus checks whether APN is installed via .deb (/usr/bin/apn, /usr/lib/apn/apn)
+// or per-user (~/.local/bin/apn).
 func GetStatus() Status {
 	dst := InstallPath()
-	_, err := os.Stat(dst)
-	installed := err == nil
+	_, userErr := os.Stat(dst)
+	_, debBinErr := os.Stat("/usr/lib/apn/apn")
+	_, sysBinErr := os.Stat("/usr/bin/apn")
+	debInstalled := debBinErr == nil || sysBinErr == nil
+	installed := userErr == nil || debInstalled
+
 	curExe, _ := os.Executable()
+	cleanCur := filepath.Clean(curExe)
+	runningInstalled := cleanCur == filepath.Clean(dst) || cleanCur == "/usr/lib/apn/apn" || cleanCur == "/usr/bin/apn"
+
 	home, _ := os.UserHomeDir()
 	svcPath := filepath.Join(home, ".config", "systemd", "user", "apn.service")
 	_, svcErr := os.Stat(svcPath)
+	_, xdgAutoErr := os.Stat("/etc/xdg/autostart/apn.desktop")
+	_, userAutoErr := os.Stat(filepath.Join(home, ".config", "autostart", "apn.desktop"))
+
+	effectivePath := dst
+	if userErr != nil && debInstalled {
+		effectivePath = "/usr/bin/apn"
+	}
 
 	return Status{
 		Installed:        installed,
-		RunningInstalled: filepath.Clean(curExe) == filepath.Clean(dst),
-		AutoStart:        svcErr == nil,
-		InstallPath:      dst,
+		RunningInstalled: runningInstalled,
+		AutoStart:        svcErr == nil || xdgAutoErr == nil || userAutoErr == nil,
+		InstallPath:      effectivePath,
 		ConfigPath:       DefaultConfigPath(),
 		Platform:         currentPlatform(),
 	}

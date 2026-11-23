@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -200,8 +201,21 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 		return fmt.Errorf("ดาวน์โหลดไม่สำเร็จ (HTTP %d)", resp.StatusCode)
 	}
 
-	tmpPath := exePath + ".new"
+	targetPath := exePath
+	tmpPath := targetPath + ".new"
 	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil && runtime.GOOS != "windows" && errors.Is(err, os.ErrPermission) {
+		// System-installed Linux/macOS binary (e.g. /usr/bin/apn or /usr/lib/apn/apn from .deb owned by root):
+		// seamlessly stage & install the verified update into user-writable ~/.local/bin/apn with ZERO root prompt!
+		if home, herr := os.UserHomeDir(); herr == nil && home != "" {
+			userBinDir := filepath.Join(home, ".local", "bin")
+			if mkErr := os.MkdirAll(userBinDir, 0o755); mkErr == nil {
+				targetPath = filepath.Join(userBinDir, "apn")
+				tmpPath = targetPath + ".new"
+				out, err = os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+			}
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("สร้างไฟล์อัปเดตไม่ได้: %w", err)
 	}
@@ -274,15 +288,26 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.status.Stage = "กำลังสลับไฟล์และรีสตาร์ทเป็นเวอร์ชันใหม่..."
 	m.mu.Unlock()
 
-	oldPath := exePath + ".old"
+	oldPath := targetPath + ".old"
 	_ = os.Remove(oldPath)
-	if err := os.Rename(exePath, oldPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("สลับไฟล์เดิมไม่ได้: %w", err)
+	if _, statErr := os.Stat(targetPath); statErr == nil {
+		if err := os.Rename(targetPath, oldPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("สลับไฟล์เดิมไม่ได้: %w", err)
+		}
 	}
-	if err := os.Rename(tmpPath, exePath); err != nil {
-		_ = os.Rename(oldPath, exePath)
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		if _, statErr := os.Stat(oldPath); statErr == nil {
+			_ = os.Rename(oldPath, targetPath)
+		}
 		return fmt.Errorf("วางไฟล์ใหม่ไม่ได้: %w", err)
+	}
+	_ = os.Chmod(targetPath, 0o755)
+
+	// If Linux updated from a root-owned /usr/bin/apn into ~/.local/bin/apn, make sure XDG desktop/autostart
+	// entries also launch the updated user binary on future clicks & logins!
+	if runtime.GOOS == "linux" && filepath.Clean(targetPath) != filepath.Clean(exePath) {
+		syncLinuxUserDesktopOverride(targetPath)
 	}
 
 	m.mu.Lock()
@@ -293,13 +318,54 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	// Spawn the updated binary with -wait-old and -wait-pid=<currentPID> (WITHOUT -open, because the
 	// user's existing APN app window auto-reloads into the new version seamlessly!).
 	// The new process waits until THIS old PID completely terminates & frees port 8080 before starting!
-	cmd := exec.Command(exePath, "peer", "-tray-icon", "-wait-old", "-wait-pid", strconv.Itoa(os.Getpid()))
+	cmd := exec.Command(targetPath, "peer", "-tray-icon", "-wait-old", "-wait-pid", strconv.Itoa(os.Getpid()))
 	_ = cmd.Start()
 	time.Sleep(120 * time.Millisecond)
 	if onRestart != nil {
 		onRestart()
 	}
 	return nil
+}
+
+func syncLinuxUserDesktopOverride(userBin string) {
+	// If the new .deb smart launcher (/usr/lib/apn/apn) is present, /usr/bin/apn already
+	// auto-chains to ~/.local/bin/apn whenever it is newer — no duplicate user .desktop needed.
+	if _, err := os.Stat("/usr/lib/apn/apn"); err == nil {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	appDir := filepath.Join(home, ".local", "share", "applications")
+	if os.MkdirAll(appDir, 0o755) == nil {
+		desktop := fmt.Sprintf(`[Desktop Entry]
+Version=1.0
+Type=Application
+Name=APN
+GenericName=Remote Desktop & VPN
+Comment=High-Speed 60 FPS P2P Remote Desktop & Encrypted L3 VPN
+Exec=%s
+Icon=apn
+Terminal=false
+Categories=Network;RemoteAccess;
+StartupNotify=true
+`, userBin)
+		_ = os.WriteFile(filepath.Join(appDir, "apn.desktop"), []byte(desktop), 0o644)
+	}
+	autoDir := filepath.Join(home, ".config", "autostart")
+	if os.MkdirAll(autoDir, 0o755) == nil {
+		auto := fmt.Sprintf(`[Desktop Entry]
+Type=Application
+Name=APN Background Service
+Comment=Keep APN online for incoming remote access
+Exec=%s peer -tray
+Icon=apn
+Terminal=false
+X-GNOME-Autostart-enabled=true
+`, userBin)
+		_ = os.WriteFile(filepath.Join(autoDir, "apn.desktop"), []byte(auto), 0o644)
+	}
 }
 
 func (m *Manager) setErr(msg string) {
