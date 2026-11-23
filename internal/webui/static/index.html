@@ -575,6 +575,143 @@
     #remoteVideoCanvas.hide-local-cursor {
       cursor: none;
     }
+
+    /* TeamViewer-Style Dual-Pane File Transfer Modal */
+    .ft-grid {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 142px minmax(0, 1fr);
+      gap: 0;
+      background: #070b14;
+      overflow: hidden;
+    }
+    .ft-pane {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      border-right: 1px solid rgba(148, 163, 184, 0.16);
+      background: #0b1120;
+    }
+    .ft-pane:last-child {
+      border-right: none;
+      border-left: 1px solid rgba(148, 163, 184, 0.16);
+    }
+    .ft-pane-head {
+      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .ft-pane-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+    .ft-shortcuts {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .ft-shortcuts button {
+      padding: 4px 8px;
+      font-size: 0.74rem;
+      background: rgba(30, 41, 59, 0.9);
+      color: #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow: none;
+    }
+    .ft-path-row {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .ft-path-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 5px 9px;
+      font-size: 0.8rem;
+      background: rgba(4, 7, 15, 0.9);
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+    .ft-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 6px 8px;
+    }
+    .ft-row {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr) 78px 28px;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 9px;
+      border-radius: 8px;
+      font-size: 0.83rem;
+      cursor: pointer;
+      user-select: none;
+      border: 1px solid transparent;
+    }
+    .ft-row:hover {
+      background: rgba(56, 189, 248, 0.08);
+    }
+    .ft-row.selected {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+    .ft-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #f1f5f9;
+    }
+    .ft-name.is-dir {
+      color: #7dd3fc;
+      font-weight: 600;
+    }
+    .ft-size {
+      text-align: right;
+      color: #94a3b8;
+      font-size: 0.76rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .ft-center {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      gap: 12px;
+      padding: 14px 10px;
+      background: #070b14;
+    }
+    .ft-center button {
+      padding: 11px 8px;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+    @media (max-width: 900px) {
+      .ft-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto 1fr;
+      }
+      .ft-center {
+        flex-direction: row;
+        padding: 8px 12px;
+      }
+      .ft-pane {
+        border-right: none;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      }
+    }
     .saved-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(min(265px, 100%), 1fr));
@@ -1104,7 +1241,8 @@
     <div class="quick-bar">
       <input id="txtSendText" placeholder="พิมพ์ข้อความไทย/อังกฤษแล้วกด Enter เพื่อส่งเข้าเครื่องปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
       <button onclick="sendQuickText()">ส่งข้อความ</button>
-      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'})" title="ส่ง Win+Space เปลี่ยนภาษาไทย/อังกฤษที่เครื่องปลายทาง (หรือกดเต็มจอเพื่อใช้ Win+Space บนคีย์บอร์ดจริง)">🌐 เปลี่ยนภาษา (Win+Space)</button>
+      <button class="success" onclick="pasteClipboardToRemote(true)" title="วางรูปแคปหน้าจอ (Win+Shift+S) หรือข้อความจากคลิปบอร์ดเครื่องเราลงในแชทเครื่องปลายทางทันที (หรือกด Ctrl+V บนจอได้เลย)">📋 วางรูป/ข้อความ</button>
+      <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'})" title="ส่ง Win+Space เปลี่ยนภาษาไทย/อังกฤษที่เครื่องปลายทาง">🌐 เปลี่ยนภาษา</button>
       <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
       <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Escape')">Esc</button>
       <button class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
@@ -1132,44 +1270,81 @@
     </div>
   </div>
 
-  <!-- Zero-Cost P2P Encrypted File Transfer Modal -->
+  <!-- TeamViewer-Style Dual-Pane P2P File Transfer Modal -->
   <div id="filesModal" class="modal" style="z-index:1150">
     <div class="modal-bar">
       <div class="modal-controls">
-        <strong id="filesTitle">📁 โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)</strong>
-        <span id="filesMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">TLS 1.3 Direct</span>
+        <strong id="filesTitle">📁 โอนไฟล์ข้ามเครื่อง (TeamViewer Style · ฟรี 100%)</strong>
+        <span id="filesMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">P2P TLS 1.3 Direct</span>
       </div>
       <div class="modal-controls">
         <input id="fileUploadInput" type="file" multiple style="display:none" onchange="uploadSelectedFiles(this.files); this.value='';" />
-        <button class="success icon-btn" onclick="document.getElementById('fileUploadInput').click()">⬆ ส่งไฟล์ไปเครื่องนี้</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="createRemoteFolder()">+ โฟลเดอร์ใหม่</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="loadRemoteDir(filesCurrentPath)">↻ รีเฟรช</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="document.getElementById('fileUploadInput').click()">📂 เลือกไฟล์ส่งด่วน</button>
+        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="loadLocalDir(localCurrentPath); loadRemoteDir(filesCurrentPath);">↻ รีเฟรช 2 ฝั่ง</button>
         <button class="danger icon-btn" onclick="closeFilesModal()">✕ ปิด</button>
       </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;background:rgba(15,23,42,0.82);border-bottom:1px solid rgba(148,163,184,0.18)">
-      <div id="filesShortcuts" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-      <form onsubmit="event.preventDefault(); loadRemoteDir(document.getElementById('filesPathInput').value);" style="display:flex;gap:6px;flex:1;min-width:220px">
-        <button type="button" class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc;padding:6px 10px" onclick="goRemoteParentDir()" title="ขึ้นไป 1 ชั้น">⬆</button>
-        <input id="filesPathInput" type="text" placeholder="เส้นทางโฟลเดอร์ปลายทาง..." style="flex:1;background:rgba(7,11,20,0.9);color:#f8fafc;border:1px solid rgba(148,163,184,0.28);padding:6px 10px" />
-        <button type="submit" class="secondary" style="background:rgba(30,41,59,0.85);color:#f8fafc;padding:6px 12px">ไป</button>
-      </form>
-    </div>
-    <div id="filesTransferBar" style="display:none;padding:10px 16px;background:rgba(14,116,144,0.22);border-bottom:1px solid rgba(56,189,248,0.35)">
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.84rem;margin-bottom:6px">
-        <span id="filesTransferLabel" style="font-weight:700">กำลังส่งไฟล์...</span>
+
+    <div id="filesTransferBar" style="display:none;padding:9px 16px;background:rgba(14,116,144,0.25);border-bottom:1px solid rgba(56,189,248,0.4);flex-shrink:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.84rem;margin-bottom:5px;gap:10px">
+        <span id="filesTransferLabel" style="font-weight:700">กำลังโอนไฟล์...</span>
         <span id="filesTransferStats" style="color:#7dd3fc;font-variant-numeric:tabular-nums">0%</span>
       </div>
-      <div style="height:6px;background:rgba(15,23,42,0.75);border-radius:999px;overflow:hidden">
+      <div style="height:6px;background:rgba(15,23,42,0.8);border-radius:999px;overflow:hidden">
         <div id="filesTransferProgress" style="height:100%;width:4%;background:linear-gradient(90deg,#38bdf8,#10b981);transition:width 0.12s ease"></div>
       </div>
     </div>
-    <div id="filesDropZone" style="flex:1;overflow-y:auto;padding:14px 16px;background:#070b14;position:relative">
-      <div id="filesListBody" style="max-width:1180px;margin:0 auto"></div>
+
+    <div class="ft-grid">
+      <!-- LEFT PANE: LOCAL COMPUTER -->
+      <div class="ft-pane">
+        <div class="ft-pane-head">
+          <div class="ft-pane-title">
+            <span>💻 เครื่องนี้ (Local)</span>
+            <span id="localCountInfo" class="muted" style="font-size:0.74rem;font-weight:500">-</span>
+          </div>
+          <div id="localShortcuts" class="ft-shortcuts"></div>
+          <form class="ft-path-row" onsubmit="event.preventDefault(); loadLocalDir(document.getElementById('localPathInput').value);">
+            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="goLocalParentDir()" title="ขึ้น 1 ชั้น">⬆</button>
+            <input id="localPathInput" type="text" placeholder="โฟลเดอร์เครื่องนี้..." />
+            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="createLocalFolder()" title="สร้างโฟลเดอร์ใหม่">+📁</button>
+            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="loadLocalDir(localCurrentPath)" title="รีเฟรช">↻</button>
+          </form>
+        </div>
+        <div id="localListBody" class="ft-list"></div>
+      </div>
+
+      <!-- CENTER ACTION STRIP (TeamViewer Style!) -->
+      <div class="ft-center">
+        <button id="btnPushFiles" class="success" onclick="pushCheckedLocalFiles()" title="ส่งไฟล์ที่ติ๊กเลือกจากเครื่องนี้ไปโฟลเดอร์ฝั่งขวา">ส่งไป ➔</button>
+        <button id="btnPullFiles" style="background:linear-gradient(135deg,#0284c7,#38bdf8)" onclick="pullCheckedRemoteFiles()" title="ดึงไฟล์ที่ติ๊กเลือกจากเครื่องปลายทางมาเก็บในโฟลเดอร์ฝั่งซ้าย">⬅ ดึงมา</button>
+        <div class="muted" style="font-size:0.71rem;text-align:center;line-height:1.45;margin-top:4px">
+          ติ๊กเลือกไฟล์แล้วกดปุ่ม<br/>หรือดับเบิลคลิกโฟลเดอร์เพื่อเปิด
+        </div>
+      </div>
+
+      <!-- RIGHT PANE: REMOTE COMPUTER -->
+      <div class="ft-pane" id="filesDropZone">
+        <div class="ft-pane-head">
+          <div class="ft-pane-title">
+            <span id="remotePaneTitle">🌐 เครื่องปลายทาง (Remote)</span>
+            <span id="filesCountInfo" class="muted" style="font-size:0.74rem;font-weight:500">-</span>
+          </div>
+          <div id="filesShortcuts" class="ft-shortcuts"></div>
+          <form class="ft-path-row" onsubmit="event.preventDefault(); loadRemoteDir(document.getElementById('filesPathInput').value);">
+            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="goRemoteParentDir()" title="ขึ้น 1 ชั้น">⬆</button>
+            <input id="filesPathInput" type="text" placeholder="โฟลเดอร์เครื่องปลายทาง..." />
+            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="createRemoteFolder()" title="สร้างโฟลเดอร์ใหม่">+📁</button>
+            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="loadRemoteDir(filesCurrentPath)" title="รีเฟรช">↻</button>
+          </form>
+        </div>
+        <div id="filesListBody" class="ft-list"></div>
+      </div>
     </div>
-    <div style="padding:8px 16px;background:rgba(15,23,42,0.92);border-top:1px solid rgba(148,163,184,0.16);font-size:0.78rem;color:#94a3b8;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-      <span>💡 ลากไฟล์จากเครื่องนี้มาวางในหน้าต่างนี้เพื่ออัปโหลดได้ทันที (ส่งตรง P2P เข้ารหัส TLS 1.3 ไม่จำกัดขนาดและฟรี 100%)</span>
-      <span id="filesCountInfo">-</span>
+
+    <div style="padding:7px 16px;background:rgba(15,23,42,0.95);border-top:1px solid rgba(148,163,184,0.16);font-size:0.76rem;color:#94a3b8;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;flex-shrink:0">
+      <span>💡 ติ๊กเลือกไฟล์ได้หลายไฟล์พร้อมกันแล้วกด <strong>ส่งไป ➔</strong> หรือ <strong>⬅ ดึงมา</strong> · ลากไฟล์จาก Windows/Linux มาวางฝั่งขวาได้ทันที · ฟรี 100% เข้ารหัส TLS 1.3</span>
+      <span id="filesStatusHint">พร้อมโอนไฟล์</span>
     </div>
   </div>
 
@@ -2558,6 +2733,109 @@
       });
     };
 
+    // ---- Cross-PC Screenshot & Clipboard Sync (Local PC -> Remote PC Chat!) ----
+    function sendClipboardFrame(kind, rawBytes) {
+      if (!screenWS || screenWS.readyState !== WebSocket.OPEN) return false;
+      if (!screenAllowInput || !document.getElementById('chkControl')?.checked) return false;
+      const pkt = new Uint8Array(2 + rawBytes.length);
+      pkt[0] = 0x07; // FrameTypeClipboard
+      pkt[1] = kind; // 0=text, 1=png, 2=text+paste, 3=png+paste
+      pkt.set(rawBytes, 2);
+      screenWS.send(pkt);
+      return true;
+    }
+
+    async function blobToPNGBytes(blob) {
+      if (blob.type === 'image/png' || blob.type === 'image/jpeg') {
+        return new Uint8Array(await blob.arrayBuffer());
+      }
+      // Convert WebP/other image formats to PNG via offscreen canvas
+      const bmp = await createImageBitmap(blob);
+      const c = document.createElement('canvas');
+      c.width = bmp.width;
+      c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      bmp.close();
+      const pngBlob = await new Promise(res => c.toBlob(res, 'image/png'));
+      return new Uint8Array(await pngBlob.arrayBuffer());
+    }
+
+    window.pasteClipboardToRemote = async (autoPaste = true, fallbackToRemoteCtrlV = false) => {
+      try {
+        if (navigator.clipboard?.read) {
+          const items = await navigator.clipboard.read();
+          for (const item of items) {
+            const imgType = item.types.find(t => t.startsWith('image/'));
+            if (imgType) {
+              const blob = await item.getBlob(imgType);
+              const bytes = await blobToPNGBytes(blob);
+              if (sendClipboardFrame(autoPaste ? 3 : 1, bytes)) {
+                showToast(`📋 ส่งรูปจากคลิปบอร์ด (${fmtBytes(bytes.length)}) วางที่เครื่องปลายทางแล้ว!`);
+                activeRemoteCanvas().focus();
+                return true;
+              }
+            }
+          }
+          for (const item of items) {
+            if (item.types.includes('text/plain')) {
+              const txt = await (await item.getBlob('text/plain')).text();
+              if (txt) {
+                const bytes = new TextEncoder().encode(txt);
+                if (sendClipboardFrame(autoPaste ? 2 : 0, bytes)) {
+                  if (!fallbackToRemoteCtrlV) showToast('📋 วางข้อความจากคลิปบอร์ดที่เครื่องปลายทางแล้ว!');
+                  activeRemoteCanvas().focus();
+                  return true;
+                }
+              }
+            }
+          }
+        } else if (navigator.clipboard?.readText) {
+          const txt = await navigator.clipboard.readText();
+          if (txt) {
+            const bytes = new TextEncoder().encode(txt);
+            if (sendClipboardFrame(autoPaste ? 2 : 0, bytes)) {
+              if (!fallbackToRemoteCtrlV) showToast('📋 วางข้อความจากคลิปบอร์ดที่เครื่องปลายทางแล้ว!');
+              activeRemoteCanvas().focus();
+              return true;
+            }
+          }
+        }
+      } catch {}
+      if (fallbackToRemoteCtrlV) {
+        // Fallback: send normal Ctrl+V directly to remote PC's own clipboard
+        sendInput({ type: 'key_down', key: 'Control', code: 'ControlLeft', ctrl: true });
+        sendInput({ type: 'key_down', key: 'v', code: 'KeyV', ctrl: true });
+        sendInput({ type: 'key_up', key: 'v', code: 'KeyV', ctrl: true });
+        sendInput({ type: 'key_up', key: 'Control', code: 'ControlLeft' });
+        return false;
+      }
+      showToast('💡 คัดลอกรูป (Win+Shift+S) หรือข้อความบนเครื่องนี้ก่อน แล้วกดวางอีกครั้ง');
+      return false;
+    };
+
+    // Allow dragging an image directly onto the Remote Desktop screen to paste it into remote chat!
+    const screenStageEl = document.getElementById('screenStage');
+    screenStageEl.addEventListener('dragover', (e) => {
+      if (document.getElementById('screenModal').classList.contains('open')) {
+        e.preventDefault();
+      }
+    });
+    screenStageEl.addEventListener('drop', async (e) => {
+      if (!document.getElementById('screenModal').classList.contains('open')) return;
+      const files = Array.from(e.dataTransfer?.files || []);
+      const imgFile = files.find(f => f.type.startsWith('image/'));
+      if (!imgFile) return;
+      e.preventDefault();
+      try {
+        const bytes = await blobToPNGBytes(imgFile);
+        if (sendClipboardFrame(3, bytes)) {
+          showToast(`📋 วางรูป ${imgFile.name} ลงเครื่องปลายทางแล้ว!`);
+        }
+      } catch (err) {
+        showToast('⚠ วางรูปไม่สำเร็จ: ' + err.message);
+      }
+    });
+
     window.sendQuickText = () => {
       const el = document.getElementById('txtSendText');
       if (!el.value) return;
@@ -2678,6 +2956,22 @@
           }
           return;
         }
+        // 4) Seamless Ctrl+V: sync local screenshot image or text into remote PC clipboard & paste!
+        if (e.code === 'KeyV' && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+          if (!e.repeat) {
+            swallowedLangCode = 'KeyV';
+            if (heldCodes.has('ControlLeft')) {
+              sendInput({ type: 'key_up', code: 'ControlLeft' });
+              heldCodes.delete('ControlLeft');
+            }
+            if (heldCodes.has('ControlRight')) {
+              sendInput({ type: 'key_up', code: 'ControlRight' });
+              heldCodes.delete('ControlRight');
+            }
+            pasteClipboardToRemote(true, true);
+          }
+          return;
+        }
         if (e.code) heldCodes.add(e.code);
         sendInput({ type: 'key_down', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
       });
@@ -2739,11 +3033,18 @@
       el.value = '';
     };
 
-    // ---- Zero-Cost P2P File Transfer Manager ----
+    // ---- TeamViewer-Style Dual-Pane P2P File Transfer Manager ----
     let filesPeerId = '';
     let filesPeerName = '';
+    let localCurrentPath = '';
+    let localParentPath = '';
     let filesCurrentPath = '';
     let filesParentPath = '';
+    let localEntriesCache = [];
+    let remoteEntriesCache = [];
+    const selectedLocal = new Set();
+    const selectedRemote = new Set();
+    let ftProgressTimer = null;
 
     window.openActiveRemoteFiles = () => {
       if (!activeScreenTarget || !activeScreenTarget.agentId) return;
@@ -2757,79 +3058,188 @@
       }
       filesPeerId = peerId;
       filesPeerName = name || peerId;
+      localCurrentPath = '';
       filesCurrentPath = '';
-      filesParentPath = '';
-      document.getElementById('filesTitle').textContent = `📁 โอนไฟล์ — ${filesPeerName}`;
-      document.getElementById('filesMeta').textContent = 'P2P TLS 1.3 · ฟรีไม่จำกัดขนาด';
+      selectedLocal.clear();
+      selectedRemote.clear();
+      document.getElementById('filesTitle').textContent = `📁 โอนไฟล์ — เครื่องนี้ ⇄ ${filesPeerName}`;
+      document.getElementById('remotePaneTitle').textContent = `🌐 ${filesPeerName} (Remote)`;
       document.getElementById('filesTransferBar').style.display = 'none';
       document.getElementById('filesModal').classList.add('open');
+      loadLocalDir('');
       loadRemoteDir('');
     };
 
     window.closeFilesModal = () => {
+      if (ftProgressTimer) { clearInterval(ftProgressTimer); ftProgressTimer = null; }
       document.getElementById('filesModal').classList.remove('open');
     };
 
-    window.goRemoteParentDir = () => {
-      if (filesParentPath) loadRemoteDir(filesParentPath);
+    window.goLocalParentDir = () => { if (localParentPath) loadLocalDir(localParentPath); };
+    window.goRemoteParentDir = () => { if (filesParentPath) loadRemoteDir(filesParentPath); };
+
+    function renderFilePaneRows(side, entries) {
+      const selSet = side === 'local' ? selectedLocal : selectedRemote;
+      if (!entries || entries.length === 0) {
+        return `<div class="muted" style="padding:28px;text-align:center;font-size:0.83rem">📂 โฟลเดอร์นี้ว่างเปล่า</div>`;
+      }
+      return entries.map((e, idx) => {
+        const checked = selSet.has(e.path);
+        const jsPath = esc(e.path.replace(/\\/g, '\\\\'));
+        const openFn = side === 'local' ? `loadLocalDir('${jsPath}')` : `loadRemoteDir('${jsPath}')`;
+        const delFn = side === 'local' ? `deleteLocalFile('${jsPath}','${esc(e.name)}')` : `deleteRemoteFile('${jsPath}','${esc(e.name)}')`;
+        return `
+          <div class="ft-row ${checked ? 'selected' : ''}"
+               onclick="toggleFileSelect('${side}', ${idx}, event)"
+               ondblclick="${e.is_dir ? openFn : (side === 'local' ? `pushSingleLocalFile(${idx})` : `pullSingleRemoteFile(${idx})`)}"
+               title="${esc(e.name)}">
+            ${e.is_dir
+              ? `<span style="text-align:center;opacity:0.7">📁</span>`
+              : `<input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect('${side}', ${idx})" style="margin:0;cursor:pointer" />`}
+            <span class="ft-name ${e.is_dir ? 'is-dir' : ''}">${e.is_dir ? esc(e.name) : '📄 ' + esc(e.name)}</span>
+            <span class="ft-size">${e.is_dir ? 'โฟลเดอร์' : fmtBytes(e.size)}</span>
+            <button type="button" class="secondary icon-btn" style="padding:2px 5px;font-size:0.72rem;background:transparent;border:none;color:#94a3b8" onclick="event.stopPropagation(); ${delFn}" title="ลบ">🗑</button>
+          </div>`;
+      }).join('');
+    }
+
+    function updateTransferButtonCounts() {
+      const btnPush = document.getElementById('btnPushFiles');
+      const btnPull = document.getElementById('btnPullFiles');
+      if (btnPush) btnPush.textContent = selectedLocal.size > 0 ? `ส่งไป (${selectedLocal.size}) ➔` : 'ส่งไป ➔';
+      if (btnPull) btnPull.textContent = selectedRemote.size > 0 ? `⬅ ดึงมา (${selectedRemote.size})` : '⬅ ดึงมา';
+    }
+
+    window.toggleFileSelect = (side, idx, ev) => {
+      const list = side === 'local' ? localEntriesCache : remoteEntriesCache;
+      const selSet = side === 'local' ? selectedLocal : selectedRemote;
+      const item = list[idx];
+      if (!item || item.is_dir) return;
+      if (selSet.has(item.path)) selSet.delete(item.path);
+      else selSet.add(item.path);
+      document.getElementById(side === 'local' ? 'localListBody' : 'filesListBody').innerHTML = renderFilePaneRows(side, list);
+      updateTransferButtonCounts();
+    };
+
+    window.loadLocalDir = async (dirPath = '') => {
+      const body = document.getElementById('localListBody');
+      body.innerHTML = '<div class="muted" style="padding:22px;text-align:center">⏳ กำลังเปิดโฟลเดอร์เครื่องนี้...</div>';
+      try {
+        const res = await api(`/api/local/files/list?path=${encodeURIComponent(dirPath || '')}`);
+        localCurrentPath = res.path || '';
+        localParentPath = res.parent || '';
+        localEntriesCache = res.entries || [];
+        selectedLocal.clear();
+        document.getElementById('localPathInput').value = localCurrentPath;
+        document.getElementById('localCountInfo').textContent = `${localEntriesCache.length} รายการ`;
+        document.getElementById('localShortcuts').innerHTML = (res.shortcuts || []).map(s =>
+          `<button type="button" onclick="loadLocalDir('${esc(s.path.replace(/\\/g, '\\\\'))}')">${esc(s.label)}</button>`
+        ).join('');
+        body.innerHTML = renderFilePaneRows('local', localEntriesCache);
+        updateTransferButtonCounts();
+      } catch (err) {
+        body.innerHTML = `<div style="padding:22px;text-align:center;color:#fca5a5">⚠️ ${esc(err.message)}</div>`;
+      }
     };
 
     window.loadRemoteDir = async (dirPath = '') => {
       if (!filesPeerId) return;
       const body = document.getElementById('filesListBody');
-      body.innerHTML = '<div class="muted" style="padding:24px;text-align:center">⏳ กำลังเปิดโฟลเดอร์ปลายทาง...</div>';
+      body.innerHTML = '<div class="muted" style="padding:22px;text-align:center">⏳ กำลังเปิดโฟลเดอร์ปลายทาง...</div>';
       try {
         const res = await api(`/api/peer/files/list?peer_id=${encodeURIComponent(filesPeerId)}&path=${encodeURIComponent(dirPath || '')}`);
         filesCurrentPath = res.path || '';
         filesParentPath = res.parent || '';
+        remoteEntriesCache = res.entries || [];
+        selectedRemote.clear();
         document.getElementById('filesPathInput').value = filesCurrentPath;
-        const sc = res.shortcuts || [];
-        document.getElementById('filesShortcuts').innerHTML = sc.map(s =>
-          `<button type="button" class="secondary" style="background:rgba(30,41,59,0.85);color:#e2e8f0;padding:5px 10px;font-size:0.78rem" onclick="loadRemoteDir('${esc(s.path.replace(/\\/g, '\\\\'))}')">${esc(s.label)}</button>`
+        document.getElementById('filesCountInfo').textContent = `${remoteEntriesCache.length} รายการ`;
+        document.getElementById('filesShortcuts').innerHTML = (res.shortcuts || []).map(s =>
+          `<button type="button" onclick="loadRemoteDir('${esc(s.path.replace(/\\/g, '\\\\'))}')">${esc(s.label)}</button>`
         ).join('');
-        const entries = res.entries || [];
-        document.getElementById('filesCountInfo').textContent = `${entries.length} รายการ`;
-        if (entries.length === 0) {
-          body.innerHTML = '<div class="muted" style="padding:32px;text-align:center">📂 โฟลเดอร์นี้ว่างเปล่า — ลากไฟล์มาวางที่นี่เพื่ออัปโหลดได้เลย</div>';
-          return;
-        }
-        body.innerHTML = `
-          <table style="width:100%;border-collapse:collapse;font-size:0.86rem">
-            <thead>
-              <tr style="color:#94a3b8;border-bottom:1px solid rgba(148,163,184,0.2)">
-                <th style="text-align:left;padding:8px 10px">ชื่อไฟล์ / โฟลเดอร์</th>
-                <th style="text-align:right;padding:8px 10px;width:110px">ขนาด</th>
-                <th style="text-align:left;padding:8px 10px;width:150px">แก้ไขล่าสุด</th>
-                <th style="text-align:right;padding:8px 10px;width:165px">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${entries.map(e => {
-                const jsPath = esc(e.path.replace(/\\/g, '\\\\'));
-                const mod = e.mod_time ? new Date(e.mod_time).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-';
-                return `
-                  <tr style="border-bottom:1px solid rgba(148,163,184,0.1)">
-                    <td style="padding:9px 10px">
-                      ${e.is_dir
-                        ? `<a href="javascript:void(0)" onclick="loadRemoteDir('${jsPath}')" style="color:#7dd3fc;text-decoration:none;font-weight:700">📁 ${esc(e.name)}</a>`
-                        : `<span style="color:#f1f5f9">📄 ${esc(e.name)}</span>`}
-                    </td>
-                    <td style="text-align:right;padding:9px 10px;color:#94a3b8;font-variant-numeric:tabular-nums">${e.is_dir ? '-' : fmtBytes(e.size)}</td>
-                    <td style="padding:9px 10px;color:#94a3b8;font-size:0.78rem">${esc(mod)}</td>
-                    <td style="text-align:right;padding:9px 10px;white-space:nowrap">
-                      ${e.is_dir
-                        ? `<button class="secondary" style="padding:4px 9px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="loadRemoteDir('${jsPath}')">เปิด</button>`
-                        : `<a href="/api/peer/files/download?peer_id=${encodeURIComponent(filesPeerId)}&path=${encodeURIComponent(e.path)}" style="text-decoration:none"><button class="success" style="padding:4px 10px;font-size:0.76rem">⬇ โหลด</button></a>`}
-                      <button class="danger" style="padding:4px 8px;font-size:0.76rem;margin-left:4px" onclick="deleteRemoteFile('${jsPath}','${esc(e.name)}')" title="ลบ">🗑</button>
-                    </td>
-                  </tr>`;
-              }).join('')}
-            </tbody>
-          </table>`;
+        body.innerHTML = renderFilePaneRows('remote', remoteEntriesCache);
+        updateTransferButtonCounts();
       } catch (err) {
-        body.innerHTML = `<div style="padding:28px;text-align:center;color:#fca5a5">⚠️ ${esc(err.message)}</div>`;
+        body.innerHTML = `<div style="padding:22px;text-align:center;color:#fca5a5">⚠️ ${esc(err.message)}</div>`;
       }
     };
+
+    function startBackendProgressPoll(prefixLabel) {
+      const bar = document.getElementById('filesTransferBar');
+      const label = document.getElementById('filesTransferLabel');
+      const stats = document.getElementById('filesTransferStats');
+      const prog = document.getElementById('filesTransferProgress');
+      bar.style.display = 'block';
+      label.textContent = prefixLabel;
+      stats.textContent = '0%';
+      prog.style.width = '4%';
+      if (ftProgressTimer) clearInterval(ftProgressTimer);
+      ftProgressTimer = setInterval(async () => {
+        try {
+          const p = await api('/api/peer/files/progress');
+          if (p.active && p.total > 0) {
+            const pct = Math.min(99, Math.round((p.bytes / p.total) * 100));
+            prog.style.width = `${Math.max(4, pct)}%`;
+            stats.textContent = `${pct}% · ${fmtBytes(p.bytes)} / ${fmtBytes(p.total)} · ${fmtBytes(p.bytes_per_sec)}/s`;
+          }
+        } catch {}
+      }, 180);
+    }
+
+    function stopBackendProgressPoll() {
+      if (ftProgressTimer) { clearInterval(ftProgressTimer); ftProgressTimer = null; }
+      const prog = document.getElementById('filesTransferProgress');
+      if (prog) prog.style.width = '100%';
+      setTimeout(() => {
+        const bar = document.getElementById('filesTransferBar');
+        if (bar) bar.style.display = 'none';
+      }, 900);
+    }
+
+    async function runPushList(paths) {
+      if (!paths.length) { showToast('กรุณาติ๊กเลือกไฟล์ฝั่งซ้ายก่อนกด ส่งไป ➔'); return; }
+      for (let i = 0; i < paths.length; i++) {
+        const name = paths[i].split(/[\\/]/).pop();
+        startBackendProgressPoll(`⬆ ส่งไปปลายทาง (${i + 1}/${paths.length}): ${name}`);
+        try {
+          await api('/api/peer/files/push', {
+            method: 'POST',
+            body: JSON.stringify({ peer_id: filesPeerId, local_path: paths[i], remote_dir: filesCurrentPath })
+          });
+          showToast(`✓ ส่ง ${name} สำเร็จ!`);
+        } catch (err) {
+          showToast(`⚠ ส่ง ${name} ไม่สำเร็จ: ${err.message}`);
+          break;
+        }
+      }
+      stopBackendProgressPoll();
+      loadRemoteDir(filesCurrentPath);
+    }
+
+    async function runPullList(paths) {
+      if (!paths.length) { showToast('กรุณาติ๊กเลือกไฟล์ฝั่งขวาก่อนกด ⬅ ดึงมา'); return; }
+      for (let i = 0; i < paths.length; i++) {
+        const name = paths[i].split(/[\\/]/).pop();
+        startBackendProgressPoll(`⬇ ดึงมาเครื่องนี้ (${i + 1}/${paths.length}): ${name}`);
+        try {
+          await api('/api/peer/files/pull', {
+            method: 'POST',
+            body: JSON.stringify({ peer_id: filesPeerId, remote_path: paths[i], local_dir: localCurrentPath })
+          });
+          showToast(`✓ ดึง ${name} ลงเครื่องนี้สำเร็จ!`);
+        } catch (err) {
+          showToast(`⚠ ดึง ${name} ไม่สำเร็จ: ${err.message}`);
+          break;
+        }
+      }
+      stopBackendProgressPoll();
+      loadLocalDir(localCurrentPath);
+    }
+
+    window.pushCheckedLocalFiles = () => runPushList(Array.from(selectedLocal));
+    window.pullCheckedRemoteFiles = () => runPullList(Array.from(selectedRemote));
+    window.pushSingleLocalFile = (idx) => { const it = localEntriesCache[idx]; if (it && !it.is_dir) runPushList([it.path]); };
+    window.pullSingleRemoteFile = (idx) => { const it = remoteEntriesCache[idx]; if (it && !it.is_dir) runPullList([it.path]); };
 
     window.uploadSelectedFiles = async (fileList) => {
       if (!filesPeerId || !fileList || fileList.length === 0) return;
@@ -2856,15 +3266,12 @@
               if (!ev.lengthComputable) return;
               const pct = Math.min(99, Math.round((ev.loaded / Math.max(1, ev.total)) * 100));
               const sec = Math.max(0.05, (performance.now() - t0) / 1000);
-              const speed = ev.loaded / sec;
               prog.style.width = `${Math.max(4, pct)}%`;
-              stats.textContent = `${pct}% · ${fmtBytes(ev.loaded)} / ${fmtBytes(ev.total)} · ${fmtBytes(speed)}/s`;
+              stats.textContent = `${pct}% · ${fmtBytes(ev.loaded)} / ${fmtBytes(ev.total)} · ${fmtBytes(ev.loaded / sec)}/s`;
             };
             xhr.onload = () => {
-              if (xhr.status >= 200 && xhr.status < 300) {
-                prog.style.width = '100%';
-                resolve();
-              } else {
+              if (xhr.status >= 200 && xhr.status < 300) { prog.style.width = '100%'; resolve(); }
+              else {
                 let errMsg = `HTTP ${xhr.status}`;
                 try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
                 reject(new Error(errMsg));
@@ -2879,8 +3286,27 @@
           break;
         }
       }
-      setTimeout(() => { bar.style.display = 'none'; }, 1200);
+      setTimeout(() => { bar.style.display = 'none'; }, 1000);
       loadRemoteDir(filesCurrentPath);
+    };
+
+    window.createLocalFolder = async () => {
+      const name = prompt('ตั้งชื่อโฟลเดอร์ใหม่บนเครื่องนี้:');
+      if (!name || !name.trim()) return;
+      try {
+        await api('/api/local/files/mkdir', { method: 'POST', body: JSON.stringify({ path: localCurrentPath, name: name.trim() }) });
+        showToast(`✓ สร้างโฟลเดอร์ ${name.trim()} แล้ว`);
+        loadLocalDir(localCurrentPath);
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+
+    window.deleteLocalFile = async (targetPath, name) => {
+      if (!confirm(`ต้องการลบ "${name}" บนเครื่องนี้ใช่หรือไม่?`)) return;
+      try {
+        await api('/api/local/files/delete', { method: 'POST', body: JSON.stringify({ path: targetPath }) });
+        showToast(`🗑 ลบ ${name} แล้ว`);
+        loadLocalDir(localCurrentPath);
+      } catch (err) { showToast('⚠ ' + err.message); }
     };
 
     window.createRemoteFolder = async () => {
@@ -2908,12 +3334,12 @@
       } catch (err) { showToast('⚠ ' + err.message); }
     };
 
-    // Drag & Drop anywhere in File Transfer Modal
+    // Drag & Drop from OS Explorer directly into the Remote Pane
     const filesDropZone = document.getElementById('filesDropZone');
     filesDropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
       filesDropZone.style.outline = '2px dashed #38bdf8';
-      filesDropZone.style.outlineOffset = '-10px';
+      filesDropZone.style.outlineOffset = '-8px';
     });
     filesDropZone.addEventListener('dragleave', () => {
       filesDropZone.style.outline = 'none';

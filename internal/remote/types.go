@@ -137,6 +137,16 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 			if opts.BytesRecv != nil {
 				opts.BytesRecv.Add(int64(len(payload) + 5))
 			}
+			if fType == protocol.FrameTypeClipboard {
+				if opts.AllowInput && len(payload) > 1 {
+					kind := payload[0]
+					data := append([]byte(nil), payload[1:]...)
+					go func() {
+						_ = ApplyClipboardPayload(kind, data)
+					}()
+				}
+				continue
+			}
 			if fType != protocol.FrameTypeInput {
 				continue
 			}

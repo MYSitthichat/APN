@@ -100,6 +100,32 @@ func ServeFileStream(stream io.ReadWriteCloser, sentCounter, recvCounter *atomic
 	}
 }
 
+// ListLocalFiles lists a local directory for the TeamViewer-style dual-pane File Transfer UI.
+func ListLocalFiles(rawPath string) FileResponse {
+	return buildListResponse(rawPath)
+}
+
+// MkdirLocal creates a folder on the local machine.
+func MkdirLocal(dirPath, name string) (string, error) {
+	target := strings.TrimSpace(dirPath)
+	if strings.TrimSpace(name) != "" {
+		target = filepath.Join(target, filepath.Base(strings.TrimSpace(name)))
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// DeleteLocal removes a file or folder on the local machine safely.
+func DeleteLocal(rawPath string) error {
+	target := filepath.Clean(strings.TrimSpace(rawPath))
+	if target == "" || target == "." || target == "/" || (len(target) <= 3 && strings.HasSuffix(target, `:\`)) {
+		return fmt.Errorf("ไม่อนุญาตให้ลบโฟลเดอร์หลักของระบบ")
+	}
+	return os.RemoveAll(target)
+}
+
 func defaultShortcuts() []FileShortcut {
 	var out []FileShortcut
 	if home, err := os.UserHomeDir(); err == nil && home != "" {

@@ -110,11 +110,17 @@ func (m *Manager) Check(ctx context.Context) Status {
 
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	sep := "?"
+	if strings.Contains(url, "?") {
+		sep = "&"
+	}
+	freshURL := fmt.Sprintf("%s%srefresh=1&t=%d", url, sep, time.Now().UnixMilli())
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, freshURL, nil)
 	if err != nil {
 		m.setErr(err.Error())
 		return m.Status()
 	}
+	req.Header.Set("Cache-Control", "no-cache")
 	resp, err := m.client.Do(req)
 	if err != nil {
 		m.setErr("เช็กอัปเดตไม่สำเร็จ: " + err.Error())

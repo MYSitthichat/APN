@@ -12,7 +12,7 @@ const memStore = new Map();
 const TTL_SECONDS = 600;        // 10 minutes TTL
 const KV_REFRESH_MS = 300_000;  // Skip redundant KV writes when endpoints haven't changed within 5 minutes
 const GITHUB_REPO = 'MYSitthichat/APN';
-const RELEASE_CACHE_MS = 300_000; // Cache GitHub Releases API response for 5 minutes (0 KV writes!)
+const RELEASE_CACHE_MS = 20_000; // Short 20s cache; ?refresh=1 always bypasses immediately!
 
 let cachedRelease = null;
 let cachedReleaseExp = 0;
@@ -35,11 +35,25 @@ async function fetchLatestRelease(env, forceRefresh = false) {
     return cachedRelease;
   }
 
-  // 1) Primary (zero GitHub API rate limit!): fetch latest.json directly from GitHub Releases CDN!
+  // 1) Primary (zero GitHub API rate limit + zero stale redirect cache!):
+  // Resolve the live latest tag via /releases/latest (redirect: manual, cacheTtl: 0),
+  // then fetch that exact tag's immutable latest.json!
   try {
-    const cdnRes = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json`, {
-      headers: { 'User-Agent': 'APN-AutoUpdater/1.1' },
+    let tagURL = `https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json`;
+    const headRes = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest?t=${now}`, {
+      headers: { 'User-Agent': 'APN-AutoUpdater/1.2', 'Cache-Control': 'no-cache' },
+      redirect: 'manual',
+      cf: { cacheTtl: 0, cacheEverything: false },
+    });
+    const loc = headRes.headers.get('location') || '';
+    const m = loc.match(/\/releases\/tag\/([^/?#]+)/);
+    if (m && m[1]) {
+      tagURL = `https://github.com/${GITHUB_REPO}/releases/download/${m[1]}/latest.json`;
+    }
+    const cdnRes = await fetch(tagURL, {
+      headers: { 'User-Agent': 'APN-AutoUpdater/1.2', 'Cache-Control': 'no-cache' },
       redirect: 'follow',
+      cf: { cacheTtl: 0, cacheEverything: false },
     });
     if (cdnRes.ok) {
       const txt = (await cdnRes.text()).replace(/^\uFEFF/, '');
@@ -176,7 +190,12 @@ export default {
     if (request.method === 'GET' && path === '/api/releases/latest') {
       const force = url.searchParams.get('refresh') === '1';
       const manifest = await fetchLatestRelease(env, force);
-      return Response.json(manifest);
+      return Response.json(manifest, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
     }
 
     if (request.method === 'POST' && path === '/api/rendezvous/unregister') {

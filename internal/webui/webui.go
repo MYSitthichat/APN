@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -502,6 +504,197 @@ func Start(ctx context.Context, opts Options) error {
 			bridgeShellWS(w, r, peerOpener)
 		})
 
+		// ---- Local File Browser & Direct P2P Dual-Pane Transfer (TeamViewer-Style) ----
+		mux.HandleFunc("GET /api/local/files/list", func(w http.ResponseWriter, r *http.Request) {
+			resp := remote.ListLocalFiles(r.URL.Query().Get("path"))
+			if !resp.OK {
+				writeJSON(w, http.StatusBadRequest, resp)
+				return
+			}
+			writeJSON(w, http.StatusOK, resp)
+		})
+
+		mux.HandleFunc("POST /api/local/files/mkdir", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Path string `json:"path"`
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			p, err := remote.MkdirLocal(body.Path, body.Name)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": p})
+		}))
+
+		mux.HandleFunc("POST /api/local/files/delete", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Path string `json:"path"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			if err := remote.DeleteLocal(body.Path); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		}))
+
+		mux.HandleFunc("GET /api/peer/files/progress", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, getFileTransferProgress())
+		})
+
+		mux.HandleFunc("POST /api/peer/files/push", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID    string `json:"peer_id"`
+				LocalPath string `json:"local_path"`
+				RemoteDir string `json:"remote_dir"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			src, err := os.Open(filepath.Clean(body.LocalPath))
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			defer src.Close()
+			stInfo, err := src.Stat()
+			if err != nil || stInfo.IsDir() {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "กรุณาเลือกไฟล์ (ไม่ใช่โฟลเดอร์)"})
+				return
+			}
+
+			stream, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyFileStreamErr(err)})
+				return
+			}
+			defer stream.Close()
+
+			if err := protocol.WriteMessage(stream, remote.FileRequest{
+				Action: "upload",
+				Path:   body.RemoteDir,
+				Name:   stInfo.Name(),
+				Size:   stInfo.Size(),
+			}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var ready remote.FileResponse
+			if err := protocol.ReadMessage(stream, &ready); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !ready.OK {
+				writeJSON(w, http.StatusBadRequest, ready)
+				return
+			}
+
+			startFileTransferProgress("push", stInfo.Name(), stInfo.Size())
+			defer finishFileTransferProgress()
+
+			buf := make([]byte, 256*1024)
+			if _, err := copyWithProgress(stream, src, buf); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var done remote.FileResponse
+			if err := protocol.ReadMessage(stream, &done); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !done.OK {
+				writeJSON(w, http.StatusBadRequest, done)
+				return
+			}
+			writeJSON(w, http.StatusOK, done)
+		}))
+
+		mux.HandleFunc("POST /api/peer/files/pull", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID     string `json:"peer_id"`
+				RemotePath string `json:"remote_path"`
+				LocalDir   string `json:"local_dir"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			localDir := strings.TrimSpace(body.LocalDir)
+			if localDir == "" || localDir == "__roots__" {
+				if home, err := os.UserHomeDir(); err == nil && home != "" {
+					localDir = filepath.Join(home, "Downloads")
+				} else {
+					localDir = os.TempDir()
+				}
+			}
+			if err := os.MkdirAll(localDir, 0o755); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+
+			stream, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyFileStreamErr(err)})
+				return
+			}
+			defer stream.Close()
+
+			if err := protocol.WriteMessage(stream, remote.FileRequest{Action: "download", Path: body.RemotePath}); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			var hdr remote.FileResponse
+			if err := protocol.ReadMessage(stream, &hdr); err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			if !hdr.OK {
+				writeJSON(w, http.StatusBadRequest, hdr)
+				return
+			}
+
+			finalPath := filepath.Join(localDir, filepath.Base(hdr.Name))
+			tmpPath := finalPath + ".apnpart"
+			out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+
+			startFileTransferProgress("pull", hdr.Name, hdr.Size)
+			defer finishFileTransferProgress()
+
+			buf := make([]byte, 256*1024)
+			written, copyErr := copyWithProgress(out, io.LimitReader(stream, hdr.Size), buf)
+			closeErr := out.Close()
+			if copyErr != nil || closeErr != nil || written != hdr.Size {
+				_ = os.Remove(tmpPath)
+				if copyErr == nil && closeErr != nil {
+					copyErr = closeErr
+				}
+				if copyErr == nil {
+					copyErr = errors.New("ดาวน์โหลดไฟล์ไม่ครบถ้วน")
+				}
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": copyErr.Error()})
+				return
+			}
+			if err := os.Rename(tmpPath, finalPath); err != nil {
+				_ = os.Remove(tmpPath)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": finalPath, "name": hdr.Name, "bytes": written})
+		}))
+
 		// ---- Encrypted Zero-Cost P2P File Transfer Endpoints (ModeFiles) ----
 		mux.HandleFunc("GET /api/peer/files/list", func(w http.ResponseWriter, r *http.Request) {
 			peerID := strings.TrimSpace(r.URL.Query().Get("peer_id"))
@@ -866,7 +1059,7 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 		return
 	}
 	defer wsConn.Close(websocket.StatusNormalClosure, "")
-	wsConn.SetReadLimit(1 << 20)
+	wsConn.SetReadLimit(16 << 20) // 16 MiB so 4K PNG screenshots paste cleanly over clipboard!
 
 	stream, resp, release, err := opener(protocol.StreamOpenRequest{
 		Mode:     protocol.ModeScreen,
@@ -898,9 +1091,9 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 	defer cancel()
 
 	var streamWriteMu sync.Mutex
-	writeInputFrame := func(payload []byte) error {
+	writeTypedFrame := func(frameType byte, payload []byte) error {
 		streamWriteMu.Lock()
-		err := protocol.WriteTypedFrame(stream, protocol.FrameTypeInput, payload)
+		err := protocol.WriteTypedFrame(stream, frameType, payload)
 		streamWriteMu.Unlock()
 		return err
 	}
@@ -912,21 +1105,27 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 			if ctx.Err() != nil {
 				return
 			}
-			_ = writeInputFrame([]byte(`{"type":"switch_lang"}`))
+			_ = writeTypedFrame(protocol.FrameTypeInput, []byte(`{"type":"switch_lang"}`))
 		})
 		defer stopLangHook()
 	}
 
-	// Browser -> Agent (Input, ACK & config JSON events)
+	// Browser -> Agent (Input JSON + Binary Clipboard Image/Text frames)
 	go func() {
 		defer cancel()
 		defer stream.Close()
 		for {
-			_, data, err := wsConn.Read(ctx)
+			msgType, data, err := wsConn.Read(ctx)
 			if err != nil {
 				return
 			}
-			if err := writeInputFrame(data); err != nil {
+			if msgType == websocket.MessageBinary && len(data) > 2 && data[0] == protocol.FrameTypeClipboard {
+				if err := writeTypedFrame(protocol.FrameTypeClipboard, data[1:]); err != nil {
+					return
+				}
+				continue
+			}
+			if err := writeTypedFrame(protocol.FrameTypeInput, data); err != nil {
 				return
 			}
 		}
@@ -1009,7 +1208,7 @@ func bridgeShellWS(w http.ResponseWriter, r *http.Request, opener streamOpener) 
 		return
 	}
 	defer wsConn.Close(websocket.StatusNormalClosure, "")
-	wsConn.SetReadLimit(1 << 20)
+	wsConn.SetReadLimit(16 << 20) // 16 MiB so 4K PNG screenshots paste cleanly over clipboard!
 
 	stream, _, release, err := opener(protocol.StreamOpenRequest{
 		Mode:    protocol.ModeShell,
@@ -1119,6 +1318,81 @@ func requireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		next(w, r)
+	}
+}
+
+type fileTransferProgress struct {
+	Active       bool    `json:"active"`
+	Direction    string  `json:"direction,omitempty"` // "push" or "pull"
+	Name         string  `json:"name,omitempty"`
+	Bytes        int64   `json:"bytes"`
+	Total        int64   `json:"total"`
+	BytesPerSec  float64 `json:"bytes_per_sec"`
+	startedAt    time.Time
+}
+
+var (
+	ftProgMu sync.Mutex
+	ftProg   fileTransferProgress
+)
+
+func startFileTransferProgress(dir, name string, total int64) {
+	ftProgMu.Lock()
+	ftProg = fileTransferProgress{
+		Active:    true,
+		Direction: dir,
+		Name:      name,
+		Bytes:     0,
+		Total:     total,
+		startedAt: time.Now(),
+	}
+	ftProgMu.Unlock()
+}
+
+func addFileTransferBytes(n int64) {
+	ftProgMu.Lock()
+	ftProg.Bytes += n
+	if el := time.Since(ftProg.startedAt).Seconds(); el > 0.05 {
+		ftProg.BytesPerSec = float64(ftProg.Bytes) / el
+	}
+	ftProgMu.Unlock()
+}
+
+func finishFileTransferProgress() {
+	ftProgMu.Lock()
+	ftProg.Active = false
+	ftProgMu.Unlock()
+}
+
+func getFileTransferProgress() fileTransferProgress {
+	ftProgMu.Lock()
+	defer ftProgMu.Unlock()
+	return ftProg
+}
+
+func copyWithProgress(dst io.Writer, src io.Reader, buf []byte) (int64, error) {
+	var total int64
+	for {
+		nr, rerr := src.Read(buf)
+		if nr > 0 {
+			nw, werr := dst.Write(buf[:nr])
+			if nw > 0 {
+				total += int64(nw)
+				addFileTransferBytes(int64(nw))
+			}
+			if werr != nil {
+				return total, werr
+			}
+			if nr != nw {
+				return total, io.ErrShortWrite
+			}
+		}
+		if rerr == io.EOF {
+			return total, nil
+		}
+		if rerr != nil {
+			return total, rerr
+		}
 	}
 }
 

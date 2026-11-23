@@ -36,6 +36,7 @@ const (
 	FrameTypeTileBatch byte = 0x04 // Agent -> Client: [seq:u32][w:u16][h:u16][count:u16] + tiles
 	FrameTypeH264      byte = 0x05 // Agent -> Client: [seq:u32][w:u16][h:u16][flags:u8][annex-b h264]
 	FrameTypeInfo      byte = 0x06 // Agent -> Client: UTF-8 JSON info/notice
+	FrameTypeClipboard byte = 0x07 // Client -> Agent: [kind:u8 (0=text,1=png,2=text+paste,3=png+paste)][data]
 
 	maxControlFrameBytes = 64 * 1024
 	maxBinaryFrameBytes  = 16 * 1024 * 1024 // 16 MiB max for lossless 4K initial frame
