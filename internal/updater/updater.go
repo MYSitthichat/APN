@@ -290,12 +290,12 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.status.Stage = "อัปเดตสำเร็จ! กำลังเปิดเวอร์ชันใหม่..."
 	m.mu.Unlock()
 
-	// Spawn the updated binary with -wait-old so it waits cleanly for THIS old process
-	// to release port 8080/4433/8444 BEFORE checking single-instance & starting up!
-	// (Fixes the race where the new exe saw old port 8080 still open and exited immediately!)
-	cmd := exec.Command(exePath, "peer", "-tray-icon", "-wait-old")
+	// Spawn the updated binary with -wait-old and -wait-pid=<currentPID> (WITHOUT -open, because the
+	// user's existing APN app window auto-reloads into the new version seamlessly!).
+	// The new process waits until THIS old PID completely terminates & frees port 8080 before starting!
+	cmd := exec.Command(exePath, "peer", "-tray-icon", "-wait-old", "-wait-pid", strconv.Itoa(os.Getpid()))
 	_ = cmd.Start()
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(120 * time.Millisecond)
 	if onRestart != nil {
 		onRestart()
 	}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -36,6 +37,10 @@ var (
 	procDestroyMenu         = user32.NewProc("DestroyMenu")
 	procGetCursorPos        = user32.NewProc("GetCursorPos")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
+	procEnumWindows         = user32.NewProc("EnumWindows")
+	procGetWindowTextW      = user32.NewProc("GetWindowTextW")
+	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
+	procIsIconic            = user32.NewProc("IsIconic")
 	procLoadIconW           = user32.NewProc("LoadIconW")
 	procDestroyIcon         = user32.NewProc("DestroyIcon")
 	procShellNotifyIconW    = shell32.NewProc("Shell_NotifyIconW")
@@ -43,7 +48,8 @@ var (
 )
 
 const (
-	swHide = 0
+	swHide    = 0
+	swRestore = 9
 
 	wmApp           = 0x8000
 	wmTrayCallback  = wmApp + 1
@@ -147,8 +153,44 @@ func HideConsoleWindow() {
 	}
 }
 
-// OpenAppWindow launches APN in a clean standalone desktop app window (no browser URL bar/tabs).
+// focusExistingAppWindow brings an already-open APN window to the foreground instead of
+// spawning a second duplicate window on top of it!
+func focusExistingAppWindow() bool {
+	var found uintptr
+	cb := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
+		vis, _, _ := procIsWindowVisible.Call(hwnd)
+		if vis == 0 {
+			return 1
+		}
+		var buf [256]uint16
+		n, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		if n == 0 {
+			return 1
+		}
+		title := syscall.UTF16ToString(buf[:n])
+		if strings.HasPrefix(title, "APN —") || strings.HasPrefix(title, "APN -") || title == "APN" {
+			found = hwnd
+			return 0 // stop enumeration
+		}
+		return 1
+	})
+	_, _, _ = procEnumWindows.Call(cb, 0)
+	if found == 0 {
+		return false
+	}
+	iconic, _, _ := procIsIconic.Call(found)
+	if iconic != 0 {
+		_, _, _ = procShowWindow.Call(found, swRestore)
+	}
+	_, _, _ = procSetForegroundWindow.Call(found)
+	return true
+}
+
+// OpenAppWindow focuses an existing APN window if already open, otherwise launches a clean standalone app window.
 func OpenAppWindow(url string) {
+	if focusExistingAppWindow() {
+		return
+	}
 	candidates := []string{
 		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
 		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
@@ -171,7 +213,7 @@ func OpenAppWindow(url string) {
 }
 
 // Start runs a Pure-Go Windows System Tray icon (double-click to open, right-click for menu)
-// and returns a stop function to cleanly remove the icon on shutdown.
+// and returns a stop function that synchronously removes the icon on shutdown.
 func Start(cb Callbacks) func() {
 	trayMu.Lock()
 	trayCB = cb
@@ -186,6 +228,8 @@ func Start(cb Callbacks) func() {
 		hwnd := trayHWND
 		trayMu.Unlock()
 		if hwnd != 0 {
+			// Delete tray icon immediately & synchronously so no ghost duplicate icon lingers on restart!
+			removeTrayIcon(hwnd)
 			_, _, _ = procPostMessageW.Call(hwnd, wmClose, 0, 0)
 		}
 	}

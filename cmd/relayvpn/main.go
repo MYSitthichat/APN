@@ -250,6 +250,7 @@ func runPeer(args []string, logger *slog.Logger) error {
 	trayOnly := fs.Bool("tray", false, "Start silently in the System Tray (used for login auto-start)")
 	trayIcon := fs.Bool("tray-icon", false, "Show APN System Tray icon (double-click to open, right-click to quit)")
 	waitOld := fs.Bool("wait-old", false, "Wait for previous APN instance to release UI port during self-update")
+	waitPID := fs.Int("wait-pid", 0, "Previous APN PID to wait for (and terminate if stuck) during self-update")
 	noAutoDeps := fs.Bool("no-auto-deps", false, "Disable automatic background install of FFmpeg/Wintun")
 	connectTicket := fs.String("connect", "", "Optional RVPN1-... ticket or wss:// URL to connect on startup")
 	if err := fs.Parse(args); err != nil {
@@ -302,14 +303,18 @@ func runPeer(args []string, logger *slog.Logger) error {
 		cfg.RendezvousURL = *rdvURL
 	}
 
-	// During self-update handoff (-wait-old), wait up to 8s for the exiting old process to release UIAddr
-	// so the new version ALWAYS binds cleanly on the first try and never exits prematurely!
-	if *waitOld && cfg.UIAddr != "" {
+	// During self-update handoff (-wait-old / -wait-pid), ensure the exiting old process is
+	// 100% gone and port 8080 is completely released BEFORE starting up (never two instances at once!).
+	if *waitPID > 0 && *waitPID != os.Getpid() {
+		waitForOldProcess(*waitPID, cfg.UIAddr)
+	} else if *waitOld && cfg.UIAddr != "" {
 		deadline := time.Now().Add(8 * time.Second)
 		for time.Now().Before(deadline) && isAlreadyRunning(cfg.UIAddr) {
-			time.Sleep(150 * time.Millisecond)
+			time.Sleep(120 * time.Millisecond)
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
+	}
+	if *waitOld || *waitPID > 0 {
 		updater.CleanupOldBinary()
 	}
 
@@ -392,8 +397,11 @@ func runPeer(args []string, logger *slog.Logger) error {
 		defer stopTray()
 	}
 
+	var webDone chan struct{}
 	if cfg.UIAddr != "" {
+		webDone = make(chan struct{})
 		go func() {
+			defer close(webDone)
 			if err := webui.Start(ctx, webui.Options{
 				Addr:   cfg.UIAddr,
 				Mode:   "peer",
@@ -412,7 +420,39 @@ func runPeer(args []string, logger *slog.Logger) error {
 	}
 
 	<-ctx.Done()
+	if stopTray != nil {
+		stopTray()
+	}
+	if webDone != nil {
+		select {
+		case <-webDone:
+		case <-time.After(600 * time.Millisecond):
+		}
+	}
 	return nil
+}
+
+func waitForOldProcess(pid int, uiAddr string) {
+	// Wait up to 2.5s for graceful shutdown of the old process; if still alive, force-kill so
+	// two APN instances NEVER run simultaneously after an update!
+	gracefulDeadline := time.Now().Add(2500 * time.Millisecond)
+	for time.Now().Before(gracefulDeadline) {
+		if uiAddr == "" || !isAlreadyRunning(uiAddr) {
+			break
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		// On Windows/Unix, if UI is still bound after graceful window, force-stop the old PID.
+		if uiAddr != "" && isAlreadyRunning(uiAddr) {
+			_ = p.Kill()
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && uiAddr != "" && isAlreadyRunning(uiAddr) {
+		time.Sleep(120 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
 }
 
 func isAlreadyRunning(uiAddr string) bool {

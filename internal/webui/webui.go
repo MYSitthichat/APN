@@ -711,6 +711,26 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	var streamWriteMu sync.Mutex
+	writeInputFrame := func(payload []byte) error {
+		streamWriteMu.Lock()
+		err := protocol.WriteTypedFrame(stream, protocol.FrameTypeInput, payload)
+		streamWriteMu.Unlock()
+		return err
+	}
+
+	// On Windows, capture Win+Space natively while the APN Remote Desktop window is focused
+	// (even in Windowed mode!) so Win+Space switches the REMOTE PC's language without triggering local Windows!
+	if resp.AllowInput {
+		stopLangHook := registerRemoteLangHook(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			_ = writeInputFrame([]byte(`{"type":"switch_lang"}`))
+		})
+		defer stopLangHook()
+	}
+
 	// Browser -> Agent (Input, ACK & config JSON events)
 	go func() {
 		defer cancel()
@@ -720,7 +740,7 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 			if err != nil {
 				return
 			}
-			if err := protocol.WriteTypedFrame(stream, protocol.FrameTypeInput, data); err != nil {
+			if err := writeInputFrame(data); err != nil {
 				return
 			}
 		}

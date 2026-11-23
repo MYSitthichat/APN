@@ -1037,6 +1037,16 @@
 
   <footer id="appFooter">APN Remote &amp; VPN · TLS 1.3 End-to-End Encrypted</footer>
   <div id="toast" class="toast"></div>
+  <div id="updateOverlay" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(4,7,15,0.92);backdrop-filter:blur(10px);align-items:center;justify-content:center;padding:20px">
+    <div style="max-width:420px;width:100%;background:var(--surface-solid);border:1px solid var(--accent);border-radius:16px;padding:24px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.65)">
+      <div style="font-size:2rem;margin-bottom:8px">⚡</div>
+      <div id="updateOverlayTitle" style="font-size:1.08rem;font-weight:800;margin-bottom:6px">กำลังอัปเดตและรีสตาร์ท APN...</div>
+      <div id="updateOverlaySub" class="muted" style="font-size:0.84rem;margin-bottom:14px">หน้าต่างนี้จะรีโหลดเข้าเวอร์ชันใหม่ให้อัตโนมัติ ไม่ต้องปิดเปิดใหม่</div>
+      <div style="height:6px;background:var(--surface-2);border-radius:999px;overflow:hidden">
+        <div id="updateOverlayBar" style="height:100%;width:10%;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width 0.2s ease"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- Live Remote Desktop Modal -->
   <div id="screenModal" class="modal">
@@ -1051,6 +1061,9 @@
         </label>
         <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="ซ่อนเคอร์เซอร์ซ้อนเพื่อให้เมาส์ลื่นเหมือน Moonlight">
           <input type="checkbox" id="chkHideCursor" checked onchange="syncCanvasCursor()" /> เมาส์เดี่ยว
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:5px;color:#cbd5e1;font-size:0.8rem" title="กดปุ่ม ~ (ตัวหนอน) เพื่อเปลี่ยนภาษาเครื่องปลายทางทันที (กด Shift+~ หากต้องการพิมพ์ ~)">
+          <input type="checkbox" id="chkGraveSwitch" checked /> ~ เปลี่ยนภาษา
         </label>
         <select id="selCodec" onchange="sendScreenConfig()" title="โหมดภาพ">
           <option value="h264">🎬 วิดีโอ 60 FPS (H.264 GPU)</option>
@@ -1888,6 +1901,7 @@
     let h264Configured = false;
     let h264WaitingKey = true;
     let h264Errors = 0;
+    let h264PtsUs = 0;
     const videoFrameQueue = [];
     let videoRAF = 0;
     const canvas = document.getElementById('remoteCanvas');
@@ -1965,6 +1979,7 @@
       }
       h264Configured = false;
       h264WaitingKey = true;
+      h264PtsUs = 0;
     }
 
     function extractAVC1Codec(nal) {
@@ -1991,8 +2006,9 @@
         h264Decoder = new VideoDecoder({
           output: (frame) => {
             h264Errors = 0;
-            // Keep max 2 frames in FIFO so micro-jitter never causes 30Hz judder AND latency never grows > 16ms!
-            while (videoFrameQueue.length >= 2) {
+            // 3-frame micro-jitter cushion absorbs 20-45ms Wi-Fi/WSS bursts smoothly without dropping or repeating frames,
+            // while bounding latency strictly to <= 33-50ms!
+            while (videoFrameQueue.length >= 4) {
               try { videoFrameQueue.shift().close(); } catch {}
             }
             videoFrameQueue.push(frame);
@@ -2191,7 +2207,9 @@
             return;
           }
           try {
-            h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: Math.round(performance.now() * 1000), data: nal }));
+            const fpsSel = parseInt(document.getElementById('selFPS').value, 10) || 60;
+            h264PtsUs += Math.round(1000000 / Math.max(15, fpsSel));
+            h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: h264PtsUs, data: nal }));
           } catch {
             h264WaitingKey = true;
           }
@@ -2336,13 +2354,50 @@
       sendInput({ type: 'mouse_wheel', x: p.x, y: p.y, delta_y: Math.round(e.deltaY) });
     }, { passive: false });
     const heldCodes = new Set();
+    let swallowedLangCode = '';
     canvas.addEventListener('keydown', e => {
       e.preventDefault();
+      // 1) Grave Accent (~) single-key Thai/Eng switch (when enabled; Shift+~ still types ~)
+      if (e.code === 'Backquote' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey &&
+          document.getElementById('chkGraveSwitch')?.checked) {
+        if (!e.repeat) {
+          swallowedLangCode = 'Backquote';
+          sendInput({ type: 'switch_lang' });
+        }
+        return;
+      }
+      // 2) Fullscreen Win+Space (via Keyboard Lock API)
+      if (e.code === 'Space' && e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!e.repeat) {
+          swallowedLangCode = 'Space';
+          sendInput({ type: 'switch_lang' });
+        }
+        return;
+      }
+      // 3) Alt + Shift chord -> clean remote language switch (releases modifiers so menus never stick)
+      if (((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && e.altKey && !e.ctrlKey && !e.metaKey) ||
+          ((e.code === 'AltLeft' || e.code === 'AltRight') && e.shiftKey && !e.ctrlKey && !e.metaKey)) {
+        if (!e.repeat) {
+          swallowedLangCode = e.code;
+          ['AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight'].forEach(c => {
+            if (heldCodes.has(c)) {
+              sendInput({ type: 'key_up', code: c });
+              heldCodes.delete(c);
+            }
+          });
+          sendInput({ type: 'switch_lang' });
+        }
+        return;
+      }
       if (e.code) heldCodes.add(e.code);
       sendInput({ type: 'key_down', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
     });
     canvas.addEventListener('keyup', e => {
       e.preventDefault();
+      if (swallowedLangCode && e.code === swallowedLangCode) {
+        swallowedLangCode = '';
+        return;
+      }
       if (e.code) heldCodes.delete(e.code);
       sendInput({ type: 'key_up', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
     });
@@ -2532,15 +2587,26 @@
     };
     let isSelfUpdating = false;
     let updateFastTimer = null;
+    function setUpdateOverlay(show, title, sub, pct) {
+      const ov = document.getElementById('updateOverlay');
+      if (!ov) return;
+      ov.style.display = show ? 'flex' : 'none';
+      if (title) document.getElementById('updateOverlayTitle').textContent = title;
+      if (sub) document.getElementById('updateOverlaySub').textContent = sub;
+      if (typeof pct === 'number') document.getElementById('updateOverlayBar').style.width = `${Math.max(8, Math.min(100, pct))}%`;
+    }
     window.peerApplyUpdate = async () => {
       try {
         await api('/api/peer/update/apply', { method: 'POST' });
         isSelfUpdating = true;
-        showToast('⚡ กำลังดาวน์โหลดและอัปเดต APN อัตโนมัติ...');
+        setUpdateOverlay(true, 'กำลังดาวน์โหลดและอัปเดต APN...', 'กรุณารอสักครู่ หน้าต่างนี้จะรีสตาร์ทเข้าเวอร์ชันใหม่อัตโนมัติ', 10);
         if (updateFastTimer) clearInterval(updateFastTimer);
-        updateFastTimer = setInterval(poll, 450);
+        updateFastTimer = setInterval(poll, 400);
         poll();
-      } catch (err) { showToast('⚠ ' + err.message); }
+      } catch (err) {
+        setUpdateOverlay(false);
+        showToast('⚠ ' + err.message);
+      }
     };
     window.peerToggleBridge = async (enabled) => {
       try {
@@ -2753,12 +2819,25 @@
       }
       try {
         const res = await api('/api/status');
-        if (isSelfUpdating && res.version && appVersion && res.version !== appVersion) {
-          // New APN version is now live! Reload the page cleanly so the new UI assets take effect immediately!
-          isSelfUpdating = false;
-          if (updateFastTimer) { clearInterval(updateFastTimer); updateFastTimer = null; }
-          location.reload();
-          return;
+        if (isSelfUpdating) {
+          if (res.version && appVersion && res.version !== appVersion) {
+            // New APN version is live! Reload THIS exact single window cleanly into the new version!
+            isSelfUpdating = false;
+            if (updateFastTimer) { clearInterval(updateFastTimer); updateFastTimer = null; }
+            setUpdateOverlay(true, `อัปเดตเป็น v${res.version} สำเร็จ!`, 'กำลังเปิดหน้าจอเวอร์ชันใหม่...', 100);
+            setTimeout(() => location.replace('/?_v=' + encodeURIComponent(res.version)), 200);
+            return;
+          }
+          const u = res.data?.update;
+          if (u?.updating) {
+            const dlInfo = u.total_bytes ? ` (${fmtBytes(u.downloaded_bytes)} / ${fmtBytes(u.total_bytes)})` : '';
+            setUpdateOverlay(true, u.stage || 'กำลังอัปเดต APN...', `ความคืบหน้า ${u.progress || 0}%${dlInfo} — หน้าต่างนี้จะรีโหลดเองอัตโนมัติ`, u.progress || 10);
+          } else if (u?.last_error) {
+            isSelfUpdating = false;
+            if (updateFastTimer) { clearInterval(updateFastTimer); updateFastTimer = null; }
+            setUpdateOverlay(false);
+            showToast('⚠ ' + u.last_error);
+          }
         }
         lastMode = res.mode;
         if (res.version) appVersion = res.version;
@@ -2774,7 +2853,8 @@
         else if (res.mode === 'portal_login') renderPortalLogin();
       } catch (e) {
         if (isSelfUpdating) {
-          setHeaderBadge('updating', 'กำลังสลับเป็นเวอร์ชันใหม่...', 'warn');
+          setHeaderBadge('updating', 'กำลังรีสตาร์ทเวอร์ชันใหม่...', 'warn');
+          setUpdateOverlay(true, 'กำลังรีสตาร์ทเข้าเวอร์ชันใหม่...', 'ปิดตัวเก่าและเปิดเวอร์ชันใหม่ให้โดยอัตโนมัติ...', 98);
         } else {
           setHeaderBadge(lastMode || 'offline', 'Disconnected', 'danger');
         }

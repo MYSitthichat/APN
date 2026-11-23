@@ -150,7 +150,7 @@ func streamH264FFmpeg(
 			data  []byte
 			isKey bool
 		}
-		frameCh := make(chan auPacket, 24)
+		frameCh := make(chan auPacket, 32)
 		readDone := make(chan struct{})
 		go func() {
 			defer close(readDone)
@@ -251,7 +251,9 @@ type encoderCandidate struct {
 
 func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
 	fpsStr := strconv.Itoa(fps)
-	gopStr := strconv.Itoa(fps) // 1-second GOP: super-fast recovery & zero long freezes!
+	// 4-second GOP (e.g. 240 frames @ 60 FPS): eliminates periodic 1-second 200KB I-frame network spikes
+	// while cached lastKeyAU + on-demand keyframe requests keep initial display & recovery instant!
+	gopStr := strconv.Itoa(fps * 4)
 
 	// Map UI quality selector to smooth, strictly rate-controlled low-latency bitrate targets
 	// (CBR / LD-VBR prevents sudden 10x I-frame network spikes for gaming-grade frame pacing!)
@@ -316,7 +318,7 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		// Windows Media Foundation Hardware Encoder (CBR + Display Remoting = rock-steady 60 FPS on NVIDIA/Intel/AMD!)
 		mfArgs := []string{
 			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "cbr",
-			"-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
+			"-quality", "50", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
 		}
 		// Intel QuickSync Hardware Encoder (strictly rate-controlled VBR/CBR with async_depth=1)
 		qsvArgs := []string{

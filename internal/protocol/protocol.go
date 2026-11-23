@@ -131,23 +131,20 @@ func ReadMessage(r io.Reader, dst any) error {
 	return nil
 }
 
-// WriteTypedFrame writes a 1-byte type tag + 4-byte length + payload frame.
+// WriteTypedFrame writes a 1-byte type tag + 4-byte length + payload in a SINGLE write call
+// (eliminates extra Yamux/WebSocket/TCP frames and Delayed-ACK stalls at 60 FPS).
 func WriteTypedFrame(w io.Writer, frameType byte, payload []byte) error {
 	if len(payload) > maxBinaryFrameBytes {
 		return fmt.Errorf("binary frame too large: %d", len(payload))
 	}
-	var hdr [5]byte
-	hdr[0] = frameType
-	binary.BigEndian.PutUint32(hdr[1:], uint32(len(payload)))
-	if _, err := w.Write(hdr[:]); err != nil {
-		return err
-	}
+	frame := make([]byte, 5+len(payload))
+	frame[0] = frameType
+	binary.BigEndian.PutUint32(frame[1:5], uint32(len(payload)))
 	if len(payload) > 0 {
-		if _, err := w.Write(payload); err != nil {
-			return err
-		}
+		copy(frame[5:], payload)
 	}
-	return nil
+	_, err := w.Write(frame)
+	return err
 }
 
 // ReadTypedFrame reads a 1-byte type tag + 4-byte length + payload frame.
