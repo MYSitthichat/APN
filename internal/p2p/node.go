@@ -1875,6 +1875,7 @@ func (n *Node) verifyIncomingAuth(presented string) (passwordMatched bool, requi
 
 func (n *Node) requestOwnerApproval(hello peerHello, remoteAddr string) bool {
 	reqID := fmt.Sprintf("apr-%d", n.appSeq.Add(1))
+	now := time.Now().UTC()
 	w := &approvalWaiter{
 		info: PendingApproval{
 			ID:          reqID,
@@ -1883,8 +1884,8 @@ func (n *Node) requestOwnerApproval(hello peerHello, remoteAddr string) bool {
 			Name:        hello.Name,
 			OS:          hello.OS,
 			RemoteAddr:  remoteAddr,
-			RequestedAt: time.Now().UTC(),
-			ExpiresAt:   time.Now().UTC().Add(ApprovalTimeout),
+			RequestedAt: now,
+			ExpiresAt:   now.Add(ApprovalTimeout),
 		},
 		ch: make(chan bool, 1),
 	}
