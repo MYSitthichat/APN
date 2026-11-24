@@ -3329,12 +3329,20 @@
         if (hs.dropped > 0 || hs.stall_ms > 80) {
           return { cls: 'warn', text: `เน็ตส่งไม่ทัน — ต้นทางต้องรอส่งนาน ${Math.round(hs.stall_ms)} ms และทิ้ง ${hs.dropped} เฟรม` + (path.relay ? ' (กำลังอ้อมผ่าน relay/443)' : '') };
         }
-        if (hs.enc_fps > 0 && hs.enc_fps < target * 0.6 && hs.kbps > 300) {
-          let why = '';
-          if (String(hs.encoder || '').startsWith('GDI')) why = ' — ใช้การจับภาพแบบ GDI ซึ่งช้าที่สุด (ดูเหตุผลด้านบน)';
-          else if (hs.fallback && hs.fallback.length) why = ' — ไม่ได้ใช้วิธีที่เร็วที่สุด (ดูเหตุผลด้านบน)';
-          else why = ' — GPU/CPU ของเครื่องปลายทางอาจไม่พอ หรือภาพบนจอเปลี่ยนช้ากว่านั้นเอง';
-          return { cls: 'warn', text: `เครื่องปลายทางจับภาพ/เข้ารหัสได้แค่ ${hs.enc_fps} FPS (ตั้งไว้ ${target})` + why };
+        // A low encoded FPS is only a bottleneck when the host is busy or on a slow capture path:
+        // WGC/DXGI deliver a frame only when the screen changes, so a still screen is low by design.
+        if (hs.enc_fps < target * 0.6) {
+          const busyGPU = typeof hs.gpu === 'number' && hs.gpu >= 85;
+          const busyCPU = typeof hs.cpu === 'number' && hs.cpu >= 90;
+          if (busyGPU || busyCPU) {
+            return { cls: 'warn', text: `เครื่องปลายทางทำงานหนัก (${hostLoadText(hs)}) — จับภาพ/เข้ารหัสได้แค่ ${hs.enc_fps} FPS (ตั้งไว้ ${target}) ลองลดความละเอียดหรือใช้ H.264` };
+          }
+          if (String(hs.encoder || '').startsWith('GDI')) {
+            return { cls: 'warn', text: `ใช้การจับภาพแบบ GDI ซึ่งช้าที่สุด — ได้ ${hs.enc_fps} FPS (ดูเหตุผลใน "ทางที่เร็วกว่า")` };
+          }
+          if (hs.fallback && hs.fallback.length && hs.enc_fps >= 5) {
+            return { cls: 'warn', text: `ได้ ${hs.enc_fps} FPS และไม่ได้ใช้วิธีที่เร็วที่สุด (ดูเหตุผลใน "ทางที่เร็วกว่า")` };
+          }
         }
       }
       if (vstat.resets > 0) return { cls: 'warn', text: 'ตัวถอดรหัสต้องเริ่มใหม่ — ภาพอาจค้างชั่วครู่' };
@@ -3344,8 +3352,24 @@
       if (screenRTTAvg !== null && screenRTTAvg > 150) {
         return { cls: 'warn', text: `หน่วงสูง (RTT ${Math.round(screenRTTAvg)} ms)` + (path.relay ? ' — เส้นทาง relay/443 ทำให้หน่วงเพิ่ม' : '') };
       }
-      if (hs && hs.enc_fps < 3 && hs.kbps < 200) return { cls: 'ok', text: 'จอปลายทางนิ่ง — ส่งเฉพาะตอนภาพเปลี่ยน (ปกติ)' };
+      if (hs && hs.enc_fps < 5) return { cls: 'ok', text: 'จอปลายทางนิ่ง — ส่งเฉพาะตอนภาพเปลี่ยน (ปกติ)' };
+      if (hs && hs.enc_fps < target * 0.6) {
+        const known = typeof hs.gpu === 'number' || typeof hs.cpu === 'number';
+        return { cls: 'ok', text: known
+          ? `ภาพบนจอเปลี่ยน ${hs.enc_fps} ครั้ง/วินาที และเครื่องปลายทางยังมีกำลังเหลือ (${hostLoadText(hs)}) — ไม่ใช่คอขวด`
+          : `ได้ ${hs.enc_fps} FPS ตามที่ภาพบนจอเปลี่ยน (เครื่องปลายทางไม่ได้ส่งข้อมูล CPU/GPU มา)` };
+      }
       return { cls: 'ok', text: 'ปกติ — ไม่พบคอขวด' };
+    }
+
+    function hostLoadText(hs) {
+      const parts = [];
+      if (typeof hs?.cpu === 'number') parts.push(`CPU ${Math.round(hs.cpu)}%`);
+      if (typeof hs?.gpu === 'number') {
+        const eng = { '3D': '3D', 'VideoEncode': 'เข้ารหัสวิดีโอ', 'NVENC': 'NVENC', 'Copy': 'Copy', 'VideoProcessing': 'Video Processing' }[hs.gpu_engine] || hs.gpu_engine || '';
+        parts.push(`GPU ${Math.round(hs.gpu)}%` + (eng ? ` (${eng})` : ''));
+      }
+      return parts.join(' · ');
     }
 
     // fallbackRows lists why the host skipped faster capture/encoder paths, and the state of the
@@ -3389,6 +3413,7 @@
         ${row('เส้นทาง', esc(path.long))}
         ${row('RTT', rtt)}
         ${row('ต้นทาง', esc(hostLine))}
+        ${hs ? row('โหลดปลายทาง', esc(hostLoadText(hs) || 'ไม่มีข้อมูล (วัดไม่ได้บนเครื่องนี้)')) : ''}
         ${row('เครือข่าย', esc(netLine))}
         ${row('เครื่องนี้', esc(viewLine) + (video ? ` · ถอดรหัส ${decodeMs}` : ''))}
         ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}

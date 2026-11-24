@@ -98,6 +98,22 @@ type streamStatsSnapshot struct {
 	// Fallback explains why the host is not on its fastest capture/encoder path (empty when it is).
 	Fallback     []string `json:"fallback,omitempty"`
 	FFmpegUpdate string   `json:"ffmpeg_update,omitempty"` // automatic FFmpeg upgrade: running, done, failed: ...
+	// Host load over the last second; nil when it cannot be measured on this host.
+	CPU       *float64 `json:"cpu,omitempty"`
+	GPU       *float64 `json:"gpu,omitempty"`
+	GPUEngine string   `json:"gpu_engine,omitempty"` // busiest GPU engine: 3D, VideoEncode, NVENC, ...
+}
+
+// setLoad fills the host CPU/GPU load, leaving unknown (-1) values out.
+func (s *streamStatsSnapshot) setLoad(cpu, gpu float64, engine string) {
+	round := func(v float64) *float64 { r := float64(int(v*10+0.5)) / 10; return &r }
+	if cpu >= 0 {
+		s.CPU = round(cpu)
+	}
+	if gpu >= 0 {
+		s.GPU = round(gpu)
+		s.GPUEngine = engine
+	}
 }
 
 // take returns the counters accumulated over elapsed and resets the per-second ones.

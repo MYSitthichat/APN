@@ -375,6 +375,8 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 	go func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
+		load := newSysLoadSampler()
+		defer load.Close()
 		last := time.Now()
 		for {
 			select {
@@ -390,6 +392,7 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				snap.LocalCur = st.localCursor && cursorShapeSupported() && (st.codec == "h264" || st.codec == "hevc")
 				st.mu.Unlock()
 				snap.FFmpegUpdate = bootstrap.FFmpegWGCUpgradeState()
+				snap.setLoad(load.Sample())
 				msg, _ := json.Marshal(map[string]any{"stats": snap})
 				_ = sendFrame(protocol.FrameTypeStats, msg)
 			}
