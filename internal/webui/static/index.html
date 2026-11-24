@@ -3358,18 +3358,20 @@
       if (hs && hs.enc_fps < target * 0.6) {
         const known = typeof hs.gpu === 'number' || typeof hs.cpu === 'number';
         const tr = hostTrend();
-        const highNow = (typeof hs.gpu === 'number' && hs.gpu >= 85) || (typeof hs.cpu === 'number' && hs.cpu >= 90);
+        const highNow = (typeof hs.gpu === 'number' && hs.gpu >= 75) || (typeof hs.cpu === 'number' && hs.cpu >= 85);
+        const roomy = (typeof hs.gpu !== 'number' || hs.gpu < 70) && (typeof hs.cpu !== 'number' || hs.cpu < 70);
         let text;
         if (!known) text = `ได้ ${hs.enc_fps} FPS ตามที่ภาพบนจอเปลี่ยน (เครื่องปลายทางไม่ได้ส่งข้อมูล CPU/GPU มา)`;
         else if (tr.busy && !tr.moving) text = `ภาพบนจอเปลี่ยนน้อย (${hs.enc_fps} ครั้ง/วินาที) — เครื่องปลายทางโหลดสูง (${hostLoadText(hs)}) แต่ตอนนี้ยังไม่ใช่คอขวด`;
         else if (highNow) text = `โหลดเครื่องปลายทางสูงชั่วขณะ (${hostLoadText(hs)}) — ยังไม่ใช่คอขวด`;
-        else text = `ภาพบนจอเปลี่ยน ${hs.enc_fps} ครั้ง/วินาที และเครื่องปลายทางยังมีกำลังเหลือ (${hostLoadText(hs)}) — ไม่ใช่คอขวด`;
+        else if (roomy) text = `ภาพบนจอเปลี่ยน ${hs.enc_fps} ครั้ง/วินาที และเครื่องปลายทางยังมีกำลังเหลือ (${hostLoadText(hs)}) — ไม่ใช่คอขวด`;
+        else text = `ได้ ${hs.enc_fps} FPS — เครื่องปลายทางโหลดค่อนข้างสูง (${hostLoadText(hs)}) อาจเป็นเพราะภาพเปลี่ยนเท่านี้หรือเริ่มทำไม่ทัน`;
         return { cls: 'ok', text };
       }
       return { cls: 'ok', text: 'ปกติ — ไม่พบคอขวด' };
     }
 
-    // hostTrend summarises the last few seconds of host reports: busy when GPU >= 85% or CPU >= 90%
+    // hostTrend summarises the last few seconds of host reports: busy when GPU >= 75% or CPU >= 85%
     // in at least 3 of them, moving when the picture changes enough to need the frames.
     function hostTrend() {
       const h = hostHist.slice(-5);
@@ -3377,7 +3379,7 @@
         const v = h.map(x => x[k]).filter(x => typeof x === 'number');
         return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
       };
-      const busyN = h.filter(x => (typeof x.gpu === 'number' && x.gpu >= 85) || (typeof x.cpu === 'number' && x.cpu >= 90)).length;
+      const busyN = h.filter(x => (typeof x.gpu === 'number' && x.gpu >= 75) || (typeof x.cpu === 'number' && x.cpu >= 85)).length;
       const avgGPU = avg('gpu'), avgCPU = avg('cpu'), avgEnc = avg('enc_fps') ?? 0, avgKbps = avg('kbps') ?? 0;
       const parts = [];
       if (avgCPU !== null) parts.push(`CPU ${Math.round(avgCPU)}%`);

@@ -72,3 +72,66 @@ func TestCaptureAsSessionUserDiag(t *testing.T) {
 	run("WGC as SYSTEM (before)", false, wgc...)
 	run("WGC as session user (after)", true, wgc...)
 }
+
+// TestCandidateStartupDiag starts each WGC/DXGI encoder candidate the way the service does and
+// reports how long the first encoded frame takes (production gives up after 2.6s), at the
+// screen's own size and at 720p.
+func TestCandidateStartupDiag(t *testing.T) {
+	_ = os.Setenv("APN_SERVICE_WORKER", "1")
+	if dir := os.Getenv("APN_BIN_DIR"); dir == "" {
+		_ = os.Setenv("APN_BIN_DIR", `C:\ProgramData\APN\bin`)
+	}
+	ff, ok := bootstrap.FindFFmpeg()
+	if !ok {
+		t.Fatal("ffmpeg not found")
+	}
+	out, _ := exec.Command(ff, "-hide_banner", "-version").Output()
+	t.Logf("ffmpeg %s: %s", ff, strings.SplitN(string(out), "\n", 2)[0])
+	t.Logf("input desktop %q", inputDesktopName())
+	w, h := ScreenSize()
+	t.Logf("screen %dx%d", w, h)
+	for _, size := range [][2]int{{w &^ 1, h &^ 1}, {1280, 720}} {
+		for _, codec := range []string{"hevc", "h264"} {
+			for _, c := range videoEncoderCandidates(codec, 60, w, h, size[0], size[1], 82, false) {
+				if c.tier == "GDI" || strings.Contains(c.name, "AMF") {
+					continue
+				}
+				cmd := exec.Command(ff, c.args...)
+				release := prepareCaptureCmd(cmd)
+				var stderr strings.Builder
+				cmd.Stderr = &stderr
+				stdout, _ := cmd.StdoutPipe()
+				start := time.Now()
+				err := cmd.Start()
+				release()
+				if err != nil {
+					t.Logf("%dx%d %s: start failed %v", size[0], size[1], c.name, err)
+					continue
+				}
+				first := make(chan error, 1)
+				go func() {
+					_, _, err := newFLVH264Reader(stdout).NextAccessUnit()
+					first <- err
+				}()
+				res := ""
+				select {
+				case err := <-first:
+					if err != nil {
+						msg := strings.TrimSpace(stderr.String())
+						if len(msg) > 150 {
+							msg = msg[:150]
+						}
+						res = "FAIL " + msg
+					} else {
+						res = "first frame in " + time.Since(start).Round(time.Millisecond).String()
+					}
+				case <-time.After(10 * time.Second):
+					res = "NO FRAME in 10s; stderr=" + strings.TrimSpace(stderr.String())
+				}
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				t.Logf("%dx%d %-5s %-34s %s", size[0], size[1], codec, c.name, res)
+			}
+		}
+	}
+}

@@ -36,9 +36,10 @@ const keyframeRestartCooldown = 1500 * time.Millisecond
 // on its own (resolution change, display sleep, lock screen, GPU reset). The caller restarts
 // video instead of treating the encoder as unsupported.
 type videoStreamEndedError struct {
-	encoder string
-	ran     time.Duration
-	cause   error
+	encoder  string
+	ran      time.Duration
+	cause    error
+	upgraded bool // stopped on purpose because a faster capture path (WGC) works again
 }
 
 func (e *videoStreamEndedError) Error() string {
@@ -189,6 +190,32 @@ func isDDACaptureFailure(stderr string) bool {
 			strings.Contains(s, "unsupported") ||
 			strings.Contains(s, "invalid argument") ||
 			strings.Contains(s, "no such filter")))
+}
+
+// wgcRetryInterval is how often a stream on a slower capture path re-tries WGC in the background.
+var wgcRetryInterval = 20 * time.Second
+
+// probeCandidate starts one capture+encoder command line and reports whether it delivers an
+// encoded frame within timeout. Used to check in the background that WGC works again.
+func probeCandidate(ctx context.Context, ffmpegPath string, cand encoderCandidate, timeout time.Duration) bool {
+	pctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(pctx, ffmpegPath, cand.args...)
+	release := prepareCaptureCmd(cmd)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		release()
+		return false
+	}
+	err = cmd.Start()
+	release()
+	if err != nil {
+		return false
+	}
+	au, _, rerr := newFLVH264Reader(stdout).NextAccessUnit()
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	return rerr == nil && len(au) > 0 && pctx.Err() == nil
 }
 
 // noteCaptureStderr starts an FFmpeg upgrade when the installed build lacks Windows Graphics
@@ -370,6 +397,10 @@ func streamVideoFFmpeg(
 	skipTier := map[string]bool{}
 	restarting := false
 	var fails []videoFailure
+	// wgcRetry is the WGC candidate that only timed out (no error). WGC can stall briefly (seen on
+	// a hybrid-GPU workstation right after a settings change) and then work normally, so while a
+	// slower capture runs it is retried in the background and the stream moves back when it works.
+	var wgcRetry *encoderCandidate
 
 	for i := 0; i < len(candidates); i++ {
 		cand := candidates[i]
@@ -425,6 +456,10 @@ func streamVideoFFmpeg(
 			lastErr = errors.New("encoder startup timed out")
 			if cand.tier != "" && cand.tier != "GDI" {
 				skipTier[cand.tier] = true
+			}
+			if cand.tier == "WGC" && wgcRetry == nil && strings.TrimSpace(stderrBuf.String()) == "" {
+				c := cand
+				wgcRetry = &c
 			}
 			fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, capture: cand.tier != "GDI",
 				reason: "เริ่มไม่ทันใน 2.6 วินาที (GPU หรือการจับภาพไม่ตอบสนอง)"})
@@ -579,11 +614,36 @@ func streamVideoFFmpeg(
 			displayTicker = time.NewTicker(2 * time.Second)
 			displayTick = displayTicker.C
 		}
+		var upgradeTick <-chan time.Time
+		var upgradeTicker *time.Ticker
+		upgradeRes := make(chan bool, 1)
+		upgradeProbing := false
+		upgraded := false
+		if wgcRetry != nil && cand.tier != "WGC" {
+			upgradeTicker = time.NewTicker(wgcRetryInterval)
+			upgradeTick = upgradeTicker.C
+		}
 	streamLoop:
 		for !restart {
 			select {
 			case <-ctx.Done():
 				break streamLoop
+			case <-upgradeTick:
+				if !upgradeProbing {
+					upgradeProbing = true
+					retry := *wgcRetry
+					go func() { upgradeRes <- probeCandidate(ctx, ffmpegPath, retry, 4*time.Second) }()
+				}
+			case ok := <-upgradeRes:
+				upgradeProbing = false
+				if ok {
+					// WGC works again: remember it and restart video so the candidate loop starts with it.
+					cachedEncMu.Lock()
+					cachedEncByCodec[codec] = wgcRetry.name
+					cachedEncMu.Unlock()
+					ended, upgraded = true, true
+					break streamLoop
+				}
 			case <-displayTick:
 				if cur := captureDisplayKey(); cur != "" && cur != startDisplay {
 					// The new display may have another resolution; re-probe before restarting.
@@ -621,6 +681,9 @@ func streamVideoFFmpeg(
 		if displayTicker != nil {
 			displayTicker.Stop()
 		}
+		if upgradeTicker != nil {
+			upgradeTicker.Stop()
+		}
 
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -638,9 +701,10 @@ func streamVideoFFmpeg(
 		}
 		if ended {
 			return cand.name, &videoStreamEndedError{
-				encoder: cand.name,
-				ran:     time.Since(launchedAt),
-				cause:   summarizeFFmpegErr(stderrBuf.String(), io.EOF),
+				encoder:  cand.name,
+				ran:      time.Since(launchedAt),
+				cause:    summarizeFFmpegErr(stderrBuf.String(), io.EOF),
+				upgraded: upgraded,
 			}
 		}
 		return cand.name, nil

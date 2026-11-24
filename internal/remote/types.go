@@ -486,6 +486,17 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 			// is restarted with the same codec. Only repeated short runs fall back below.
 			var ended *videoStreamEndedError
 			if errors.As(err, &ended) {
+				if ended.upgraded {
+					// WGC works again; if H.265 had been given up only because capture failed, try it again.
+					st.mu.Lock()
+					if st.hevcSteppedDown && st.codec == "h264" {
+						st.codec = "hevc"
+						st.hevcSteppedDown = false
+						curCodec = "hevc"
+						stats.setHEVCFailure("")
+					}
+					st.mu.Unlock()
+				}
 				if ended.ran >= videoHealthyRun {
 					videoShortRuns = 0
 				} else {
