@@ -16,6 +16,24 @@ type streamStats struct {
 	restarts  atomic.Uint32 // encoder relaunches (keyframe requests, recoveries); total, not per second
 	stallNs   atomic.Int64  // longest single frame write in the current second
 	queueMax  atomic.Int32  // deepest send queue in the current second
+
+	// fallback lists why faster capture/encoder paths were skipped for the running encoder,
+	// e.g. "WGC: FFmpeg has no gfxcapture". hevcFail says why H.265 was given up for H.264.
+	fallback atomic.Pointer[[]string]
+	hevcFail atomic.Pointer[string]
+}
+
+func (s *streamStats) setFallback(reasons []string) {
+	if s != nil {
+		cp := append([]string(nil), reasons...)
+		s.fallback.Store(&cp)
+	}
+}
+
+func (s *streamStats) setHEVCFailure(reason string) {
+	if s != nil {
+		s.hevcFail.Store(&reason)
+	}
 }
 
 func (s *streamStats) addEncoded() {
@@ -77,6 +95,9 @@ type streamStatsSnapshot struct {
 	Codec      string  `json:"codec"`
 	Encoder    string  `json:"encoder,omitempty"`
 	LocalCur   bool    `json:"local_cursor"`
+	// Fallback explains why the host is not on its fastest capture/encoder path (empty when it is).
+	Fallback     []string `json:"fallback,omitempty"`
+	FFmpegUpdate string   `json:"ffmpeg_update,omitempty"` // automatic FFmpeg upgrade: running, done, failed: ...
 }
 
 // take returns the counters accumulated over elapsed and resets the per-second ones.
@@ -86,7 +107,15 @@ func (s *streamStats) take(elapsed time.Duration) streamStatsSnapshot {
 	}
 	perSec := func(n uint64) int { return int(float64(n)/elapsed.Seconds() + 0.5) }
 	bytes := s.sentBytes.Swap(0)
+	var fallback []string
+	if h := s.hevcFail.Load(); h != nil && *h != "" {
+		fallback = append(fallback, "H.265 → H.264: "+*h)
+	}
+	if f := s.fallback.Load(); f != nil {
+		fallback = append(fallback, (*f)...)
+	}
 	return streamStatsSnapshot{
+		Fallback:   fallback,
 		EncodedFPS: perSec(uint64(s.encoded.Swap(0))),
 		SentFPS:    perSec(uint64(s.sent.Swap(0))),
 		Kbps:       int(float64(bytes) * 8 / 1000 / elapsed.Seconds()),

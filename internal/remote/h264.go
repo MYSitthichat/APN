@@ -151,6 +151,7 @@ func WarmupH264Encoder() {
 					cachedEncMu.Unlock()
 					break
 				}
+				noteCaptureStderr(stderrBuf.String())
 				if cand.tier != "" && (timedOut || isCaptureTierFailure(cand.tier, stderrBuf.String())) {
 					skipTier[cand.tier] = true
 				}
@@ -188,6 +189,76 @@ func isDDACaptureFailure(stderr string) bool {
 			strings.Contains(s, "unsupported") ||
 			strings.Contains(s, "invalid argument") ||
 			strings.Contains(s, "no such filter")))
+}
+
+// noteCaptureStderr starts an FFmpeg upgrade when the installed build lacks Windows Graphics
+// Capture, which otherwise leaves Windows hosts on DXGI or ~11 FPS GDI capture for good.
+func noteCaptureStderr(stderr string) {
+	if strings.Contains(strings.ToLower(stderr), "no such filter: 'gfxcapture'") {
+		bootstrap.RequestFFmpegWGCUpgrade()
+	}
+}
+
+// explainVideoFailure turns an encoder probe failure into a short reason for the stats panel.
+// capture=true means the capture method itself failed (not just one encoder).
+func explainVideoFailure(tier, stderr string, err error) (reason string, capture bool) {
+	if strings.Contains(strings.ToLower(stderr), "no such filter: 'gfxcapture'") {
+		return "FFmpeg รุ่นนี้ไม่มีตัวจับภาพ WGC (gfxcapture)", true
+	}
+	raw := summarizeFFmpegErr(stderr, err).Error()
+	if tier != "" && isCaptureTierFailure(tier, stderr) {
+		return "จับภาพไม่ได้: " + raw, true
+	}
+	return raw, false
+}
+
+type videoFailure struct {
+	tier, name, reason string
+	capture            bool
+}
+
+var tierLabels = map[string]string{
+	"WGC":   "WGC (Windows Graphics Capture)",
+	"DXGI":  "DXGI Desktop Duplication",
+	"DXGI1": "DXGI Desktop Duplication (GPU ตัวที่ 2)",
+	"GDI":   "GDI",
+}
+
+// fallbackReasons explains, one line per capture method, why the methods tried before the chosen
+// encoder were unusable, and why a GPU encoder was not used when the choice is software x264.
+func fallbackReasons(fails []videoFailure, chosen encoderCandidate) []string {
+	var out []string
+	seen := map[string]int{}
+	for _, f := range fails {
+		if f.tier == chosen.tier {
+			continue
+		}
+		label := tierLabels[f.tier]
+		if label == "" {
+			label = f.name
+		}
+		line := label + ": " + f.reason
+		if i, ok := seen[f.tier]; ok {
+			if f.capture && !strings.Contains(out[i], "จับภาพ") && !strings.Contains(out[i], "เริ่มไม่ทัน") {
+				out[i] = line
+			}
+			continue
+		}
+		seen[f.tier] = len(out)
+		out = append(out, line)
+	}
+	if strings.Contains(chosen.name, "x264") {
+		for _, f := range fails {
+			if f.tier == chosen.tier && !f.capture {
+				out = append(out, "GPU encoder ("+f.name+"): "+f.reason)
+				break
+			}
+		}
+	}
+	if len(out) > 5 {
+		out = out[:5]
+	}
+	return out
 }
 
 func summarizeFFmpegErr(stderr string, fallback error) error {
@@ -298,6 +369,7 @@ func streamVideoFFmpeg(
 	var lastEnc string
 	skipTier := map[string]bool{}
 	restarting := false
+	var fails []videoFailure
 
 	for i := 0; i < len(candidates); i++ {
 		cand := candidates[i]
@@ -313,12 +385,14 @@ func streamVideoFFmpeg(
 		if err != nil {
 			release()
 			lastErr = err
+			fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, reason: err.Error()})
 			continue
 		}
 		err = cmd.Start()
 		release()
 		if err != nil {
 			lastErr = err
+			fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, reason: err.Error()})
 			continue
 		}
 
@@ -352,6 +426,8 @@ func streamVideoFFmpeg(
 			if cand.tier != "" && cand.tier != "GDI" {
 				skipTier[cand.tier] = true
 			}
+			fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, capture: cand.tier != "GDI",
+				reason: "เริ่มไม่ทันใน 2.6 วินาที (GPU หรือการจับภาพไม่ตอบสนอง)"})
 			continue
 		case pr := <-probeCh:
 			probeTimer.Stop()
@@ -359,9 +435,12 @@ func streamVideoFFmpeg(
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 				lastErr = summarizeFFmpegErr(stderrBuf.String(), pr.err)
+				noteCaptureStderr(stderrBuf.String())
 				if cand.tier != "" && isCaptureTierFailure(cand.tier, stderrBuf.String()) {
 					skipTier[cand.tier] = true
 				}
+				reason, capture := explainVideoFailure(cand.tier, stderrBuf.String(), pr.err)
+				fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, reason: reason, capture: capture})
 				continue
 			}
 			firstAU = pr.au
@@ -374,6 +453,11 @@ func streamVideoFFmpeg(
 			cachedEncMu.Lock()
 			cachedEncByCodec[codec] = cand.name
 			cachedEncMu.Unlock()
+		}
+
+		stats.setFallback(fallbackReasons(fails, cand))
+		if codec == "hevc" {
+			stats.setHEVCFailure("")
 		}
 
 		if !restarting {

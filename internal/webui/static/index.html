@@ -671,6 +671,7 @@
     .screen-stats .ss-row { display: grid; grid-template-columns: 82px 1fr; gap: 6px; }
     .screen-stats .ss-k { color: var(--text-soft); }
     .screen-stats .ss-v { font-variant-numeric: tabular-nums; }
+    .screen-stats .ss-fallback { color: var(--warn); overflow-wrap: anywhere; }
     .screen-stats .ss-hint { margin-top: 6px; padding: 6px 8px; border-radius: 8px; font-weight: 600; }
     .screen-stats .ss-hint.ok { background: color-mix(in srgb, var(--ok, #22c55e) 14%, transparent); color: var(--ok, #22c55e); }
     .screen-stats .ss-hint.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
@@ -3329,7 +3330,11 @@
           return { cls: 'warn', text: `เน็ตส่งไม่ทัน — ต้นทางต้องรอส่งนาน ${Math.round(hs.stall_ms)} ms และทิ้ง ${hs.dropped} เฟรม` + (path.relay ? ' (กำลังอ้อมผ่าน relay/443)' : '') };
         }
         if (hs.enc_fps > 0 && hs.enc_fps < target * 0.6 && hs.kbps > 300) {
-          return { cls: 'warn', text: `เครื่องปลายทางจับภาพ/เข้ารหัสได้แค่ ${hs.enc_fps} FPS (ตั้งไว้ ${target})` };
+          let why = '';
+          if (String(hs.encoder || '').startsWith('GDI')) why = ' — ใช้การจับภาพแบบ GDI ซึ่งช้าที่สุด (ดูเหตุผลด้านบน)';
+          else if (hs.fallback && hs.fallback.length) why = ' — ไม่ได้ใช้วิธีที่เร็วที่สุด (ดูเหตุผลด้านบน)';
+          else why = ' — GPU/CPU ของเครื่องปลายทางอาจไม่พอ หรือภาพบนจอเปลี่ยนช้ากว่านั้นเอง';
+          return { cls: 'warn', text: `เครื่องปลายทางจับภาพ/เข้ารหัสได้แค่ ${hs.enc_fps} FPS (ตั้งไว้ ${target})` + why };
         }
       }
       if (vstat.resets > 0) return { cls: 'warn', text: 'ตัวถอดรหัสต้องเริ่มใหม่ — ภาพอาจค้างชั่วครู่' };
@@ -3341,6 +3346,20 @@
       }
       if (hs && hs.enc_fps < 3 && hs.kbps < 200) return { cls: 'ok', text: 'จอปลายทางนิ่ง — ส่งเฉพาะตอนภาพเปลี่ยน (ปกติ)' };
       return { cls: 'ok', text: 'ปกติ — ไม่พบคอขวด' };
+    }
+
+    // fallbackRows lists why the host skipped faster capture/encoder paths, and the state of the
+    // automatic FFmpeg upgrade that restores Windows Graphics Capture.
+    function fallbackRows(hs) {
+      if (!hs) return '';
+      const lines = (hs.fallback || []).map(x => `<div>• ${esc(x)}</div>`).join('');
+      let up = '';
+      const st = String(hs.ffmpeg_update || '');
+      if (st === 'running') up = '⏳ กำลังอัปเดต FFmpeg ให้รองรับ WGC เบื้องหลัง — ภาพจะสลับเป็นแบบเร็วเองเมื่อเสร็จ';
+      else if (st === 'done') up = '✅ อัปเดต FFmpeg แล้ว (รองรับ WGC)';
+      else if (st.startsWith('failed')) up = '⚠ อัปเดต FFmpeg ไม่สำเร็จ: ' + st.replace(/^failed:\s*/, '');
+      if (!lines && !up) return '';
+      return `<div class="ss-row"><span class="ss-k">ทางที่เร็วกว่า</span><span class="ss-v ss-fallback">${lines}${up ? `<div>${esc(up)}</div>` : ''}</span></div>`;
     }
 
     function renderScreenStats(agentId, rendered, bytesSec) {
@@ -3375,6 +3394,7 @@
         ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}
         ${row('เคอร์เซอร์', esc(cursorLine))}
         ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
+        ${fallbackRows(hs)}
         <div class="ss-hint ${d.cls}">${esc(d.text)}</div>`;
     }
 

@@ -124,6 +124,7 @@ type streamRuntimeState struct {
 	mu                 sync.Mutex
 	localCursor        bool
 	encoder            string
+	hevcSteppedDown    bool // H.265 failed on this host and the session fell back to H.264
 	fps                int
 	quality            int
 	codec              string
@@ -388,9 +389,41 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				snap.Encoder = st.encoder
 				snap.LocalCur = st.localCursor && cursorShapeSupported() && (st.codec == "h264" || st.codec == "hevc")
 				st.mu.Unlock()
+				snap.FFmpegUpdate = bootstrap.FFmpegWGCUpgradeState()
 				msg, _ := json.Marshal(map[string]any{"stats": snap})
 				_ = sendFrame(protocol.FrameTypeStats, msg)
 			}
+		}
+	}()
+
+	// When FFmpeg was just upgraded to a build with Windows Graphics Capture, restart video so this
+	// session moves off DXGI/GDI capture (and back to H.265 if only the old FFmpeg prevented it).
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-bootstrap.FFmpegUpdated():
+		}
+		st.mu.Lock()
+		switch {
+		case st.hevcSteppedDown && st.codec == "h264":
+			st.codec = "hevc"
+		case st.codec == "tiles" && st.fallbackNotice != "":
+			// Smart Tiles was an automatic fallback from video, not the viewer's choice.
+			st.codec = "h264"
+			if st.hevcSteppedDown {
+				st.codec = "hevc"
+			}
+			st.pendingH264Upgrade = false
+			st.fallbackNotice = ""
+		}
+		st.hevcSteppedDown = false
+		st.forceKeyframe = true
+		st.mu.Unlock()
+		stats.setHEVCFailure("")
+		select {
+		case st.modeCh <- struct{}{}:
+		default:
 		}
 	}()
 
@@ -473,6 +506,12 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 					// Remote host GPU has no H.265 encoder -> seamlessly step down to 60 FPS H.264!
 					st.codec = "h264"
 					st.forceKeyframe = true
+					st.hevcSteppedDown = true
+					reason := "ไม่มีตัวเข้ารหัส H.265 ที่ใช้ได้"
+					if err != nil {
+						reason += " (" + err.Error() + ")"
+					}
+					stats.setHEVCFailure(reason)
 				} else {
 					// Auto-fallback to Smart Tiles cleanly if ffmpeg/video unavailable.
 					// Keep the real failure notice visible (never wipe it on serveDirtyTileLoop entry!)
