@@ -26,6 +26,7 @@ var (
 	sizeMu          sync.RWMutex
 	lastW           = 1920
 	lastH           = 1080
+	lastSizeKnown   bool
 	lastSizeProbeAt time.Time
 )
 
@@ -50,13 +51,18 @@ func (u *unixCapturer) Close() {}
 // ScreenSize returns the real display dimensions on Linux/macOS (auto-probed via X11/xrandr).
 func ScreenSize() (int, int) {
 	sizeMu.RLock()
-	w, h, probed := lastW, lastH, lastSizeProbeAt
+	w, h, known, probed := lastW, lastH, lastSizeKnown, lastSizeProbeAt
 	sizeMu.RUnlock()
 
-	if runtime.GOOS == "linux" && time.Since(probed) > 10*time.Second {
+	probeTTL := 10 * time.Second
+	if !known {
+		probeTTL = 1 * time.Second
+	}
+	if runtime.GOOS == "linux" && time.Since(probed) > probeTTL {
 		if nw, nh, ok := probeLinuxScreenSize(); ok {
 			sizeMu.Lock()
 			lastW, lastH = nw, nh
+			lastSizeKnown = true
 			lastSizeProbeAt = time.Now()
 			sizeMu.Unlock()
 			return nw, nh
@@ -126,7 +132,7 @@ func (u *unixCapturer) captureLinux() (*image.RGBA, error) {
 		order = reordered
 	}
 
-	var lastErr error
+	var errParts []string
 	for _, backend := range order {
 		img, err := runLinuxCaptureBackend(backend)
 		if err == nil && img != nil {
@@ -134,14 +140,19 @@ func (u *unixCapturer) captureLinux() (*image.RGBA, error) {
 			return img, nil
 		}
 		if err != nil {
-			lastErr = err
+			errParts = append(errParts, backend+": "+err.Error())
 		}
 	}
 
-	if isLinuxWayland() {
-		return nil, fmt.Errorf("Linux เครื่องนี้ใช้โหมด Wayland ซึ่งบล็อกการจับภาพหน้าจอ (แนะนำเลือก 'Ubuntu on Xorg' ตอน Login หรือติดตั้ง sudo apt install ffmpeg xdotool) — %v", lastErr)
+	detail := strings.Join(errParts, "; ")
+	if len(detail) > 220 {
+		detail = detail[:220] + "..."
 	}
-	return nil, fmt.Errorf("ไม่สามารถจับภาพหน้าจอ Linux ได้ (แนะนำติดตั้ง sudo apt install ffmpeg xdotool) — %v", lastErr)
+	disp, xauth := detectLinuxDisplayEnv()
+	if isLinuxWayland() {
+		return nil, fmt.Errorf("Linux เครื่องนี้ใช้โหมด Wayland ซึ่งบล็อกการจับภาพหน้าจอ (แนะนำเลือก 'Ubuntu on Xorg' ตอน Login หรือรัน sudo sed -i 's/^#WaylandEnable=false/WaylandEnable=false/' /etc/gdm3/custom.conf แล้วรีสตาร์ท) — [%s] %s", disp, detail)
+	}
+	return nil, fmt.Errorf("ไม่สามารถจับภาพหน้าจอ Linux ได้ (DISPLAY=%s XAUTH=%v — แนะนำติดตั้ง sudo apt install ffmpeg xdotool) — %s", disp, xauth != "", detail)
 }
 
 func runLinuxCaptureBackend(backend string) (*image.RGBA, error) {
@@ -154,9 +165,12 @@ func runLinuxCaptureBackend(backend string) (*image.RGBA, error) {
 		}
 		cmd := exec.Command("grim", "-t", "jpeg", "-")
 		cmd.Env = linuxCmdEnv()
+		applyLinuxUserCred(cmd)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, err
+			return nil, summarizeCmdErr(stderr.String(), err)
 		}
 		return decodeAndTrackRGBA(out)
 	case "ffmpeg":
@@ -165,22 +179,28 @@ func runLinuxCaptureBackend(backend string) (*image.RGBA, error) {
 			return nil, nil
 		}
 		disp, _ := detectLinuxDisplayEnv()
-		w, h := ScreenSize()
-		cmd := exec.Command(ffPath, "-loglevel", "error", "-f", "x11grab", "-video_size", fmt.Sprintf("%dx%d", w, h), "-i", disp, "-vframes", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-")
+		args := []string{"-loglevel", "error", "-f", "x11grab"}
+		if w, h, ok := probeLinuxScreenSize(); ok && w > 0 && h > 0 {
+			args = append(args, "-video_size", fmt.Sprintf("%dx%d", w, h))
+		}
+		args = append(args, "-i", disp, "-vframes", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-")
+		cmd := exec.Command(ffPath, args...)
 		cmd.Env = linuxCmdEnv()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil || len(out) < 128 {
 			if err == nil {
 				err = fmt.Errorf("ffmpeg returned empty frame")
 			}
-			return nil, err
+			return nil, summarizeCmdErr(stderr.String(), err)
 		}
 		return decodeAndTrackRGBA(out)
 	case "scrot":
 		if !hasCmd("scrot") {
 			return nil, nil
 		}
-		return captureViaTempFile("scrot", func(tmp string) []string {
+		return captureViaTempFile("scrot", false, func(tmp string) []string {
 			return []string{"-z", "-o", tmp}
 		})
 	case "maim":
@@ -189,9 +209,11 @@ func runLinuxCaptureBackend(backend string) (*image.RGBA, error) {
 		}
 		cmd := exec.Command("maim", "-f", "jpg")
 		cmd.Env = linuxCmdEnv()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, err
+			return nil, summarizeCmdErr(stderr.String(), err)
 		}
 		return decodeAndTrackRGBA(out)
 	case "import":
@@ -200,36 +222,56 @@ func runLinuxCaptureBackend(backend string) (*image.RGBA, error) {
 		}
 		cmd := exec.Command("import", "-window", "root", "jpg:-")
 		cmd.Env = linuxCmdEnv()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, err
+			return nil, summarizeCmdErr(stderr.String(), err)
 		}
 		return decodeAndTrackRGBA(out)
 	case "gnome-screenshot":
 		if !hasCmd("gnome-screenshot") {
 			return nil, nil
 		}
-		return captureViaTempFile("gnome-screenshot", func(tmp string) []string {
+		return captureViaTempFile("gnome-screenshot", true, func(tmp string) []string {
 			return []string{"-f", tmp}
 		})
 	case "spectacle":
 		if !hasCmd("spectacle") {
 			return nil, nil
 		}
-		return captureViaTempFile("spectacle", func(tmp string) []string {
+		return captureViaTempFile("spectacle", true, func(tmp string) []string {
 			return []string{"-b", "-n", "-f", "-o", tmp}
 		})
 	}
 	return nil, nil
 }
 
-func captureViaTempFile(bin string, argsFn func(tmp string) []string) (*image.RGBA, error) {
-	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("apn-cap-%d.png", os.Getpid()))
+func summarizeCmdErr(stderr string, err error) error {
+	for _, line := range strings.Split(strings.TrimSpace(stderr), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			if len(line) > 100 {
+				line = line[:100] + "..."
+			}
+			return fmt.Errorf("%s", line)
+		}
+	}
+	return err
+}
+
+func captureViaTempFile(bin string, asDesktopUser bool, argsFn func(tmp string) []string) (*image.RGBA, error) {
+	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("apn-cap-%d-%d.png", os.Getpid(), time.Now().UnixNano()))
 	defer os.Remove(tmp)
 	cmd := exec.Command(bin, argsFn(tmp)...)
 	cmd.Env = linuxCmdEnv()
+	if asDesktopUser {
+		applyLinuxUserCred(cmd)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, err
+		return nil, summarizeCmdErr(stderr.String(), err)
 	}
 	data, err := os.ReadFile(tmp)
 	if err != nil {

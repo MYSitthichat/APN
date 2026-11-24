@@ -24,15 +24,18 @@ func ReadClipboard() (byte, []byte, error) {
 	if isLinuxWayland() && hasCmd("wl-paste") {
 		typesCmd := exec.Command("wl-paste", "--list-types")
 		typesCmd.Env = linuxCmdEnv()
+		applyLinuxUserCred(typesCmd)
 		if typesOut, err := typesCmd.Output(); err == nil && strings.Contains(string(typesOut), "image/png") {
 			imgCmd := exec.Command("wl-paste", "--type", "image/png")
 			imgCmd.Env = linuxCmdEnv()
+			applyLinuxUserCred(imgCmd)
 			if out, err := imgCmd.Output(); err == nil && len(out) > 16 {
 				return 1, out, nil
 			}
 		}
 		txtCmd := exec.Command("wl-paste", "--no-newline")
 		txtCmd.Env = linuxCmdEnv()
+		applyLinuxUserCred(txtCmd)
 		if out, err := txtCmd.Output(); err == nil && len(out) > 0 {
 			return 0, out, nil
 		}
@@ -109,6 +112,7 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		}
 		cmd := exec.Command("wl-copy", args...)
 		cmd.Env = linuxCmdEnv()
+		applyLinuxUserCred(cmd)
 		cmd.Stdin = bytes.NewReader(data)
 		return cmd.Start()
 	}

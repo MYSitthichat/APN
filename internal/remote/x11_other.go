@@ -5,6 +5,7 @@ package remote
 import (
 	"image"
 	"os"
+	"os/exec"
 )
 
 func detectLinuxDisplayEnv() (string, string) {
@@ -14,6 +15,8 @@ func detectLinuxDisplayEnv() (string, string) {
 func linuxCmdEnv() []string {
 	return os.Environ()
 }
+
+func applyLinuxUserCred(_ *exec.Cmd) {}
 
 func isLinuxWayland() bool {
 	return false

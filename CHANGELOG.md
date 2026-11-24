@@ -4,6 +4,12 @@
 
 ---
 
+## v1.3.2 (2026-11-24)
+- **แก้ปัญหาจับภาพหน้าจอ Linux ไม่ได้ (`exit status 1`) เมื่อรันเป็น System Service (`apn.service`) หรือบนเครื่องที่มีหลาย Display (`:0` / `:1`):**
+  - **ระบบค้นหา Graphical Session อัตโนมัติเต็มรูปแบบบน Linux (`internal/remote/x11_linux.go`):** สแกนหา `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` และ `UID/GID` จาก `/proc/*/environ`, อาร์กิวเมนต์ `-auth` ของ `Xorg` (`/proc/*/cmdline`), และไฟล์ Xauthority ทุก Display Manager (`GDM3`, `LightDM`, `SDDM`, `.mutter-Xwaylandauth.*`, `/home/*/.Xauthority`)
+  - **สลับหน้าจอก่อน/หลังล็อกอินอัตโนมัติ:** เลือกจับภาพหน้า Desktop ของผู้ใช้ที่ล็อกอินอยู่ (`uid >= 1000`, เช่น `:1`) เป็นอันดับแรก และหากยังไม่มีใครล็อกอินจะจับหน้า Login Screen (`GDM/LightDM/SDDM`) ให้โดยอัตโนมัติ พร้อมสลับตามเมื่อล็อกอินหรือล็อกเอาต์โดยไม่ต้องรีสตาร์ท Service
+  - **รองรับสิทธิ์ผู้ใช้จริงสำหรับเครื่องมือ Wayland/D-Bus และแสดงสาเหตุจริงแทน `exit status 1` (`screen_unix.go`, `clipboard_unix.go`):** ลดสิทธิ์ไปรันด้วย `UID/GID` ของผู้ใช้ Desktop สำหรับเครื่องมือ Wayland, ไม่บังคับ `-video_size` เกินขนาดจอจริง และรายงาน `stderr` + สถานะ `DISPLAY`/`XAUTH`/Wayland อย่างชัดเจนหากจับภาพไม่ได้
+
 ## v1.3.1 (2026-11-24)
 - **แก้บั๊ก Linux กดโหลด 60FPS (FFmpeg) แล้วไม่ยอมติดตั้งอัตโนมัติ:**
   - **เพิ่มตัวดาวน์โหลดและติดตั้ง FFmpeg อัตโนมัติบน Linux (`amd64` / `arm64`) แบบไม่ต้องใช้สิทธิ์ root (`internal/bootstrap/deps.go`):** หากเครื่องรันเป็น System Service (`root`) จะติดตั้งผ่าน `apt-get install -y ffmpeg` ให้ใน ~5 วินาที และหากรันเป็นผู้ใช้ปกติจะโหลดไบนารีสแตติกทางการของ `BtbN/FFmpeg-Builds` (รองรับ `x11grab` + `VAAPI` + `NVENC` + `x264`) มาแตกไว้ในโฟลเดอร์ APN ให้อัตโนมัติพร้อมแถบเปอร์เซ็นต์
