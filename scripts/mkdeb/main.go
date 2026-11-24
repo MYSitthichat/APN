@@ -4,10 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/md5"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -71,6 +74,7 @@ exec /usr/lib/apn/apn "$@"
 `
 
 	dataEntries := []tarEntry{
+		{name: "./", isDir: true, mode: 0o755},
 		{name: "./usr/", isDir: true, mode: 0o755},
 		{name: "./usr/bin/", isDir: true, mode: 0o755},
 		{name: "./usr/bin/apn", data: []byte(launcherScript), mode: 0o755},
@@ -97,18 +101,34 @@ exec /usr/lib/apn/apn "$@"
 
 	dataTarGz := buildTarGz(dataEntries, now)
 
+	// Build standard Debian md5sums for all non-conffile regular files
+	var md5Buf bytes.Buffer
+	for _, e := range dataEntries {
+		if e.isDir || strings.HasPrefix(e.name, "./etc/") {
+			continue
+		}
+		sum := md5.Sum(e.data)
+		rel := strings.TrimPrefix(e.name, "./")
+		fmt.Fprintf(&md5Buf, "%s  %s\n", hex.EncodeToString(sum[:]), rel)
+	}
+
 	installedKB := (len(binData) + len(iconData) + 4096) / 1024
+	// Use Suggests (not Recommends) so offline / GUI App Center PackageKit installs NEVER fail
+	// trying to download optional packages when apt cache is stale!
 	controlFile := fmt.Sprintf(`Package: apn
 Version: %s
 Section: net
 Priority: optional
 Architecture: %s
 Maintainer: APN <apn@psms-center.com>
+Homepage: https://github.com/MYSitthichat/APN
 Installed-Size: %d
-Recommends: ffmpeg, xdotool
+Suggests: ffmpeg
 Description: APN Remote Desktop & Built-in L3 VPN
  High-speed 60 FPS P2P Remote Desktop and encrypted L3 VPN in a single app.
 `, *ver, *arch, installedKB)
+
+	conffiles := "/etc/xdg/autostart/apn.desktop\n"
 
 	postinst := `#!/bin/sh
 set -e
@@ -118,10 +138,14 @@ fi
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
 fi
+exit 0
 `
 
 	controlTarGz := buildTarGz([]tarEntry{
+		{name: "./", isDir: true, mode: 0o755},
+		{name: "./conffiles", data: []byte(conffiles), mode: 0o644},
 		{name: "./control", data: []byte(controlFile), mode: 0o644},
+		{name: "./md5sums", data: md5Buf.Bytes(), mode: 0o644},
 		{name: "./postinst", data: []byte(postinst), mode: 0o755},
 	}, now)
 
