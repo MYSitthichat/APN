@@ -280,6 +280,16 @@ func runPeer(args []string, logger *slog.Logger) error {
 		tray.HideConsoleWindow()
 	}
 
+	if *serviceWorker {
+		// The System Service must own the device. A user-mode APN still holding the UI port
+		// would otherwise make the service exit and restart in a loop, and every setting
+		// changed there would be missing from the service config after the next reboot.
+		takeOverUserModeInstance(logger)
+		if merged := service.SyncNewerUserConfig(*cfgPath); len(merged) > 0 {
+			logger.Info("merged newer user-mode settings into the service config", "from", merged, "config", *cfgPath)
+		}
+	}
+
 	var cfg *config.PeerConfig
 	if _, err := os.Stat(*cfgPath); errors.Is(err, os.ErrNotExist) {
 		cfg, err = config.DefaultPeerConfig(filepath.Dir(*cfgPath))
@@ -351,6 +361,9 @@ func runPeer(args []string, logger *slog.Logger) error {
 		if existingAddr := findRunningAPNAddr(cfg.UIAddr); existingAddr != "" {
 			if *openBrowser {
 				tray.OpenAppWindow("http://" + existingAddr)
+			}
+			if !*serviceWorker {
+				retireUserUnitIfServiceOwns()
 			}
 			return nil
 		}
@@ -541,6 +554,40 @@ func apnCandidateUIAddrs(preferred string) []string {
 		add("127.0.0.1:" + strconv.Itoa(p))
 	}
 	return out
+}
+
+// retireUserUnitIfServiceOwns disables the per-user systemd unit (~/.config/systemd/user/apn.service)
+// when the Linux System Service is running. Its Restart=always would otherwise relaunch this
+// user-mode process every 3s forever, racing the service for the UI port.
+func retireUserUnitIfServiceOwns() {
+	if runtime.GOOS != "linux" || os.Geteuid() == 0 || os.Getenv("APN_SYSTEMD_SERVICE") != "1" {
+		return
+	}
+	if info := service.GetInfo(); !info.Installed || !info.Running {
+		return
+	}
+	_ = exec.Command("systemctl", "--user", "disable", "--now", "apn.service").Start()
+	time.Sleep(200 * time.Millisecond)
+}
+
+// takeOverUserModeInstance asks a running user-mode APN (if any) to quit so the System Service
+// can bind the UI port and own the device ID, then waits up to 6s for it to exit.
+func takeOverUserModeInstance(logger *slog.Logger) {
+	addr := findRunningAPNAddr("127.0.0.1:18480")
+	if addr == "" {
+		return
+	}
+	logger.Info("asking user-mode APN to hand over to the System Service", "ui", addr)
+	hc := &http.Client{Timeout: 3 * time.Second}
+	if resp, err := hc.Post("http://"+addr+"/api/peer/quit", "application/json", strings.NewReader("{}")); err == nil {
+		_ = resp.Body.Close()
+	}
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) && isAlreadyRunning(addr) {
+		time.Sleep(150 * time.Millisecond)
+	}
+	// Give the exiting process a moment to flush its peer.json before it is merged.
+	time.Sleep(300 * time.Millisecond)
 }
 
 func findRunningAPNAddr(preferred string) string {

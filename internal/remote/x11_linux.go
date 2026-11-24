@@ -563,6 +563,16 @@ func applyLinuxUserCred(cmd *exec.Cmd) {
 	}
 }
 
+// captureDisplayKey identifies the X display the capture should follow right now
+// (e.g. the GDM login screen before login, the user's desktop after).
+func captureDisplayKey() string {
+	s := getActiveLinuxSession()
+	if s.Display == "" {
+		return ""
+	}
+	return s.Display + "|" + s.XAuthority
+}
+
 func isLinuxWayland() bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("XDG_SESSION_TYPE")), "wayland") {
 		return true

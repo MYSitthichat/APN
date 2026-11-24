@@ -4,6 +4,15 @@
 
 ---
 
+## v1.3.7 (2026-11-24)
+- **แก้ Linux System Service รีสตาร์ทเครื่องแล้วเข้าไม่ได้ ("รหัสผ่านที่บันทึกไว้ไม่ตรงกับเครื่องปลายทาง"):**
+  - **ซิงค์รหัสผ่านถาวร/ประวัติเครื่องจากแอปโหมดผู้ใช้เข้า Service อัตโนมัติ (`internal/service/service.go`):** ตอน Service เริ่มทำงาน จะดึง `permanent_password_hash`, ค่าขออนุมัติ และ `known_peers` จาก `~/.config/APN/peer.json` (หรือ `%APPDATA%\APN\peer.json` บน Windows) ที่บันทึกใหม่กว่า `/etc/apn/peer.json` ของเครื่องเดียวกัน — ไม่ทำรหัสผ่านที่ตั้งตอนแอปโหมดผู้ใช้ทำงานหายหลังรีบูตอีก และตอนติดตั้ง Service จะใช้รหัสผ่านจากแอปผู้ใช้เสมอ
+  - **Service รับช่วงจากแอปโหมดผู้ใช้ทันที (`cmd/relayvpn/main.go`):** ถ้าแอปโหมดผู้ใช้ถือพอร์ตอยู่ Service จะสั่งให้ปิดตัวแล้วเป็นเจ้าของเครื่องเอง (เดิม Service ปิดตัวและวนรีสตาร์ท) และปิด `~/.config/systemd/user/apn.service` (`Restart=always`) ที่วนรีสตาร์ททุก 3 วินาทีเมื่อมี System Service แล้ว
+- **รีโมตหน้า Login ของ Linux แล้วล็อกอินต่อได้ (`internal/remote/h264.go`):** ตรวจ X Display ที่ใช้งานทุก 2 วินาที เมื่อสลับจากหน้า Login (GDM/LightDM) ไป Desktop ของผู้ใช้ (หรือ Logout กลับ) จะเปิดสตรีมวิดีโอใหม่บน Display ใหม่พร้อมวัดขนาดจอใหม่ทันที — ไม่ค้างภาพหน้า Login ขณะที่เมาส์/คีย์บอร์ดไปอยู่ Desktop แล้ว
+- **ชื่อเครื่องที่ตั้งเองไม่หายหลังอัปเดต/เชื่อมต่อใหม่ (`internal/p2p/node.go`, `config.go`):** เพิ่ม `custom_name` ให้ชื่อที่เปลี่ยนเองไม่ถูก hostname ของเครื่องปลายทางเขียนทับทุกครั้งที่เชื่อมต่อ (เครื่องที่ชื่อหายไปแล้วตั้งใหม่อีกครั้งเดียว)
+- **Linux 60 FPS นิ่งขึ้น — แปลงสีบน GPU:** เพิ่มตัวเข้ารหัส `NVENC (GPU color)` ที่รับภาพ BGRX ตรงจาก `x11grab` และ `VAAPI (GPU color)` ที่ใช้ `hwupload` + `scale_vaapi` แปลงสี/ย่อภาพบน GPU แทน CPU (ลดงาน CPU ~3–8ms ต่อเฟรม 1080p) พร้อมลอง VAAPI ทุก `/dev/dri/renderD*` แทนการระบุ `renderD128` ตายตัว (ตัวเดิมยังเป็นสำรอง)
+- **Cloudflare Worker (`cloudflare-worker/wrangler.toml`):** เพิ่มไฟล์ตั้งค่า deploy (`relayvpn-rdv`, KV `PEERS`, `rdv.psms-center.com`) — deploy ด้วย `npx wrangler deploy` และย้อนกลับด้วย `npx wrangler rollback`
+
 ## v1.3.6 (2026-11-24)
 - **แก้ภาพเลอะ/ค้างหลังขอ Keyframe และไม่ตกไป Smart Tiles ถาวร:**
   - **ขอ Keyframe แล้วได้ภาพใหม่จริง (`internal/remote/h264.go`):** เลิกส่ง Keyframe เก่าที่เก็บไว้ซ้ำ (ซึ่งทำให้ภาพย้อนเวลาแล้วเลอะ) เปลี่ยนเป็นรีสตาร์ท Encoder ตัวเดิมเพื่อได้ IDR ใหม่ภายใน ~0.1–0.3 วินาที (จำกัด 1 ครั้งต่อ 1.5 วินาที) ทั้งตอนกดปุ่ม `↻ รีเฟรชหน้าจอ`, ตอน Decoder ฝั่งดูผิดพลาด และตอนฝั่งส่งต้องทิ้งเฟรมระหว่างรอ Keyframe

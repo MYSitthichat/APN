@@ -81,43 +81,184 @@ func migrateConfigDir(srcCfgPath, dstCfgDir string) {
 	}
 }
 
+// mergePeerPasswordIfMissing is used at install time: the user-mode config being migrated is the
+// current truth, so its permanent password and known peers win over an older system config.
 func mergePeerPasswordIfMissing(srcPath, dstPath string) {
+	_, _ = mergePeerConfig(srcPath, dstPath, true)
+}
+
+// SyncNewerUserConfig pulls settings into the system service config (systemCfgPath) from any
+// user-mode peer.json of the same device that was saved more recently.
+//
+// The service and the user-mode app keep separate peer.json files. A permanent password or
+// peer name changed while the user-mode app owned the UI used to be lost at the next boot,
+// when the service started with its older copy: the viewer's saved password then no longer
+// matched ("saved password does not match"). Call this before the service loads its config.
+// It returns the user config paths that were merged.
+func SyncNewerUserConfig(systemCfgPath string) []string {
+	if systemCfgPath == "" {
+		return nil
+	}
+	sysInfo, err := os.Stat(systemCfgPath)
+	if err != nil {
+		return nil
+	}
+	var merged []string
+	for _, cand := range userConfigCandidates() {
+		if filepath.Clean(cand) == filepath.Clean(systemCfgPath) {
+			continue
+		}
+		st, err := os.Stat(cand)
+		if err != nil || !st.ModTime().After(sysInfo.ModTime()) {
+			continue
+		}
+		if ok, _ := mergePeerConfig(cand, systemCfgPath, true); ok {
+			merged = append(merged, cand)
+		}
+	}
+	return merged
+}
+
+// mergePeerConfig merges the permanent password, approval setting and known peers of srcPath
+// into dstPath when both belong to the same device ID. With srcWins, src values replace dst
+// values; otherwise only missing values are filled in. It reports whether dst changed.
+func mergePeerConfig(srcPath, dstPath string, srcWins bool) (bool, error) {
 	srcBytes, err := os.ReadFile(srcPath)
 	if err != nil {
-		return
+		return false, err
 	}
 	dstBytes, err := os.ReadFile(dstPath)
 	if err != nil {
-		return
+		return false, err
 	}
 	var srcMap, dstMap map[string]any
-	if json.Unmarshal(srcBytes, &srcMap) != nil || json.Unmarshal(dstBytes, &dstMap) != nil {
-		return
+	if err := json.Unmarshal(srcBytes, &srcMap); err != nil {
+		return false, err
 	}
+	if err := json.Unmarshal(dstBytes, &dstMap); err != nil {
+		return false, err
+	}
+	srcID, _ := srcMap["device_id"].(string)
+	dstID, _ := dstMap["device_id"].(string)
+	if srcID != "" && dstID != "" && srcID != dstID {
+		// A different device's config: never mix passwords between machines.
+		return false, nil
+	}
+
+	changed := false
 	srcHash, _ := srcMap["permanent_password_hash"].(string)
 	dstHash, _ := dstMap["permanent_password_hash"].(string)
-	changed := false
-	if dstHash == "" && srcHash != "" {
+	if srcHash != "" && srcHash != dstHash && (srcWins || dstHash == "") {
 		dstMap["permanent_password_hash"] = srcHash
 		changed = true
 	}
-	if _, hasKnown := dstMap["known_peers"]; !hasKnown {
-		if srcKnown, ok := srcMap["known_peers"]; ok {
-			dstMap["known_peers"] = srcKnown
-			changed = true
+	if srcWins {
+		if v, ok := srcMap["require_approval"].(bool); ok {
+			if cur, _ := dstMap["require_approval"].(bool); cur != v {
+				dstMap["require_approval"] = v
+				changed = true
+			}
 		}
 	}
+	if mergedPeers, ok := mergeKnownPeers(srcMap["known_peers"], dstMap["known_peers"], srcWins); ok {
+		dstMap["known_peers"] = mergedPeers
+		changed = true
+	}
 	if !changed {
-		return
+		return false, nil
 	}
 	out, err := json.MarshalIndent(dstMap, "", "  ")
 	if err != nil {
-		return
+		return false, err
 	}
 	tmp := dstPath + ".tmp"
-	if os.WriteFile(tmp, out, 0o600) == nil {
-		_ = os.Rename(tmp, dstPath)
+	if err := os.WriteFile(tmp, out, 0o600); err != nil {
+		return false, err
 	}
+	if err := os.Rename(tmp, dstPath); err != nil {
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	return true, nil
+}
+
+// mergeKnownPeers unions two known_peers lists by device_id. For a device in both lists, src
+// fields replace dst fields when srcWins; otherwise dst keeps its values and only gains missing
+// ones. It reports whether the result differs from dst.
+func mergeKnownPeers(srcRaw, dstRaw any, srcWins bool) ([]any, bool) {
+	srcList, _ := srcRaw.([]any)
+	dstList, _ := dstRaw.([]any)
+	if len(srcList) == 0 {
+		return nil, false
+	}
+	out := make([]any, 0, len(dstList)+len(srcList))
+	index := map[string]int{}
+	for _, p := range dstList {
+		m, ok := p.(map[string]any)
+		if !ok {
+			out = append(out, p)
+			continue
+		}
+		cp := make(map[string]any, len(m))
+		for k, v := range m {
+			cp[k] = v
+		}
+		if id, _ := cp["device_id"].(string); id != "" {
+			index[id] = len(out)
+		}
+		out = append(out, cp)
+	}
+	changed := false
+	for _, p := range srcList {
+		sm, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := sm["device_id"].(string)
+		if id == "" {
+			continue
+		}
+		pos, exists := index[id]
+		if !exists {
+			cp := make(map[string]any, len(sm))
+			for k, v := range sm {
+				cp[k] = v
+			}
+			index[id] = len(out)
+			out = append(out, cp)
+			changed = true
+			continue
+		}
+		dm := out[pos].(map[string]any)
+		for k, v := range sm {
+			cur, has := dm[k]
+			if !has || isEmptyJSON(cur) || (srcWins && !isEmptyJSON(v)) {
+				if !has || !jsonEqual(cur, v) {
+					dm[k] = v
+					changed = true
+				}
+			}
+		}
+	}
+	return out, changed
+}
+
+func isEmptyJSON(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case bool:
+		return !t
+	}
+	return false
+}
+
+func jsonEqual(a, b any) bool {
+	ab, _ := json.Marshal(a)
+	bb, _ := json.Marshal(b)
+	return string(ab) == string(bb)
 }
 
 func migrateBinDir(srcBinDir, dstBinDir string) {

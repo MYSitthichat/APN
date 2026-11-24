@@ -74,7 +74,16 @@ func ScreenSize() (int, int) {
 	return w, h
 }
 
-var reXrandrCurrent = regexp.MustCompile(`current\s+(\d+)\s*x\s*(\d+)`)
+// markScreenSizeStale forces the next ScreenSize call to probe the display again
+// (used when capture moves to another X display, e.g. login screen -> user desktop).
+func markScreenSizeStale() {
+	sizeMu.Lock()
+	lastSizeKnown = false
+	lastSizeProbeAt = time.Time{}
+	sizeMu.Unlock()
+}
+
+var reXrandrCurrent =regexp.MustCompile(`current\s+(\d+)\s*x\s*(\d+)`)
 
 func probeLinuxScreenSize() (int, int, bool) {
 	if w, h, ok := x11ScreenSize(); ok {

@@ -1199,6 +1199,7 @@ func (n *Node) RenameSavedPeer(rawID, newName string) error {
 	for i := range n.cfg.KnownPeers {
 		if NormalizeDeviceID(n.cfg.KnownPeers[i].DeviceID) == devID {
 			n.cfg.KnownPeers[i].Name = newName
+			n.cfg.KnownPeers[i].CustomName = true
 			n.persistConfigLocked()
 			return nil
 		}
@@ -1959,7 +1960,11 @@ func (n *Node) rememberPeerLocked(p *connectedPeer) {
 	for i := range n.cfg.KnownPeers {
 		if NormalizeDeviceID(n.cfg.KnownPeers[i].DeviceID) == devID {
 			prev := n.cfg.KnownPeers[i]
-			if kp.Name == "" {
+			// A name the user set wins over the remote hostname sent on every (re)connect.
+			if prev.CustomName && prev.Name != "" {
+				kp.Name = prev.Name
+				kp.CustomName = true
+			} else if kp.Name == "" {
 				kp.Name = prev.Name
 			}
 			if kp.OS == "" {

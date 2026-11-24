@@ -12,3 +12,4 @@ config/
 *.crt
 *.key
 !cmd/relayvpn/rsrc_windows_*.syso
+.wrangler/

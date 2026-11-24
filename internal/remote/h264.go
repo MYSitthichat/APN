@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -478,11 +480,28 @@ func streamVideoFFmpeg(
 		case <-keyframeReqCh:
 		default:
 		}
+		// Linux: x11grab is bound to one X display. When the active session changes (login screen ->
+		// user desktop after login, or back after logout) the stream must move with it, otherwise the
+		// picture freezes on the old display while input already goes to the new one.
+		var displayTick <-chan time.Time
+		var displayTicker *time.Ticker
+		startDisplay := captureDisplayKey()
+		if startDisplay != "" {
+			displayTicker = time.NewTicker(2 * time.Second)
+			displayTick = displayTicker.C
+		}
 	streamLoop:
 		for !restart {
 			select {
 			case <-ctx.Done():
 				break streamLoop
+			case <-displayTick:
+				if cur := captureDisplayKey(); cur != "" && cur != startDisplay {
+					// The new display may have another resolution; re-probe before restarting.
+					markScreenSizeStale()
+					ended = true
+					break streamLoop
+				}
 			case <-keyframeReqCh:
 				requestRestart()
 			case <-needKeyCh:
@@ -508,6 +527,9 @@ func streamVideoFFmpeg(
 		}
 		if restartTimer != nil {
 			restartTimer.Stop()
+		}
+		if displayTicker != nil {
+			displayTicker.Stop()
 		}
 
 		_ = cmd.Process.Kill()
@@ -812,25 +834,9 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 				args: makeUnix(nv12Filter, []string{"-c:v", "hevc_videotoolbox", "-realtime", "true", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}),
 			})
 		} else {
-			vaapiVF := "format=nv12,hwupload"
-			if needScale {
-				vaapiVF = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=nv12,hwupload", outW, outH)
-			}
-			vaapiArgs := append([]string{}, inLowLatency...)
-			vaapiArgs = append(vaapiArgs, "-vaapi_device", "/dev/dri/renderD128")
-			vaapiArgs = append(vaapiArgs, inputArgs...)
-			vaapiArgs = append(vaapiArgs, "-vf", vaapiVF, "-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0")
-			vaapiArgs = append(vaapiArgs, outFlags...)
-			list = append(list,
-				encoderCandidate{
-					name: "X11 + H.265 NVENC GPU",
-					args: makeUnix(nv12Filter, []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0"}),
-				},
-				encoderCandidate{
-					name: "X11 + H.265 VAAPI GPU",
-					args: vaapiArgs,
-				},
-			)
+			nvenc := []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0"}
+			vaapi := []string{"-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}
+			list = append(list, linuxGPUCandidates("H.265 ", makeUnix, inLowLatency, inputArgs, outFlags, nv12Filter, needScale, outW, outH, nvenc, vaapi)...)
 		}
 		return list
 	}
@@ -841,32 +847,84 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			args: makeUnix(nv12Filter, []string{"-c:v", "h264_videotoolbox", "-realtime", "true", "-profile:v", "baseline", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0"}),
 		})
 	} else {
-		vaapiVF := "format=nv12,hwupload"
-		if needScale {
-			vaapiVF = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=nv12,hwupload", outW, outH)
-		}
-		vaapiArgs := append([]string{}, inLowLatency...)
-		vaapiArgs = append(vaapiArgs, "-vaapi_device", "/dev/dri/renderD128")
-		vaapiArgs = append(vaapiArgs, inputArgs...)
-		vaapiArgs = append(vaapiArgs, "-vf", vaapiVF, "-c:v", "h264_vaapi", "-profile:v", "constrained_baseline", "-rc_mode", "CBR", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0")
-		vaapiArgs = append(vaapiArgs, outFlags...)
-
-		list = append(list,
-			encoderCandidate{
-				name: "X11 + NVENC GPU",
-				args: makeUnix(nv12Filter, []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
-			},
-			encoderCandidate{
-				name: "X11 + VAAPI GPU",
-				args: vaapiArgs,
-			},
-		)
+		nvenc := []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}
+		vaapi := []string{"-c:v", "h264_vaapi", "-profile:v", "constrained_baseline", "-rc_mode", "CBR", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0"}
+		list = append(list, linuxGPUCandidates("", makeUnix, inLowLatency, inputArgs, outFlags, nv12Filter, needScale, outW, outH, nvenc, vaapi)...)
 	}
 	list = append(list, encoderCandidate{
 		name: "x264 ZeroLatency",
 		args: makeUnix(yuvFilter, []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0", "-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
 	})
 	return list
+}
+
+// linuxGPUCandidates builds the Linux X11 GPU encoder candidates for NVENC and VAAPI.
+//
+// The first candidate of each family converts colour on the GPU: NVENC takes x11grab's BGRX
+// frames directly, and VAAPI uploads BGRX and converts/scales with scale_vaapi. That removes
+// the CPU BGRX->NV12 pass (about 3-8ms per 1080p frame), which made 60 FPS uneven on weaker CPUs.
+// The previous CPU-conversion candidates stay as fallbacks for drivers that reject RGB input.
+// Every VAAPI render node is tried, since on hybrid laptops renderD128 is not always the encoder.
+func linuxGPUCandidates(
+	label string,
+	makeUnix func(vf string, encArgs []string) []string,
+	inLowLatency, inputArgs, outFlags []string,
+	nv12Filter string,
+	needScale bool,
+	outW, outH int,
+	nvencArgs, vaapiArgs []string,
+) []encoderCandidate {
+	var list []encoderCandidate
+	if !needScale {
+		list = append(list, encoderCandidate{
+			name: "X11 + " + label + "NVENC GPU (GPU color)",
+			args: makeUnix("format=bgr0", nvencArgs),
+		})
+	}
+	list = append(list, encoderCandidate{
+		name: "X11 + " + label + "NVENC GPU",
+		args: makeUnix(nv12Filter, nvencArgs),
+	})
+
+	makeVAAPI := func(device, vf string) []string {
+		args := append([]string{}, inLowLatency...)
+		args = append(args, "-vaapi_device", device)
+		args = append(args, inputArgs...)
+		args = append(args, "-vf", vf)
+		args = append(args, vaapiArgs...)
+		args = append(args, outFlags...)
+		return args
+	}
+	gpuVF := "format=bgr0,hwupload,scale_vaapi=format=nv12"
+	cpuVF := "format=nv12,hwupload"
+	if needScale {
+		gpuVF = fmt.Sprintf("format=bgr0,hwupload,scale_vaapi=w=%d:h=%d:format=nv12", outW, outH)
+		cpuVF = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=nv12,hwupload", outW, outH)
+	}
+	for i, dev := range vaapiRenderNodes() {
+		suffix := ""
+		if i > 0 {
+			suffix = " #" + strings.TrimPrefix(filepath.Base(dev), "renderD")
+		}
+		list = append(list,
+			encoderCandidate{name: "X11 + " + label + "VAAPI GPU (GPU color)" + suffix, args: makeVAAPI(dev, gpuVF)},
+			encoderCandidate{name: "X11 + " + label + "VAAPI GPU" + suffix, args: makeVAAPI(dev, cpuVF)},
+		)
+	}
+	return list
+}
+
+// vaapiRenderNodes lists DRM render nodes (/dev/dri/renderD128, ...), renderD128 first.
+func vaapiRenderNodes() []string {
+	nodes, _ := filepath.Glob("/dev/dri/renderD*")
+	sort.Strings(nodes)
+	if len(nodes) == 0 {
+		return []string{"/dev/dri/renderD128"}
+	}
+	if len(nodes) > 3 {
+		nodes = nodes[:3]
+	}
+	return nodes
 }
 
 func emitVideoFrame(frameType byte, au []byte, isKey bool, w, h int, seqCounter *atomic.Uint32, sendFrame func(byte, []byte) error) error {

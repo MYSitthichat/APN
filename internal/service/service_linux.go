@@ -22,6 +22,17 @@ func SystemDataDir() string    { return "/etc/apn" }
 func SystemConfigPath() string { return "/etc/apn/peer.json" }
 func SystemBinDir() string     { return "/var/lib/apn/bin" }
 
+// userConfigCandidates lists every user's user-mode APN config (~/.config/APN/peer.json).
+func userConfigCandidates() []string {
+	var out []string
+	for _, pat := range []string{"/home/*/.config/APN/peer.json", "/home/*/.config/apn/peer.json", "/root/.config/APN/peer.json"} {
+		if m, err := filepath.Glob(pat); err == nil {
+			out = append(out, m...)
+		}
+	}
+	return out
+}
+
 func IsElevated() bool {
 	return os.Geteuid() == 0
 }

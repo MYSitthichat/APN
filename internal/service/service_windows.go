@@ -112,6 +112,16 @@ func SystemConfigPath() string {
 	return filepath.Join(SystemDataDir(), "peer.json")
 }
 
+// userConfigCandidates lists every user's user-mode APN config (%APPDATA%\APN\peer.json).
+func userConfigCandidates() []string {
+	root := os.Getenv("SystemDrive")
+	if root == "" {
+		root = "C:"
+	}
+	matches, _ := filepath.Glob(filepath.Join(root+`\`, "Users", "*", "AppData", "Roaming", "APN", "peer.json"))
+	return matches
+}
+
 // SystemBinDir returns C:\ProgramData\APN\bin (persistent ffmpeg.exe, cloudflared.exe, wintun.dll for LocalSystem).
 func SystemBinDir() string {
 	return filepath.Join(SystemDataDir(), "bin")

@@ -173,6 +173,9 @@ func desktopName(hDesk uintptr) string {
 	return syscall.UTF16ToString(buf[:])
 }
 
+// markScreenSizeStale is a no-op on Windows: ScreenSize always queries GetSystemMetrics.
+func markScreenSizeStale() {}
+
 // ScreenSize returns the primary display width and height in physical pixels.
 func ScreenSize() (int, int) {
 	ensureDPIAware()

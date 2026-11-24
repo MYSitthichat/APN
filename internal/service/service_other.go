@@ -10,6 +10,8 @@ func SystemConfigPath() string { return "" }
 func SystemBinDir() string     { return "" }
 func IsElevated() bool         { return false }
 
+func userConfigCandidates() []string { return nil }
+
 func GetInfo() Info {
 	return Info{Supported: false}
 }
