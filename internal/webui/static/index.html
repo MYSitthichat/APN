@@ -3136,6 +3136,7 @@
     const decodeStart = new Map(); // chunk timestamp -> performance.now() at decode()
     let hostStats = null;        // last {stats} report from the host (newer hosts only)
     let hostStatsAt = 0;
+    let hostHist = [];           // last few {stats} reports, to judge load over several seconds
     let screenRTT = null;        // latest ping round trip in ms
     let screenRTTAvg = null;
     let remoteCursorShape = '';  // CSS cursor reported by the host ('' = cursor is in the video)
@@ -3331,11 +3332,12 @@
         }
         // A low encoded FPS is only a bottleneck when the host is busy or on a slow capture path:
         // WGC/DXGI deliver a frame only when the screen changes, so a still screen is low by design.
+        const tr = hostTrend();
         if (hs.enc_fps < target * 0.6) {
-          const busyGPU = typeof hs.gpu === 'number' && hs.gpu >= 85;
-          const busyCPU = typeof hs.cpu === 'number' && hs.cpu >= 90;
-          if (busyGPU || busyCPU) {
-            return { cls: 'warn', text: `เครื่องปลายทางทำงานหนัก (${hostLoadText(hs)}) — จับภาพ/เข้ารหัสได้แค่ ${hs.enc_fps} FPS (ตั้งไว้ ${target}) ลองลดความละเอียดหรือใช้ H.264` };
+          // Judge the load over the last few seconds (a one-second GPU spike is not a bottleneck),
+          // and only while the picture is really changing: a nearly still screen is low by design.
+          if (tr.busy && tr.avgEnc < target * 0.6 && tr.moving) {
+            return { cls: 'warn', text: `เครื่องปลายทางทำงานหนักต่อเนื่อง (เฉลี่ย ${tr.loadText}) — จับภาพ/เข้ารหัสได้แค่ ${Math.round(tr.avgEnc)} FPS (ตั้งไว้ ${target}) ลองตั้งความละเอียด 720p หรือ 30 FPS` };
           }
           if (String(hs.encoder || '').startsWith('GDI')) {
             return { cls: 'warn', text: `ใช้การจับภาพแบบ GDI ซึ่งช้าที่สุด — ได้ ${hs.enc_fps} FPS (ดูเหตุผลใน "ทางที่เร็วกว่า")` };
@@ -3355,11 +3357,37 @@
       if (hs && hs.enc_fps < 5) return { cls: 'ok', text: 'จอปลายทางนิ่ง — ส่งเฉพาะตอนภาพเปลี่ยน (ปกติ)' };
       if (hs && hs.enc_fps < target * 0.6) {
         const known = typeof hs.gpu === 'number' || typeof hs.cpu === 'number';
-        return { cls: 'ok', text: known
-          ? `ภาพบนจอเปลี่ยน ${hs.enc_fps} ครั้ง/วินาที และเครื่องปลายทางยังมีกำลังเหลือ (${hostLoadText(hs)}) — ไม่ใช่คอขวด`
-          : `ได้ ${hs.enc_fps} FPS ตามที่ภาพบนจอเปลี่ยน (เครื่องปลายทางไม่ได้ส่งข้อมูล CPU/GPU มา)` };
+        const tr = hostTrend();
+        const highNow = (typeof hs.gpu === 'number' && hs.gpu >= 85) || (typeof hs.cpu === 'number' && hs.cpu >= 90);
+        let text;
+        if (!known) text = `ได้ ${hs.enc_fps} FPS ตามที่ภาพบนจอเปลี่ยน (เครื่องปลายทางไม่ได้ส่งข้อมูล CPU/GPU มา)`;
+        else if (tr.busy && !tr.moving) text = `ภาพบนจอเปลี่ยนน้อย (${hs.enc_fps} ครั้ง/วินาที) — เครื่องปลายทางโหลดสูง (${hostLoadText(hs)}) แต่ตอนนี้ยังไม่ใช่คอขวด`;
+        else if (highNow) text = `โหลดเครื่องปลายทางสูงชั่วขณะ (${hostLoadText(hs)}) — ยังไม่ใช่คอขวด`;
+        else text = `ภาพบนจอเปลี่ยน ${hs.enc_fps} ครั้ง/วินาที และเครื่องปลายทางยังมีกำลังเหลือ (${hostLoadText(hs)}) — ไม่ใช่คอขวด`;
+        return { cls: 'ok', text };
       }
       return { cls: 'ok', text: 'ปกติ — ไม่พบคอขวด' };
+    }
+
+    // hostTrend summarises the last few seconds of host reports: busy when GPU >= 85% or CPU >= 90%
+    // in at least 3 of them, moving when the picture changes enough to need the frames.
+    function hostTrend() {
+      const h = hostHist.slice(-5);
+      const avg = (k) => {
+        const v = h.map(x => x[k]).filter(x => typeof x === 'number');
+        return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+      };
+      const busyN = h.filter(x => (typeof x.gpu === 'number' && x.gpu >= 85) || (typeof x.cpu === 'number' && x.cpu >= 90)).length;
+      const avgGPU = avg('gpu'), avgCPU = avg('cpu'), avgEnc = avg('enc_fps') ?? 0, avgKbps = avg('kbps') ?? 0;
+      const parts = [];
+      if (avgCPU !== null) parts.push(`CPU ${Math.round(avgCPU)}%`);
+      if (avgGPU !== null) parts.push(`GPU ${Math.round(avgGPU)}%`);
+      return {
+        busy: h.length >= 3 && busyN >= 3,
+        moving: avgKbps >= 200 && avgEnc >= 3,
+        avgEnc, avgKbps,
+        loadText: parts.join(' · '),
+      };
     }
 
     function hostLoadText(hs) {
@@ -3684,6 +3712,7 @@
       const maxW = document.getElementById('selScale').value;
       const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}&local_cursor=${wantLocalCursor() ? 1 : 0}`;
       hostStats = null;
+      hostHist = [];
       screenRTT = null;
       screenRTTAvg = null;
       setRemoteCursorShape('');
@@ -3774,6 +3803,8 @@
             if (msg.stats) {
               hostStats = msg.stats;
               hostStatsAt = performance.now();
+              hostHist.push(msg.stats);
+              if (hostHist.length > 5) hostHist.shift();
             }
           } else if (msg.type === 'cursor') {
             setRemoteCursorShape(typeof msg.shape === 'string' ? msg.shape : '');
