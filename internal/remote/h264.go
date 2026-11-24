@@ -109,7 +109,7 @@ func WarmupH264Encoder() {
 			if done {
 				continue
 			}
-			candidates := videoEncoderCandidates(codec, 60, w, h, outW, outH, 82)
+			candidates := videoEncoderCandidates(codec, 60, w, h, outW, outH, 82, true)
 			skipTier := map[string]bool{}
 			for _, cand := range candidates {
 				if wCtx.Err() != nil {
@@ -229,7 +229,7 @@ func streamH264FFmpeg(
 	sendFrame func(byte, []byte) error,
 	sendInfo func(codec, encoder, notice string),
 ) (string, error) {
-	return streamVideoFFmpeg(ctx, "h264", fps, maxWidth, quality, seqCounter, keyframeReqCh, sendFrame, sendInfo)
+	return streamVideoFFmpeg(ctx, "h264", fps, maxWidth, quality, seqCounter, keyframeReqCh, sendFrame, sendInfo, true, nil)
 }
 
 // streamVideoFFmpeg captures the desktop with hardware GPU acceleration (H.265/HEVC or H.264):
@@ -245,6 +245,8 @@ func streamVideoFFmpeg(
 	keyframeReqCh <-chan struct{},
 	sendFrame func(byte, []byte) error,
 	sendInfo func(codec, encoder, notice string),
+	drawCursor bool,
+	stats *streamStats,
 ) (string, error) {
 	if codec != "hevc" {
 		codec = "h264"
@@ -277,7 +279,7 @@ func streamVideoFFmpeg(
 		fps = 60
 	}
 
-	candidates := videoEncoderCandidates(codec, fps, w, h, outW, outH, quality)
+	candidates := videoEncoderCandidates(codec, fps, w, h, outW, outH, quality, drawCursor)
 	// Move last known working GPU encoder for this codec to the front so opening Remote Desktop starts in <0.2s!
 	cachedEncMu.RLock()
 	fav := cachedEncByCodec[codec]
@@ -404,8 +406,10 @@ func streamVideoFFmpeg(
 						isKey = isH264Keyframe(au)
 					}
 				}
+				stats.addEncoded()
 				if droppingUntilKey {
 					if !isKey {
+						stats.addDropped(1)
 						return true
 					}
 					droppingUntilKey = false
@@ -418,6 +422,7 @@ func streamVideoFFmpeg(
 						for {
 							select {
 							case <-frameCh:
+								stats.addDropped(1)
 							default:
 								goto drained
 							}
@@ -430,6 +435,7 @@ func streamVideoFFmpeg(
 						}
 					} else {
 						droppingUntilKey = true
+						stats.addDropped(1)
 						select {
 						case needKeyCh <- struct{}{}:
 						default:
@@ -513,6 +519,7 @@ func streamVideoFFmpeg(
 					ended = true
 					break streamLoop
 				}
+				stats.noteQueue(len(frameCh) + 1)
 				if pkt.isKey && restartC != nil {
 					// A natural keyframe already satisfies the pending request.
 					restartTimer.Stop()
@@ -540,6 +547,7 @@ func streamVideoFFmpeg(
 		}
 		if restart {
 			// Relaunch the same encoder; if it fails to start, the loop moves on to the next candidates.
+			stats.addRestart()
 			restarting = true
 			i--
 			continue
@@ -567,11 +575,17 @@ type encoderCandidate struct {
 }
 
 func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
-	return videoEncoderCandidates("h264", fps, srcW, srcH, outW, outH, quality)
+	return videoEncoderCandidates("h264", fps, srcW, srcH, outW, outH, quality, true)
 }
 
-func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
+// videoEncoderCandidates lists capture+encoder command lines to try in order. drawCursor=false
+// leaves the mouse cursor out of the picture, for viewers that draw it locally.
+func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality int, drawCursor bool) []encoderCandidate {
 	fpsStr := strconv.Itoa(fps)
+	cur := "1"
+	if !drawCursor {
+		cur = "0"
+	}
 	// 2-second GOP (e.g. 120 frames @ 60 FPS): balances low bandwidth with rapid packet-loss recovery!
 	gopStr := strconv.Itoa(fps * 2)
 
@@ -629,7 +643,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	var list []encoderCandidate
 
 	if runtime.GOOS == "windows" {
-		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=1:max_framerate=%s", fpsStr)
+		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=%s:max_framerate=%s", cur, fpsStr)
 		if needScale {
 			wgcSrc += fmt.Sprintf(":width=%d:height=%d:resize_mode=scale:scale_mode=bilinear", outW, outH)
 		}
@@ -637,9 +651,9 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		wgcNV12 := wgcSrc + ",hwdownload,format=bgra,format=nv12"
 		wgcYUV := wgcSrc + ",hwdownload,format=bgra,format=yuv420p"
 
-		ddaLavfi := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra", fpsStr)
-		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, nv12Filter)
-		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, yuvFilter)
+		ddaLavfi := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra", fpsStr, cur)
+		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, cur, nv12Filter)
+		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, cur, yuvFilter)
 
 		// D3D12VA pipeline helper: uses `-f lavfi -i <src>` + `-init_hw_device d3d12va=d12 -filter_hw_device d12 -vf format=nv12,hwupload`
 		// so gfxcapture/ddagrab owns its own internal D3D11 device while D3D12VA encodes on GPU at 250-340 FPS with ~6ms latency!
@@ -684,7 +698,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		}
 		makeGDI := func(vf string, encArgs []string) []string {
 			args := append([]string{}, inLowLatency...)
-			args = append(args, "-f", "gdigrab", "-framerate", fpsStr, "-draw_mouse", "1", "-i", "desktop", "-vf", vf)
+			args = append(args, "-f", "gdigrab", "-framerate", fpsStr, "-draw_mouse", cur, "-i", "desktop", "-vf", vf)
 			args = append(args, encArgs...)
 			args = append(args, outFlags...)
 			return args
@@ -812,10 +826,10 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 
 	var inputArgs []string
 	if runtime.GOOS == "darwin" {
-		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", "1", "-i", "1:none"}
+		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", cur, "-i", "1:none"}
 	} else {
 		disp := captureDisplay()
-		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", "1", "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
+		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", cur, "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
 	}
 	makeUnix := func(vf string, encArgs []string) []string {
 		args := append([]string{}, inLowLatency...)

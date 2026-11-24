@@ -1205,6 +1205,7 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 	quality, _ := strconv.Atoi(r.URL.Query().Get("quality"))
 	codec := strings.TrimSpace(r.URL.Query().Get("codec"))
 	maxWidth, _ := strconv.Atoi(r.URL.Query().Get("max_width"))
+	localCursor := r.URL.Query().Get("local_cursor") == "1"
 
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionDisabled,
@@ -1221,7 +1222,8 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 		FPS:      fps,
 		Quality:  quality,
 		Codec:    codec,
-		MaxWidth: maxWidth,
+		MaxWidth:    maxWidth,
+		LocalCursor: localCursor,
 	})
 	if err != nil {
 		msg, _ := json.Marshal(map[string]any{"type": "error", "error": err.Error()})
@@ -1326,10 +1328,10 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 			case <-ctx.Done():
 				return
 			}
-		case protocol.FrameTypeInfo:
+		case protocol.FrameTypeInfo, protocol.FrameTypeStats, protocol.FrameTypeCursor:
 			var info map[string]any
 			if json.Unmarshal(payload, &info) == nil {
-				info["type"] = "info"
+				info["type"] = map[byte]string{protocol.FrameTypeInfo: "info", protocol.FrameTypeStats: "stats", protocol.FrameTypeCursor: "cursor"}[fType]
 				msg, _ := json.Marshal(info)
 				select {
 				case outCh <- wsOutMsg{msgType: websocket.MessageText, data: msg}:

@@ -124,7 +124,7 @@ func TestH264CandidatesSanity(t *testing.T) {
 	if isCaptureTierFailure("WGC", "[hevc_nvenc] Driver does not support the required nvenc API version") {
 		t.Errorf("encoder failure must not skip WGC capture tier")
 	}
-	hevcCands := videoEncoderCandidates("hevc", 60, 1920, 1080, 1920, 1080, 82)
+	hevcCands := videoEncoderCandidates("hevc", 60, 1920, 1080, 1920, 1080, 82, true)
 	if len(hevcCands) == 0 {
 		t.Fatalf("expected non-empty HEVC GPU encoder candidates")
 	}

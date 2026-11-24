@@ -103,6 +103,9 @@ type InputEvent struct {
 	Codec    string  `json:"codec,omitempty"`     // "tiles", "png", "h264"
 	MaxWidth int     `json:"max_width,omitempty"` // 0 = Native 100%, or 1920/1280
 	Seq      uint32  `json:"seq,omitempty"`       // for Type == "ack"
+	T        float64 `json:"t,omitempty"`         // for Type == "ping": viewer timestamp echoed back as {"pong":t}
+	// LocalCursor (Type == "config") switches between a locally drawn cursor and one in the video.
+	LocalCursor *bool `json:"local_cursor,omitempty"`
 }
 
 // StreamOptions configures a live remote screen session.
@@ -112,12 +115,15 @@ type StreamOptions struct {
 	InitialCodec    string // "tiles" (default), "png", "h264"
 	InitialMaxWidth int    // 0 = Native 100%
 	AllowInput      bool
+	LocalCursor     bool // viewer draws the cursor; leave it out of the video where the host can report its shape
 	BytesSent       *atomic.Int64
 	BytesRecv       *atomic.Int64
 }
 
 type streamRuntimeState struct {
 	mu                 sync.Mutex
+	localCursor        bool
+	encoder            string
 	fps                int
 	quality            int
 	codec              string
@@ -158,13 +164,34 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		quality:       quality,
 		codec:         codec,
 		maxWidth:      opts.InitialMaxWidth,
+		localCursor:   opts.LocalCursor,
 		ackNotify:     make(chan struct{}, 1),
 		modeCh:        make(chan struct{}, 1),
 		keyframeReqCh: make(chan struct{}, 1),
 	}
+	stats := &streamStats{}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var writeMu sync.Mutex
+	sendFrame := func(frameType byte, payload []byte) error {
+		writeMu.Lock()
+		start := time.Now()
+		err := protocol.WriteTypedFrame(stream, frameType, payload)
+		took := time.Since(start)
+		writeMu.Unlock()
+		if err == nil {
+			if opts.BytesSent != nil {
+				opts.BytesSent.Add(int64(len(payload) + 5))
+			}
+			switch frameType {
+			case protocol.FrameTypeH264, protocol.FrameTypeHEVC, protocol.FrameTypeTileBatch, protocol.FrameTypeJPEG:
+				stats.addSent(len(payload)+5, took)
+			}
+		}
+		return err
+	}
 
 	// Host-side mouse_move coalescer: never replay stale queued mouse_move events during brief bursts!
 	moveCh := make(chan InputEvent, 1)
@@ -220,6 +247,11 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				continue
 			}
 			switch ev.Type {
+			case "ping":
+				// Answered through the same stream as the video, so the round trip includes any
+				// queueing behind picture frames: the delay the user actually feels.
+				pong, _ := json.Marshal(map[string]float64{"pong": ev.T})
+				go func() { _ = sendFrame(protocol.FrameTypeStats, pong) }()
 			case "ack":
 				if ev.Seq > st.ackedSeq.Load() {
 					st.ackedSeq.Store(ev.Seq)
@@ -242,6 +274,10 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				prevFPS := st.fps
 				prevQuality := st.quality
 				prevMaxW := st.maxWidth
+				prevLocalCursor := st.localCursor
+				if ev.LocalCursor != nil {
+					st.localCursor = *ev.LocalCursor
+				}
 				if ev.FPS > 0 {
 					st.fps = clamp(ev.FPS, 1, 60)
 				}
@@ -262,7 +298,8 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 						st.forceKeyframe = true
 					}
 				}
-				vidChanged := (st.codec == "h264" || st.codec == "hevc") && (st.fps != prevFPS || st.quality != prevQuality || st.maxWidth != prevMaxW)
+				vidChanged := (st.codec == "h264" || st.codec == "hevc") && (st.fps != prevFPS || st.quality != prevQuality || st.maxWidth != prevMaxW ||
+					(st.localCursor != prevLocalCursor && cursorShapeSupported()))
 				if st.codec != prevCodec || vidChanged {
 					st.forceKeyframe = true
 					select {
@@ -292,18 +329,11 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		}
 	}()
 
-	var writeMu sync.Mutex
-	sendFrame := func(frameType byte, payload []byte) error {
-		writeMu.Lock()
-		err := protocol.WriteTypedFrame(stream, frameType, payload)
-		writeMu.Unlock()
-		if err == nil && opts.BytesSent != nil {
-			opts.BytesSent.Add(int64(len(payload) + 5))
-		}
-		return err
-	}
 
 	sendInfo := func(codecName, encoderName, notice string) {
+		st.mu.Lock()
+		st.encoder = encoderName
+		st.mu.Unlock()
 		msg, _ := json.Marshal(map[string]string{
 			"codec":   codecName,
 			"encoder": encoderName,
@@ -340,6 +370,38 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		}()
 	}
 
+	// Per-second statistics so the viewer can show where frames are lost (see streamStats).
+	go func() {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		last := time.Now()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-tick.C:
+				snap := stats.take(now.Sub(last))
+				last = now
+				st.mu.Lock()
+				snap.TargetFPS = st.fps
+				snap.Codec = st.codec
+				snap.Encoder = st.encoder
+				snap.LocalCur = st.localCursor && cursorShapeSupported() && (st.codec == "h264" || st.codec == "hevc")
+				st.mu.Unlock()
+				msg, _ := json.Marshal(map[string]any{"stats": snap})
+				_ = sendFrame(protocol.FrameTypeStats, msg)
+			}
+		}
+	}()
+
+	// cursorLocal is true while the viewer draws the cursor from FrameTypeCursor reports; an empty
+	// shape hands it back to the video when that stops (codec or setting change).
+	cursorLocal := false
+	sendCursor := func(shape string) {
+		msg, _ := json.Marshal(map[string]string{"shape": shape})
+		_ = sendFrame(protocol.FrameTypeCursor, msg)
+	}
+
 	var seq atomic.Uint32
 	videoShortRuns := 0
 
@@ -349,23 +411,40 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		curFPS := st.fps
 		curMaxW := st.maxWidth
 		curQuality := st.quality
+		localCur := st.localCursor && cursorShapeSupported() && (curCodec == "hevc" || curCodec == "h264")
 		st.mu.Unlock()
+
+		if cursorLocal && !localCur {
+			sendCursor("")
+		}
+		cursorLocal = localCur
 
 		if curCodec == "hevc" || curCodec == "h264" {
 			vidCtx, vidCancel := context.WithCancel(ctx)
+			if localCur {
+				go watchCursorShape(vidCtx, sendCursor)
+			}
 			// Cancel video loop immediately if user switches codec or changes FPS/Resolution/Quality
+			var modeChanged atomic.Bool
 			go func() {
 				select {
 				case <-vidCtx.Done():
 				case <-st.modeCh:
+					modeChanged.Store(true)
 					vidCancel()
 				}
 			}()
 
-			encName, err := streamVideoFFmpeg(vidCtx, curCodec, curFPS, curMaxW, curQuality, &seq, st.keyframeReqCh, sendFrame, sendInfo)
+			encName, err := streamVideoFFmpeg(vidCtx, curCodec, curFPS, curMaxW, curQuality, &seq, st.keyframeReqCh, sendFrame, sendInfo, !localCur, stats)
 			vidCancel()
 			if ctx.Err() != nil {
 				return nil
+			}
+			if modeChanged.Load() {
+				// The viewer changed a setting (quality, FPS, scale, cursor or codec): start again with
+				// it. This is not an encoder failure, so it must not step down to H.264 or Smart Tiles.
+				videoShortRuns = 0
+				continue
 			}
 			// A working encoder that stopped on its own (resolution change, display sleep, GPU reset)
 			// is restarted with the same codec. Only repeated short runs fall back below.
@@ -380,6 +459,7 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				sameCodec := st.codec == curCodec
 				st.mu.Unlock()
 				if sameCodec && videoShortRuns <= maxVideoShortRuns {
+					stats.addRestart()
 					sleepCtx(ctx, time.Duration(videoShortRuns+1)*300*time.Millisecond)
 					continue
 				}

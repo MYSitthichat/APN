@@ -645,6 +645,36 @@
       background: var(--stage-bg);
       position: relative;
     }
+    .screen-stats {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 5;
+      display: none;
+      min-width: 270px;
+      max-width: min(420px, calc(100% - 20px));
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      font-size: 0.76rem;
+      line-height: 1.5;
+      color: var(--text);
+      pointer-events: auto;
+    }
+    .screen-stats.open { display: block; }
+    .screen-stats .ss-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; margin-bottom: 4px; }
+    .screen-stats .ss-head button { padding: 1px 7px; font-size: 0.72rem; }
+    .screen-stats .ss-row { display: grid; grid-template-columns: 82px 1fr; gap: 6px; }
+    .screen-stats .ss-k { color: var(--text-soft); }
+    .screen-stats .ss-v { font-variant-numeric: tabular-nums; }
+    .screen-stats .ss-hint { margin-top: 6px; padding: 6px 8px; border-radius: 8px; font-weight: 600; }
+    .screen-stats .ss-hint.ok { background: color-mix(in srgb, var(--ok, #22c55e) 14%, transparent); color: var(--ok, #22c55e); }
+    .screen-stats .ss-hint.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+    #screenMeta { cursor: pointer; }
     .screen-placeholder {
       max-width: 560px;
       padding: 22px 26px;
@@ -1944,12 +1974,13 @@
     <div class="modal-bar remote-slim-bar">
       <div class="modal-controls" style="flex-wrap:nowrap;overflow:hidden">
         <strong id="screenTitle" style="font-size:0.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🖥 Remote Desktop</strong>
-        <span id="screenMeta" class="badge" style="padding:3px 9px;font-size:0.74rem">กำลังเชื่อมต่อ...</span>
+        <span id="screenMeta" class="badge" style="padding:3px 9px;font-size:0.74rem" onclick="toggleScreenStats()" title="คลิกเพื่อดูสถิติการเชื่อมต่อแบบละเอียด (เส้นทาง, RTT, FPS แต่ละขั้น)">กำลังเชื่อมต่อ...</span>
       </div>
       <div class="modal-controls" style="flex-wrap:nowrap;flex-shrink:0">
         <button class="success icon-btn" onclick="pasteClipboardToRemote(true)" title="วางรูปแคปหน้าจอ (Win+Shift+S) หรือข้อความจากเครื่องเราลงแชทเครื่องปลายทางทันที (หรือกด Ctrl+V)">📋 วาง</button>
         <button class="secondary icon-btn" onclick="pullClipboardFromRemote(true)" title="ดึงรูปแคปหรือข้อความจากคลิปบอร์ดเครื่องปลายทางมาวางในเครื่องเรา (กด Ctrl+C ก็ซิงค์อัตโนมัติ)">📥 ดึง</button>
         <button class="secondary icon-btn" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่องแบบ 2 ฝั่ง (ฟรี 100%)">📁 ไฟล์</button>
+        <button class="secondary icon-btn" onclick="toggleScreenStats()" title="สถิติการเชื่อมต่อ: เส้นทาง, RTT, FPS ต้นทาง/ปลายทาง และจุดที่ทำให้กระตุก">📊</button>
         <button id="btnRemoteSettings" class="secondary icon-btn" onclick="toggleRemoteSettingsPop()" title="ตั้งค่าภาพ FPS, เมาส์, ภาษา และปุ่มลัด">⚙️ ตั้งค่า</button>
         <button class="secondary icon-btn" onclick="toggleFullscreen()" title="เข้าโหมดเต็มจอ (กด Esc ค้างเพื่อออก)">⛶ เต็มจอ</button>
         <button class="danger icon-btn" onclick="closeScreenModal()">✕ ปิด</button>
@@ -2031,6 +2062,7 @@
 
     <div id="screenNotice" class="screen-notice"></div>
     <div class="screen-stage" id="screenStage">
+      <div id="screenStats" class="screen-stats" aria-live="off"></div>
       <div id="screenPlaceholder" class="screen-placeholder">⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...</div>
       <canvas id="remoteVideoCanvas" tabindex="0" style="display:none"></canvas>
       <canvas id="remoteCanvas" tabindex="0" style="display:none"></canvas>
@@ -3098,6 +3130,14 @@
     let h264Errors = 0;
     let h264HwAccel = 'prefer-hardware';
     let h264PtsUs = 0;
+    // Per-second viewer counters for the stats panel (reset by the 1s timer).
+    const vstat = { recv: 0, decoded: 0, skipped: 0, resets: 0, decodeMsSum: 0, decodeN: 0 };
+    const decodeStart = new Map(); // chunk timestamp -> performance.now() at decode()
+    let hostStats = null;        // last {stats} report from the host (newer hosts only)
+    let hostStatsAt = 0;
+    let screenRTT = null;        // latest ping round trip in ms
+    let screenRTTAvg = null;
+    let remoteCursorShape = '';  // CSS cursor reported by the host ('' = cursor is in the video)
     let webCodecsHEVCSupported = false;
     if ('VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function') {
       VideoDecoder.isConfigSupported({
@@ -3228,7 +3268,115 @@
       const hide = !!(ctrl && hideLocal);
       canvas.classList.toggle('hide-local-cursor', hide);
       videoCanvas.classList.toggle('hide-local-cursor', hide);
+      applyRemoteCursorShape();
+      if (persist && screenWS && screenWS.readyState === WebSocket.OPEN) {
+        // Host switches between drawing the cursor into the video and reporting its shape.
+        sendScreenConfig();
+      }
     };
+
+    // Local cursor: unless the user chose a single cursor drawn by the remote PC, the host leaves the
+    // cursor out of the video and reports its shape, and the browser draws it with no network delay.
+    function wantLocalCursor() {
+      const saved = localStorage.getItem('apn_hide_local_cursor');
+      const hide = saved !== null ? saved === '1' : !!document.getElementById('chkHideCursor')?.checked;
+      return !hide;
+    }
+
+    const CSS_CURSORS = new Set(['default', 'text', 'wait', 'crosshair', 'nwse-resize', 'nesw-resize', 'ew-resize',
+      'ns-resize', 'move', 'not-allowed', 'pointer', 'progress', 'help', 'none']);
+
+    function setRemoteCursorShape(shape) {
+      remoteCursorShape = CSS_CURSORS.has(shape) ? shape : '';
+      applyRemoteCursorShape();
+    }
+
+    function applyRemoteCursorShape() {
+      const hidden = canvas.classList.contains('hide-local-cursor');
+      const v = (!hidden && remoteCursorShape) ? remoteCursorShape : '';
+      canvas.style.cursor = v;
+      videoCanvas.style.cursor = v;
+    }
+
+    // ---- Connection statistics panel ----
+    function screenPath(agentId) {
+      const peers = lastPeerData?.connected_peers || [];
+      const p = peers.find(x => x.id === agentId);
+      const t = String(p?.transport || '');
+      const addr = String(p?.remote_addr || '');
+      if (!t) return { short: '', long: 'ไม่ทราบ (โหมด Agent/Relay Server)', relay: false };
+      if (t.startsWith('QUIC')) return { short: 'P2P QUIC', long: 'P2P ตรง · QUIC/UDP (ดีที่สุด)', relay: false };
+      if (addr.includes('trycloudflare.com')) return { short: 'ผ่าน Cloudflare', long: 'อ้อมผ่าน Cloudflare Tunnel · WSS/443 (TCP)', relay: true };
+      if (t.startsWith('WSS/ReverseProxy')) return { short: 'ผ่าน Proxy 443', long: 'เข้ามาผ่าน Tunnel/Reverse Proxy · WSS/443 (TCP)', relay: true };
+      if (t.startsWith('WSS')) return { short: 'WSS 443', long: 'WSS/443 (TCP) ' + (addr ? '· ' + addr.replace(/^wss?:\/\//, '').split('/')[0] : ''), relay: true };
+      return { short: 'TCP', long: t + ' (TCP ตรง)', relay: false };
+    }
+
+    window.toggleScreenStats = (force) => {
+      const el = document.getElementById('screenStats');
+      const open = typeof force === 'boolean' ? force : !el.classList.contains('open');
+      el.classList.toggle('open', open);
+      localStorage.setItem('apn_screen_stats', open ? '1' : '0');
+      if (open && activeScreenTarget) renderScreenStats(activeScreenTarget.agentId, null, null);
+    };
+
+    // diagnoseScreen names the stage that limits smoothness right now, from host and viewer counters.
+    function diagnoseScreen(hs, path, rendered, video) {
+      const target = hs?.target_fps || parseInt(document.getElementById('selFPS').value, 10) || 60;
+      if (!video) return { cls: 'ok', text: 'โหมด Smart Tiles — ใช้เมื่อเข้ารหัสวิดีโอไม่ได้' };
+      if (hs) {
+        if (hs.dropped > 0 || hs.stall_ms > 80) {
+          return { cls: 'warn', text: `เน็ตส่งไม่ทัน — ต้นทางต้องรอส่งนาน ${Math.round(hs.stall_ms)} ms และทิ้ง ${hs.dropped} เฟรม` + (path.relay ? ' (กำลังอ้อมผ่าน relay/443)' : '') };
+        }
+        if (hs.enc_fps > 0 && hs.enc_fps < target * 0.6 && hs.kbps > 300) {
+          return { cls: 'warn', text: `เครื่องปลายทางจับภาพ/เข้ารหัสได้แค่ ${hs.enc_fps} FPS (ตั้งไว้ ${target})` };
+        }
+      }
+      if (vstat.resets > 0) return { cls: 'warn', text: 'ตัวถอดรหัสต้องเริ่มใหม่ — ภาพอาจค้างชั่วครู่' };
+      if (vstat.recv > 5 && rendered !== null && rendered < vstat.recv * 0.7) {
+        return { cls: 'warn', text: `เครื่องนี้แสดงผลไม่ทัน — ได้รับ ${vstat.recv} แต่แสดง ${rendered} FPS` };
+      }
+      if (screenRTTAvg !== null && screenRTTAvg > 150) {
+        return { cls: 'warn', text: `หน่วงสูง (RTT ${Math.round(screenRTTAvg)} ms)` + (path.relay ? ' — เส้นทาง relay/443 ทำให้หน่วงเพิ่ม' : '') };
+      }
+      if (hs && hs.enc_fps < 3 && hs.kbps < 200) return { cls: 'ok', text: 'จอปลายทางนิ่ง — ส่งเฉพาะตอนภาพเปลี่ยน (ปกติ)' };
+      return { cls: 'ok', text: 'ปกติ — ไม่พบคอขวด' };
+    }
+
+    function renderScreenStats(agentId, rendered, bytesSec) {
+      const el = document.getElementById('screenStats');
+      if (!el || !el.classList.contains('open')) return;
+      const codec = document.getElementById('selCodec').value;
+      const video = codec === 'h264' || codec === 'hevc';
+      const path = screenPath(agentId);
+      const hs = (hostStats && performance.now() - hostStatsAt < 3000) ? hostStats : null;
+      const row = (k, v) => `<div class="ss-row"><span class="ss-k">${k}</span><span class="ss-v">${v}</span></div>`;
+      const n = (v) => (v === null || v === undefined) ? '–' : v;
+      const decodeMs = vstat.decodeN ? (vstat.decodeMsSum / vstat.decodeN).toFixed(1) + ' ms' : '–';
+      const rtt = screenRTT === null ? 'รอวัด…' : `${Math.round(screenRTT)} ms (เฉลี่ย ${Math.round(screenRTTAvg)} ms)`;
+      const hostLine = hs
+        ? `เข้ารหัส ${hs.enc_fps} · ส่ง ${hs.sent_fps}/${hs.target_fps} FPS · ${(hs.kbps / 1000).toFixed(1)} Mbps`
+        : 'เครื่องปลายทางยังไม่รองรับ (ต้องอัปเดตเป็นเวอร์ชันใหม่)';
+      const netLine = hs
+        ? `รอส่งนานสุด ${hs.stall_ms.toFixed(1)} ms · ทิ้ง ${hs.dropped} เฟรม · คิว ${hs.queue_max} · เริ่ม encoder ใหม่ ${hs.restarts} ครั้ง`
+        : '–';
+      const viewLine = video
+        ? `รับ ${vstat.recv} · ถอดรหัส ${vstat.decoded} · แสดง ${n(rendered)} FPS · ข้าม ${vstat.skipped}`
+        : `แสดง ${n(rendered)} FPS`;
+      const cursorLine = hs?.local_cursor ? 'วาดที่เครื่องนี้ (ไม่หน่วง)' : (wantLocalCursor() ? 'อยู่ในวิดีโอ (ปลายทางยังไม่รองรับ)' : 'อยู่ในวิดีโอ (ตามที่ตั้งไว้)');
+      const d = diagnoseScreen(hs, path, rendered, video);
+      el.innerHTML = `
+        <div class="ss-head"><span>📊 สถิติการเชื่อมต่อ</span><button class="secondary" onclick="toggleScreenStats(false)">✕</button></div>
+        ${row('เส้นทาง', esc(path.long))}
+        ${row('RTT', rtt)}
+        ${row('ต้นทาง', esc(hostLine))}
+        ${row('เครือข่าย', esc(netLine))}
+        ${row('เครื่องนี้', esc(viewLine) + (video ? ` · ถอดรหัส ${decodeMs}` : ''))}
+        ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}
+        ${row('เคอร์เซอร์', esc(cursorLine))}
+        ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
+        <div class="ss-hint ${d.cls}">${esc(d.text)}</div>`;
+    }
 
     function clearVideoFrameQueue() {
       while (videoFrameQueue.length > 0) {
@@ -3335,6 +3483,8 @@
     }
 
     function resetH264Decoder() {
+      if (h264Decoder) vstat.resets++;
+      decodeStart.clear();
       clearVideoFrameQueue();
       if (h264Decoder) {
         try { h264Decoder.close(); } catch {}
@@ -3370,9 +3520,17 @@
         h264Decoder = new VideoDecoder({
           output: (frame) => {
             h264Errors = 0;
+            vstat.decoded++;
+            const t0 = decodeStart.get(frame.timestamp);
+            if (t0 !== undefined) {
+              decodeStart.delete(frame.timestamp);
+              vstat.decodeMsSum += performance.now() - t0;
+              vstat.decodeN++;
+            }
             // Latest-wins 1-frame latch: immediately drop any older unrendered frame so display latency
             // stays pinned at 0-16ms with zero rubber-band queue buildup or burst replay stutter!
             while (videoFrameQueue.length > 0) {
+              vstat.skipped++;
               try { videoFrameQueue.shift().close(); } catch {}
             }
             videoFrameQueue.push(frame);
@@ -3428,6 +3586,7 @@
     }
 
     function teardownScreenStream() {
+      setRemoteCursorShape('');
       stopVideoRenderLoop();
       resetH264Decoder();
       screenTotalFrames = 0;
@@ -3460,6 +3619,7 @@
       document.getElementById('screenTitle').textContent = `🖥 Remote Desktop — ${name || agentId}` + (appVersion ? ` (v${appVersion})` : '');
       document.getElementById('screenMeta').textContent = isReconnect ? 'กำลังเชื่อมใหม่...' : 'กำลังเชื่อมต่อ...';
       modal.classList.add('open');
+      document.getElementById('screenStats').classList.toggle('open', localStorage.getItem('apn_screen_stats') === '1');
 
       // Prefer 60 FPS GPU H.265/HEVC (40-50% less bandwidth & sharper!) when both viewer & peer (>= v1.2.16) support it;
       // otherwise seamlessly use 60 FPS GPU H.264 for full backward compatibility with older versions!
@@ -3477,7 +3637,12 @@
       const quality = document.getElementById('selQuality').value;
       const codec = document.getElementById('selCodec').value;
       const maxW = document.getElementById('selScale').value;
-      const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}`;
+      const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}&local_cursor=${wantLocalCursor() ? 1 : 0}`;
+      hostStats = null;
+      screenRTT = null;
+      screenRTTAvg = null;
+      setRemoteCursorShape('');
+      Object.keys(vstat).forEach(k => { vstat[k] = 0; });
       const ws = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
       screenWS = ws;
       ws.binaryType = 'arraybuffer';
@@ -3529,9 +3694,16 @@
           } else {
             meta.textContent = `${ac.width}×${ac.height} · ${screenFrames} FPS · ${fmtBytes(screenBytesSec)}/s · ${screenEncoderLabel}`;
           }
+          const extra = [screenRTT !== null ? `${Math.round(screenRTTAvg)} ms` : '', screenPath(agentId).short].filter(Boolean);
+          if (extra.length) meta.textContent += ' · ' + extra.join(' · ');
         }
+        if (screenWS && screenWS.readyState === WebSocket.OPEN) {
+          sendInput({ type: 'ping', t: performance.now() });
+        }
+        renderScreenStats(agentId, screenFrames, screenBytesSec);
         screenFrames = 0;
         screenBytesSec = 0;
+        Object.keys(vstat).forEach(k => { vstat[k] = 0; });
       }, 1000);
 
       let tileQueue = Promise.resolve();
@@ -3549,6 +3721,17 @@
             syncLocalClipboardToRemote(true);
           } else if (msg.type === 'clipboard_changed') {
             onRemoteClipboardChanged();
+          } else if (msg.type === 'stats') {
+            if (typeof msg.pong === 'number') {
+              screenRTT = Math.max(0, performance.now() - msg.pong);
+              screenRTTAvg = screenRTTAvg === null ? screenRTT : screenRTTAvg * 0.7 + screenRTT * 0.3;
+            }
+            if (msg.stats) {
+              hostStats = msg.stats;
+              hostStatsAt = performance.now();
+            }
+          } else if (msg.type === 'cursor') {
+            setRemoteCursorShape(typeof msg.shape === 'string' ? msg.shape : '');
           } else if (msg.type === 'info') {
             if (msg.encoder) screenEncoderLabel = msg.encoder;
             if (msg.codec && document.getElementById('selCodec').value !== msg.codec) {
@@ -3629,6 +3812,7 @@
           const sh = dv.getUint16(6);
           const isKey = (buf[8] & 1) === 1;
           const nal = buf.subarray(9);
+          vstat.recv++;
           if (h264WaitingKey && !isKey) return;
           if (!ensureH264Decoder(nal, sw, sh, kind)) {
             if (kind === 'hevc') {
@@ -3654,6 +3838,8 @@
           try {
             const fpsSel = parseInt(document.getElementById('selFPS').value, 10) || 60;
             h264PtsUs += Math.round(1000000 / Math.max(15, fpsSel));
+            if (decodeStart.size > 120) decodeStart.clear();
+            decodeStart.set(h264PtsUs, performance.now());
             h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: h264PtsUs, data: nal }));
           } catch {
             h264WaitingKey = true;
@@ -3739,7 +3925,7 @@
 
     function sendInput(ev) {
       if (!screenWS || screenWS.readyState !== WebSocket.OPEN) return;
-      if (ev.type !== 'config' && ev.type !== 'keyframe' && ev.type !== 'ack' &&
+      if (ev.type !== 'config' && ev.type !== 'keyframe' && ev.type !== 'ack' && ev.type !== 'ping' &&
           (!screenAllowInput || !document.getElementById('chkControl').checked)) return;
       screenWS.send(JSON.stringify(ev));
     }
@@ -3751,7 +3937,8 @@
         fps: parseInt(document.getElementById('selFPS').value, 10),
         quality: parseInt(document.getElementById('selQuality').value, 10),
         codec: document.getElementById('selCodec').value,
-        max_width: parseInt(document.getElementById('selScale').value, 10)
+        max_width: parseInt(document.getElementById('selScale').value, 10),
+        local_cursor: wantLocalCursor()
       });
     };
 

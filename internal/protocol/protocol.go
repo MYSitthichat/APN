@@ -22,10 +22,10 @@ const (
 	RoleClient = "client"
 
 	// Stream modes
-	ModeTCP     = "tcp"
-	ModeControl = "control"
-	ModeScreen  = "screen"
-	ModeShell   = "shell"
+	ModeTCP       = "tcp"
+	ModeControl   = "control"
+	ModeScreen    = "screen"
+	ModeShell     = "shell"
 	ModeTUN       = "tun"
 	ModeFiles     = "files"
 	ModeClipboard = "clipboard"
@@ -43,6 +43,13 @@ const (
 	// clipboard changed (e.g. copied with right-click -> Copy), so it can pull it. Older viewers
 	// and bridges ignore unknown frame types.
 	FrameTypeClipboardChanged byte = 0x09
+	// FrameTypeStats (Agent -> Client): UTF-8 JSON, either per-second stream statistics
+	// {"stats":{...}} or a reply to a viewer ping {"pong":t} for measuring round-trip time.
+	FrameTypeStats byte = 0x0A
+	// FrameTypeCursor (Agent -> Client): UTF-8 JSON {"shape":"text"} with the host's current mouse
+	// cursor shape as a CSS cursor name, sent when the viewer draws the cursor locally. An empty
+	// shape means the host draws the cursor into the video again.
+	FrameTypeCursor byte = 0x0B
 
 	maxControlFrameBytes = 64 * 1024
 	maxBinaryFrameBytes  = 16 * 1024 * 1024 // 16 MiB max for lossless 4K initial frame
@@ -61,6 +68,9 @@ type StreamOpenRequest struct {
 	Quality      int                `json:"quality,omitempty"`      // initial JPEG quality (default 82)
 	Codec        string             `json:"codec,omitempty"`        // "tiles" (default), "png", "h264"
 	MaxWidth     int                `json:"max_width,omitempty"`    // 0 = Native 100%, or 1920/1280
+	// LocalCursor asks the host to leave the mouse cursor out of the video and report its shape
+	// (FrameTypeCursor) so the viewer draws it locally with no delay. Older hosts ignore it.
+	LocalCursor bool `json:"local_cursor,omitempty"`
 }
 
 // AgentCapabilities declares which built-in remote features the Agent owner has enabled.

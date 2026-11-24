@@ -322,6 +322,7 @@ func (a *Agent) handleScreenStream(stream *yamux.Stream, req protocol.StreamOpen
 		InitialQuality:  req.Quality,
 		InitialCodec:    req.Codec,
 		InitialMaxWidth: req.MaxWidth,
+		LocalCursor:     req.LocalCursor,
 		AllowInput:      a.cfg.AllowInput,
 		BytesSent:       &ls.sent,
 		BytesRecv:       &ls.recv,
