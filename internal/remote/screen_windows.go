@@ -26,6 +26,9 @@ var (
 	procOpenInputDesktop   = user32.NewProc("OpenInputDesktop")
 	procSetThreadDesktop   = user32.NewProc("SetThreadDesktop")
 	procCloseDesktop       = user32.NewProc("CloseDesktop")
+	procGetThreadDesktop   = user32.NewProc("GetThreadDesktop")
+	procGetUserObjectInfo  = user32.NewProc("GetUserObjectInformationW")
+	procGetCurrentThreadID = syscall.NewLazyDLL("kernel32.dll").NewProc("GetCurrentThreadId")
 	procSendSAS            = sasDLL.NewProc("SendSAS")
 	procSetCursorPos       = user32.NewProc("SetCursorPos")
 	procMouseEvent         = user32.NewProc("mouse_event")
@@ -134,14 +137,40 @@ func ensureDPIAware() {
 // attachToInputDesktop switches the current OS thread onto whichever Windows desktop
 // is currently receiving user input (Normal "Default" desktop, Lock/Login Screen "Winlogon",
 // or UAC Secure Desktop). Requires LocalSystem privileges for Winlogon/UAC; safely no-ops otherwise.
+//
+// The thread only switches when the input desktop's name differs from its current one.
+// CloseDesktop fails on a handle that a thread is using, so switching on every call
+// leaked one desktop handle per mouse move and per captured frame.
 func attachToInputDesktop() {
 	const maximumAllowed = 0x02000000
 	hDesk, _, _ := procOpenInputDesktop.Call(0, 0, maximumAllowed)
 	if hDesk == 0 {
 		return
 	}
-	_, _, _ = procSetThreadDesktop.Call(hDesk)
-	_, _, _ = procCloseDesktop.Call(hDesk)
+	tid, _, _ := procGetCurrentThreadID.Call()
+	hCur, _, _ := procGetThreadDesktop.Call(tid)
+	if hCur != 0 {
+		if name := desktopName(hDesk); name != "" && strings.EqualFold(name, desktopName(hCur)) {
+			_, _, _ = procCloseDesktop.Call(hDesk)
+			return
+		}
+	}
+	if r, _, _ := procSetThreadDesktop.Call(hDesk); r == 0 {
+		_, _, _ = procCloseDesktop.Call(hDesk)
+	}
+	// On success the handle stays open while this thread uses it; that happens once per desktop switch.
+}
+
+// desktopName returns the name of a desktop handle ("Default", "Winlogon", ...) or "" on failure.
+func desktopName(hDesk uintptr) string {
+	const uoiName = 2
+	var buf [64]uint16
+	var needed uint32
+	r, _, _ := procGetUserObjectInfo.Call(hDesk, uoiName, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)*2), uintptr(unsafe.Pointer(&needed)))
+	if r == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:])
 }
 
 // ScreenSize returns the primary display width and height in physical pixels.
@@ -433,13 +462,22 @@ func ApplyInputEvent(ev InputEvent) error {
 
 	case "mouse_wheel":
 		_, _, _ = procSetCursorPos.Call(uintptr(px), uintptr(py))
-		delta := -ev.DeltaY
-		if delta > 0 {
-			delta = 120
-		} else if delta < 0 {
-			delta = -120
+		// The viewer sends pixel deltas (about 100 per mouse notch). Windows accepts partial
+		// WHEEL_DELTA values, so touchpads scroll smoothly instead of a full notch per event.
+		delta := int32(float64(-ev.DeltaY) * 1.2)
+		if delta == 0 {
+			if ev.DeltaY > 0 {
+				delta = -1
+			} else if ev.DeltaY < 0 {
+				delta = 1
+			}
 		}
-		_, _, _ = procMouseEvent.Call(mouseEventWheel, 0, 0, uintptr(int32(delta)), 0)
+		if delta > 1200 {
+			delta = 1200
+		} else if delta < -1200 {
+			delta = -1200
+		}
+		_, _, _ = procMouseEvent.Call(mouseEventWheel, 0, 0, uintptr(delta), 0)
 
 	case "key_text":
 		sendUnicodeText(ev.Text)

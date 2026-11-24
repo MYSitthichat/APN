@@ -780,8 +780,13 @@ func (n *Node) SetRendezvousURL(raw string) {
 	}
 }
 
+// rendezvousHeartbeat is how often a device re-registers and polls presence. Each poll is a
+// Worker request (Cloudflare free tier: 100k/day), so 30s keeps about twice as many devices
+// within the quota as 15s did. Entries expire after the Worker's 5-minute TTL.
+const rendezvousHeartbeat = 30 * time.Second
+
 func (n *Node) rendezvousSyncLoop(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(rendezvousHeartbeat)
 	defer ticker.Stop()
 
 	// Brief initial wait to let STUN discover public UDP IP first
@@ -893,7 +898,7 @@ func (n *Node) presenceLoop(ctx context.Context) {
 	}
 	n.RefreshPresence(ctx)
 
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(rendezvousHeartbeat)
 	defer ticker.Stop()
 	for {
 		select {
@@ -1224,15 +1229,94 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 	hc := n.rdvClient
 	n.mu.RUnlock()
 
+	// Each path that fails falls through to the next one. Only a rejection by the host
+	// (wrong password, owner declined) stops early, so the owner is not prompted again.
+	var errs []string
+
 	// 1. Check LAN Auto-Discovery (instant, zero-server!)
 	if n.lanDisc != nil {
 		if dp, ok := n.lanDisc.findByDeviceID(devID); ok && dp.QUICAddr != "" {
-			return n.dialQUICPeer(ctx, dp.QUICAddr, dp.Fingerprint, password)
+			info, err := n.dialQUICPeerTimeout(ctx, dp.QUICAddr, dp.Fingerprint, password, lanDialTimeout)
+			if err == nil {
+				return info, nil
+			}
+			if isPeerRejected(err) || ctx.Err() != nil {
+				return PeerInfo{}, err
+			}
+			n.logger.Warn("LAN dial failed, trying other paths", "device_id", devID, "addr", dp.QUICAddr, "err", err)
+			errs = append(errs, fmt.Sprintf("LAN %s: %v", dp.QUICAddr, err))
 		}
 	}
 
 	// 2. Query Rendezvous Directory (for cross-internet 9-digit ID lookup + simultaneous UDP punch)
 	if rdvURL != "" {
+		info, err := n.connectViaRendezvous(ctx, rdvURL, hc, devID, password)
+		if err == nil {
+			return info, nil
+		}
+		if isPeerRejected(err) || ctx.Err() != nil {
+			return PeerInfo{}, err
+		}
+		errs = append(errs, err.Error())
+	}
+
+	// 3. Fallback to KnownPeers address book (remembered from earlier connections!).
+	// Also used when the Rendezvous service is unreachable or over its quota.
+	n.mu.RLock()
+	var known *config.KnownPeer
+	for i := range n.cfg.KnownPeers {
+		if NormalizeDeviceID(n.cfg.KnownPeers[i].DeviceID) == devID {
+			kp := n.cfg.KnownPeers[i]
+			known = &kp
+			break
+		}
+	}
+	n.mu.RUnlock()
+	if known != nil {
+		if known.QUICAddr != "" {
+			info, err := n.dialQUICPeer(ctx, known.QUICAddr, known.Fingerprint, password)
+			if err == nil {
+				return info, nil
+			}
+			if isPeerRejected(err) || ctx.Err() != nil {
+				return PeerInfo{}, err
+			}
+		}
+		if known.WSURL != "" {
+			info, err := n.dialWSPeer(ctx, known.WSURL, password, true)
+			if err == nil {
+				return info, nil
+			}
+			if isPeerRejected(err) || ctx.Err() != nil {
+				return PeerInfo{}, err
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return PeerInfo{}, errors.New(strings.Join(errs, "; "))
+	}
+	return PeerInfo{}, fmt.Errorf("ไม่พบเครื่อง %s ในวง LAN เดียวกัน — หากอยู่คนละเครือข่าย ให้กรอก IP:4433 (เช่น 26.x.x.x:4433), ตั้งค่า Rendezvous URL หรือวาง Peer Ticket ในส่วน 'ตั้งค่าขั้นสูง'", FormatDeviceID(devID))
+}
+
+// lanDialTimeout bounds a QUIC dial to a LAN-discovered peer; a LAN handshake normally takes milliseconds.
+const lanDialTimeout = 2500 * time.Millisecond
+
+// peerRejectedError is returned when the host answered the hello but refused the connection
+// (wrong password, owner declined). Retrying other network paths would not help.
+type peerRejectedError struct{ msg string }
+
+func (e *peerRejectedError) Error() string { return e.msg }
+
+func isPeerRejected(err error) bool {
+	var rej *peerRejectedError
+	return errors.As(err, &rej)
+}
+
+// connectViaRendezvous looks the device up in the Rendezvous directory and tries its
+// direct UDP addresses, then its WSS/443 bridge URL.
+func (n *Node) connectViaRendezvous(ctx context.Context, rdvURL string, hc *http.Client, devID, password string) (PeerInfo, error) {
+	{
 		callerBody, _ := json.Marshal(map[string]any{
 			"from_device_id": n.cfg.DeviceID,
 			"udp_addrs":      n.candidateUDPAddrs(),
@@ -1259,7 +1343,7 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 			} `json:"entry"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&lookup); err != nil {
-			return PeerInfo{}, fmt.Errorf("อ่านผลลัพธ์จาก Rendezvous ไม่ได้: %w", err)
+			return PeerInfo{}, fmt.Errorf("อ่านผลลัพธ์จาก Rendezvous ไม่ได้ (HTTP %d): %w", resp.StatusCode, err)
 		}
 		if !lookup.OK {
 			return PeerInfo{}, errors.New(lookup.Error)
@@ -1269,6 +1353,8 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 		if len(lookup.Entry.UDPAddrs) > 0 {
 			if info, err := n.raceQUICAddrs(ctx, lookup.Entry.UDPAddrs, lookup.Entry.Fingerprint, password); err == nil {
 				return info, nil
+			} else if isPeerRejected(err) {
+				return PeerInfo{}, err
 			} else {
 				errs = append(errs, err.Error())
 			}
@@ -1277,6 +1363,9 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 			info, err := n.dialWSPeer(ctx, lookup.Entry.WSURL, password, true)
 			if err == nil {
 				return info, nil
+			}
+			if isPeerRejected(err) {
+				return PeerInfo{}, err
 			}
 			// If a quick tunnel returned HTTP 530/502/503/504 (stale/restarting tunnel),
 			// wait briefly and re-query Rendezvous ONCE in case the host just rotated to a fresh 443 tunnel!
@@ -1318,32 +1407,6 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 		}
 		return PeerInfo{}, fmt.Errorf("พบเครื่อง %s แต่เชื่อมต่อไม่สำเร็จ: %s", FormatDeviceID(devID), strings.Join(errs, "; "))
 	}
-
-	// 3. Fallback to KnownPeers address book (remembered from earlier connections!)
-	n.mu.RLock()
-	var known *config.KnownPeer
-	for i := range n.cfg.KnownPeers {
-		if NormalizeDeviceID(n.cfg.KnownPeers[i].DeviceID) == devID {
-			kp := n.cfg.KnownPeers[i]
-			known = &kp
-			break
-		}
-	}
-	n.mu.RUnlock()
-	if known != nil {
-		if known.QUICAddr != "" {
-			if info, err := n.dialQUICPeer(ctx, known.QUICAddr, known.Fingerprint, password); err == nil {
-				return info, nil
-			}
-		}
-		if known.WSURL != "" {
-			if info, err := n.dialWSPeer(ctx, known.WSURL, password, true); err == nil {
-				return info, nil
-			}
-		}
-	}
-
-	return PeerInfo{}, fmt.Errorf("ไม่พบเครื่อง %s ในวง LAN เดียวกัน — หากอยู่คนละเครือข่าย ให้กรอก IP:4433 (เช่น 26.x.x.x:4433), ตั้งค่า Rendezvous URL หรือวาง Peer Ticket ในส่วน 'ตั้งค่าขั้นสูง'", FormatDeviceID(devID))
 }
 
 // ConnectByTicket decodes a PeerTicket and races direct QUIC UDP Hole Punching (2.5s)
@@ -1396,35 +1459,55 @@ func (n *Node) raceQUICAddrs(ctx context.Context, addrs []string, expectedFP, pa
 		return PeerInfo{}, errors.New("no direct UDP endpoints available")
 	}
 
+	// Race only the QUIC dials. The first connection wins and the hello handshake runs once on it,
+	// so slower candidates never register a duplicate session or trigger a second approval prompt,
+	// and the owner's approval is not cut off by the 2.5s race window.
 	raceCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 	defer cancel()
 
 	type res struct {
-		info PeerInfo
+		sess MuxSession
 		err  error
 	}
 	ch := make(chan res, len(filtered))
 	for _, a := range filtered {
 		addrStr := a
 		go func() {
-			info, err := n.dialQUICPeer(raceCtx, addrStr, expectedFP, pairSecret)
-			ch <- res{info: info, err: err}
+			sess, err := n.dialQUICSession(raceCtx, addrStr, expectedFP, 2500*time.Millisecond)
+			ch <- res{sess: sess, err: err}
 		}()
 	}
 
+	var winner MuxSession
 	var lastErr error
-	for i := 0; i < len(filtered); i++ {
+	received := 0
+	for received < len(filtered) && winner == nil {
 		r := <-ch
+		received++
 		if r.err == nil {
-			cancel()
-			return r.info, nil
+			winner = r.sess
+		} else {
+			lastErr = r.err
 		}
-		lastErr = r.err
 	}
-	if lastErr == nil {
-		lastErr = errors.New("no UDP endpoints reachable")
+	cancel()
+	if remaining := len(filtered) - received; remaining > 0 {
+		// Close any losing connections that still complete after the winner.
+		go func() {
+			for i := 0; i < remaining; i++ {
+				if r := <-ch; r.err == nil && r.sess != nil {
+					_ = r.sess.Close()
+				}
+			}
+		}()
 	}
-	return PeerInfo{}, lastErr
+	if winner == nil {
+		if lastErr == nil {
+			lastErr = errors.New("no UDP endpoints reachable")
+		}
+		return PeerInfo{}, lastErr
+	}
+	return n.completeOutboundHandshake(ctx, winner, pairSecret, false)
 }
 
 // ConnectDirect connects to a peer via either a direct UDP host:port (QUIC) or ws:// / wss:// URL.
@@ -1453,9 +1536,24 @@ func (n *Node) ConnectDirect(ctx context.Context, target, pairSecret, expectedFi
 }
 
 func (n *Node) dialQUICPeer(ctx context.Context, addrStr, expectedFP, pairSecret string) (PeerInfo, error) {
-	udpAddr, err := net.ResolveUDPAddr("udp", addrStr)
+	return n.dialQUICPeerTimeout(ctx, addrStr, expectedFP, pairSecret, 6*time.Second)
+}
+
+// dialQUICPeerTimeout dials like dialQUICPeer but bounds only the QUIC dial itself, not the
+// hello handshake that follows (which may wait up to 40s for the owner to approve).
+func (n *Node) dialQUICPeerTimeout(ctx context.Context, addrStr, expectedFP, pairSecret string, dialTimeout time.Duration) (PeerInfo, error) {
+	sess, err := n.dialQUICSession(ctx, addrStr, expectedFP, dialTimeout)
 	if err != nil {
 		return PeerInfo{}, err
+	}
+	return n.completeOutboundHandshake(ctx, sess, pairSecret, false)
+}
+
+// dialQUICSession punches toward addrStr and opens a QUIC connection, without the hello handshake.
+func (n *Node) dialQUICSession(ctx context.Context, addrStr, expectedFP string, dialTimeout time.Duration) (MuxSession, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", addrStr)
+	if err != nil {
+		return nil, err
 	}
 
 	punchPkt := []byte("RVPN-PUNCH")
@@ -1463,21 +1561,19 @@ func (n *Node) dialQUICPeer(ctx context.Context, addrStr, expectedFP, pairSecret
 		_, _ = n.quicTr.WriteTo(punchPkt, udpAddr)
 		select {
 		case <-ctx.Done():
-			return PeerInfo{}, ctx.Err()
+			return nil, ctx.Err()
 		case <-time.After(40 * time.Millisecond):
 		}
 	}
 
-	dialCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
 	conn, err := n.quicTr.Dial(dialCtx, udpAddr, n.identity.ClientTLSConfig(expectedFP), defaultQUICConfig())
 	if err != nil {
-		return PeerInfo{}, err
+		return nil, err
 	}
-
-	sess := WrapQUIC(conn)
-	return n.completeOutboundHandshake(ctx, sess, pairSecret, false)
+	return WrapQUIC(conn), nil
 }
 
 func (n *Node) dialWSPeer(ctx context.Context, wsURL, pairSecret string, tryQUICUpgrade bool) (PeerInfo, error) {
@@ -1638,7 +1734,7 @@ func (n *Node) completeOutboundHandshake(ctx context.Context, sess MuxSession, p
 	_ = stream.Close()
 	if !resp.OK {
 		_ = sess.Close()
-		return PeerInfo{}, errors.New(resp.Error)
+		return PeerInfo{}, &peerRejectedError{msg: resp.Error}
 	}
 
 	p := n.registerPeer(sess, resp.Peer)
@@ -2616,8 +2712,10 @@ func FormatDeviceID(id string) string {
 func defaultQUICConfig() *quic.Config {
 	return &quic.Config{
 		EnableDatagrams:                true, // RFC 9221 Unreliable Datagrams for zero-HoL L3 VPN!
-		KeepAlivePeriod:                15 * time.Second,
-		MaxIdleTimeout:                 60 * time.Second,
+		// 5s keepalive / 20s idle: a dead path (Wi-Fi switch, sleep, NAT timeout) is detected in
+		// about 20s instead of 60s so the viewer reconnects quickly, and NAT mappings stay open.
+		KeepAlivePeriod:                5 * time.Second,
+		MaxIdleTimeout:                 20 * time.Second,
 		InitialStreamReceiveWindow:     4 << 20,  // 4 MiB for smooth 1080p keyframes
 		MaxStreamReceiveWindow:         16 << 20, // 16 MiB
 		InitialConnectionReceiveWindow: 8 << 20,  // 8 MiB

@@ -9,7 +9,11 @@
  */
 
 const memStore = new Map();
-const TTL_SECONDS = 300;        // 5 minutes TTL (peers heartbeat every ~45s)
+const regStore = new Map();     // last entry this isolate wrote per device (register path only)
+const offlineStore = new Map(); // device id -> expiry ms of a cached "offline" presence answer
+const PUNCH_TTL_SECONDS = 60;   // KV minimum TTL; punch requests are only useful for seconds
+const MAX_PUNCHES = 5;
+const TTL_SECONDS = 300;        // 5 minutes TTL (peers heartbeat every ~30s)
 const PRESENCE_CACHE_MS = 15_000;
 const KV_REFRESH_MS = 180_000;  // Skip redundant KV writes when endpoints haven't changed within 3 minutes
 const GITHUB_REPO = 'MYSitthichat/APN';
@@ -172,13 +176,51 @@ async function getEntry(env, id, bypassMemCache = false) {
 
 async function deleteEntry(env, id) {
   memStore.delete(id);
+  regStore.delete(id);
+  offlineStore.delete(id);
   if (env && env.PEERS) {
     await env.PEERS.delete('p:' + id);
   }
 }
 
+// Punch requests live under their own short-lived key ('q:<id>'), so a lookup never rewrites the
+// device entry 'p:<id>'. Rewriting it from a possibly stale KV read could overwrite a newer
+// ws_url (dead trycloudflare URL -> HTTP 530) and keep an offline device looking online.
+async function addPunch(env, id, caller) {
+  if (!env || !env.PEERS) return;
+  const raw = await env.PEERS.get('q:' + id);
+  let list = [];
+  if (raw) {
+    try { list = JSON.parse(raw) || []; } catch { list = []; }
+  }
+  list = [...list.slice(-(MAX_PUNCHES - 1)), caller];
+  await env.PEERS.put('q:' + id, JSON.stringify(list), { expirationTtl: PUNCH_TTL_SECONDS });
+}
+
+async function takePunches(env, id) {
+  if (!env || !env.PEERS) return [];
+  const raw = await env.PEERS.get('q:' + id);
+  if (!raw) return [];
+  await env.PEERS.delete('q:' + id);
+  try { return JSON.parse(raw) || []; } catch { return []; }
+}
+
 export default {
   async fetch(request, env) {
+    try {
+      return await handleRequest(request, env);
+    } catch (err) {
+      // KV over quota or a transient KV error: always answer JSON so clients can fall back cleanly.
+      return Response.json(
+        { ok: false, error: 'Rendezvous ใช้งานไม่ได้ชั่วคราว: ' + String((err && err.message) || err) },
+        { status: 503 }
+      );
+    }
+  },
+};
+
+async function handleRequest(request, env) {
+  {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -218,7 +260,16 @@ export default {
         rawIds.map(async (raw) => {
           const id = normalizeID(raw);
           if (id.length < 6 || id.length > 16) return;
+          const off = offlineStore.get(id);
+          if (off && Date.now() < off) {
+            peers[id] = { online: false };
+            return;
+          }
           const entry = await getEntry(env, id);
+          if (!entry) {
+            // Cache "offline" too, so every polling client does not cost a KV read for each offline peer.
+            offlineStore.set(id, Date.now() + PRESENCE_CACHE_MS);
+          }
           if (entry) {
             peers[id] = {
               online: true,
@@ -241,10 +292,13 @@ export default {
         return Response.json({ ok: false, error: 'invalid device_id' }, { status: 400 });
       }
 
-      // Always read fresh from KV on register/lookup so Worker isolates NEVER serve stale dead trycloudflare URLs (HTTP 530)!
-      const existing = await getEntry(env, id, true);
-      const pendingPunches = existing?.punches || [];
+      // Only this device writes 'p:<id>', so the last entry this isolate wrote is authoritative.
+      // KV is read only on a cold isolate (saves one KV read per heartbeat).
+      const reg = regStore.get(id);
+      const existing = reg && Date.now() - (reg.kv_written_at || 0) < KV_REFRESH_MS ? reg : await getEntry(env, id, true);
+      const pendingPunches = [...(existing?.punches || []), ...(await takePunches(env, id))];
       const nowMs = Date.now();
+      offlineStore.delete(id);
       const nextEntry = {
         device_id: id,
         peer_id: body.peer_id || '',
@@ -258,10 +312,10 @@ export default {
         punches: [],
       };
 
-      // Only write to KV when endpoints changed, punches were drained, or >5 minutes elapsed
+      // Only write to KV when endpoints changed, an old-format entry still holds punches, or the refresh interval elapsed
       const needsWrite =
         !existing ||
-        pendingPunches.length > 0 ||
+        (existing.punches || []).length > 0 ||
         !endpointsEqual(existing, nextEntry) ||
         nowMs - (existing.kv_written_at || 0) >= KV_REFRESH_MS;
 
@@ -271,6 +325,7 @@ export default {
         nextEntry.kv_written_at = existing.kv_written_at;
         memStore.set(id, { data: nextEntry, expires: nowMs + PRESENCE_CACHE_MS });
       }
+      regStore.set(id, nextEntry);
 
       return Response.json({ ok: true, punch_requests: pendingPunches });
     }
@@ -288,13 +343,16 @@ export default {
       if (request.method === 'POST') {
         const caller = await request.json().catch(() => null);
         if (caller?.udp_addrs?.length) {
-          entry.punches = [...(entry.punches || []).slice(-4), caller];
-          await putEntry(env, id, entry);
+          await addPunch(env, id, {
+            from_device_id: normalizeID(caller.from_device_id),
+            udp_addrs: caller.udp_addrs.slice(0, 8),
+          });
         }
       }
-      return Response.json({ ok: true, entry });
+      const { punches, kv_written_at, ...publicEntry } = entry;
+      return Response.json({ ok: true, entry: publicEntry });
     }
 
     return new Response('RelayVPN Rendezvous Directory Ready', { status: 200 });
-  },
-};
+  }
+}

@@ -2846,7 +2846,7 @@
             return;
           }
           h264WaitingKey = false;
-          if (h264Decoder.decodeQueueSize > 24 && !isKey) {
+          if (h264Decoder.decodeQueueSize > 8 && !isKey) {
             resetH264Decoder();
             sendInput({ type: 'keyframe' });
             return;
@@ -2857,6 +2857,7 @@
             h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: h264PtsUs, data: nal }));
           } catch {
             h264WaitingKey = true;
+            sendInput({ type: 'keyframe' });
           }
         } else if (fType === 0x01) {
           if (buf.length <= 4) return;
@@ -3170,6 +3171,18 @@
       sendInput({ type: 'mouse_move', x: p.x, y: p.y });
     }
 
+    let pendingWheelDelta = 0;
+    let pendingWheelPos = null;
+    let pendingWheelRaf = 0;
+    function flushPendingWheel() {
+      pendingWheelRaf = 0;
+      const d = Math.round(pendingWheelDelta);
+      if (d === 0 || !pendingWheelPos) return;
+      pendingWheelDelta -= d;
+      flushPendingMove();
+      sendInput({ type: 'mouse_wheel', x: pendingWheelPos.x, y: pendingWheelPos.y, delta_y: d });
+    }
+
     const heldCodes = new Set();
     let swallowedLangCode = '';
     function bindRemoteCanvasEvents(el) {
@@ -3200,8 +3213,14 @@
       });
       el.addEventListener('wheel', e => {
         e.preventDefault();
-        const p = normCoords(e);
-        sendInput({ type: 'mouse_wheel', x: p.x, y: p.y, delta_y: Math.round(e.deltaY) });
+        // Touchpads fire 60-120 small wheel events per second: sum them in pixels and send
+        // at most one mouse_wheel per animation frame so scrolling is smooth, not 10-30x too fast.
+        const unit = e.deltaMode === 1 ? 40 : (e.deltaMode === 2 ? 800 : 1);
+        pendingWheelDelta += e.deltaY * unit;
+        pendingWheelPos = normCoords(e);
+        if (!pendingWheelRaf) {
+          pendingWheelRaf = requestAnimationFrame(flushPendingWheel);
+        }
       }, { passive: false });
       el.addEventListener('keydown', e => {
         e.preventDefault();

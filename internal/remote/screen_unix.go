@@ -325,10 +325,15 @@ func ApplyInputEvent(ev InputEvent) error {
 	case "mouse_up":
 		return runXdo("mousemove", px, py, "mouseup", xdoMouseBtn(ev.Button))
 	case "mouse_wheel":
-		if ev.DeltaY < 0 {
-			return runXdo("click", "4")
+		n := wheelNotches(ev.DeltaY)
+		if n == 0 {
+			return nil
 		}
-		return runXdo("click", "5")
+		btn := "5"
+		if ev.DeltaY < 0 {
+			btn = "4"
+		}
+		return runXdo("mousemove", px, py, "click", "--repeat", strconv.Itoa(n), "--delay", "1", btn)
 	case "switch_lang":
 		return runXdo("key", "super+space")
 	case "key_text":

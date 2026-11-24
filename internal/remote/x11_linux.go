@@ -786,8 +786,11 @@ func applyX11Input(ev InputEvent) (bool, error) {
 		if ev.DeltaY < 0 {
 			btn = 4 // scroll up
 		}
-		xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonPress, btn, 0, linuxX11Inp.root, 0, 0, 0)
-		xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonRelease, btn, 0, linuxX11Inp.root, 0, 0, 0)
+		xtest.FakeInput(linuxX11Inp.conn, xproto.MotionNotify, 0, 0, linuxX11Inp.root, px, py, 0)
+		for n := wheelNotches(ev.DeltaY); n > 0; n-- {
+			xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonPress, btn, 0, linuxX11Inp.root, 0, 0, 0)
+			xtest.FakeInput(linuxX11Inp.conn, xproto.ButtonRelease, btn, 0, linuxX11Inp.root, 0, 0, 0)
+		}
 		return true, nil
 	case "switch_lang":
 		// Super_L (133) + Space (65) — standard GNOME / Ubuntu input source switch

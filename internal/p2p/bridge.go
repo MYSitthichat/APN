@@ -220,8 +220,16 @@ func (b *internetBridge) runOnce(ctx context.Context, cfPath string, wsPort int)
 // healthWatchdog periodically verifies our own trycloudflare.com tunnel end-to-end via GET /healthz.
 // Cloudflare Quick Tunnels can silently expire (returning HTTP 530 / Error 1033) without cloudflared
 // exiting — this watchdog detects 530/502/504 immediately and recycles cloudflared to a fresh tunnel!
+//
+// A tunnel is recycled only when Cloudflare itself answers with a dead-tunnel status, or after
+// three network errors in a row. A single DNS or network blip (or a network that filters
+// *.trycloudflare.com lookups) must not kill a working tunnel and every session riding on it.
 func (b *internetBridge) healthWatchdog(ctx context.Context, baseURL string, cancelRun context.CancelFunc) {
-	hc := &http.Client{Timeout: 7 * time.Second}
+	hc := &http.Client{
+		Timeout: 7 * time.Second,
+		// Resolve through the same resilient dialer as peer connections (DoH fallback).
+		Transport: &http.Transport{DialContext: resilientDialContext},
+	}
 	probe := func() (int, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/healthz", nil)
 		if err != nil {
@@ -248,22 +256,39 @@ func (b *internetBridge) healthWatchdog(ctx context.Context, baseURL string, can
 
 	for {
 		code, err := probe()
-		dead := err != nil || code == 530 || code == 502 || code == 503 || code == 504 || code == 404
-		if dead && ctx.Err() == nil {
-			// Quick 4s double-check to avoid false positives from a momentary 1s packet blip
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(4 * time.Second):
+		if err != nil || tunnelDeadStatus(code) {
+			// Re-check twice, 4s apart. Recycle only if Cloudflare keeps reporting the tunnel dead,
+			// or if all three probes failed at the network level.
+			netErrs, deadCodes := 0, 0
+			lastCode, lastErr := code, err
+			for attempt := 0; attempt < 3 && ctx.Err() == nil; attempt++ {
+				if attempt > 0 {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(4 * time.Second):
+					}
+					lastCode, lastErr = probe()
+				}
+				switch {
+				case lastErr != nil:
+					netErrs++
+				case tunnelDeadStatus(lastCode):
+					deadCodes++
+				}
 			}
-			code2, err2 := probe()
-			dead2 := err2 != nil || code2 == 530 || code2 == 502 || code2 == 503 || code2 == 504 || code2 == 404
-			if dead2 && ctx.Err() == nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if deadCodes >= 2 || netErrs == 3 {
 				b.logger.Warn("Internet Bridge quick tunnel is stale/dead — recycling for a fresh 443 tunnel",
-					"url", baseURL, "status", code2, "err", err2)
-				b.setErr(fmt.Sprintf("ท่อ 443 เดิมหลุด (HTTP %d) กำลังสร้างท่อใหม่...", code2))
+					"url", baseURL, "status", lastCode, "err", lastErr, "dead_status", deadCodes, "net_errors", netErrs)
+				b.setErr(fmt.Sprintf("ท่อ 443 เดิมหลุด (HTTP %d) กำลังสร้างท่อใหม่...", lastCode))
 				cancelRun()
 				return
+			}
+			if netErrs > 0 {
+				b.logger.Info("Internet Bridge health probe had network errors; keeping the tunnel", "url", baseURL, "net_errors", netErrs, "err", lastErr)
 			}
 		}
 
@@ -273,6 +298,17 @@ func (b *internetBridge) healthWatchdog(ctx context.Context, baseURL string, can
 		case <-ticker.C:
 		}
 	}
+}
+
+// tunnelDeadStatus reports HTTP statuses Cloudflare returns for a quick tunnel that no longer
+// reaches this host (530 = Error 1033 tunnel gone; 502/503/504 = origin unreachable; 404 = our
+// local listener no longer serves /healthz).
+func tunnelDeadStatus(code int) bool {
+	switch code {
+	case 530, 502, 503, 504, 404:
+		return true
+	}
+	return false
 }
 
 func containsRegistered(line string) bool {

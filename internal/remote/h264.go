@@ -28,6 +28,24 @@ var (
 	warmupCancel     context.CancelFunc
 )
 
+// keyframeRestartCooldown limits how often a keyframe request may restart the encoder.
+const keyframeRestartCooldown = 1500 * time.Millisecond
+
+// videoStreamEndedError reports that a working encoder delivered frames and then FFmpeg stopped
+// on its own (resolution change, display sleep, lock screen, GPU reset). The caller restarts
+// video instead of treating the encoder as unsupported.
+type videoStreamEndedError struct {
+	encoder string
+	ran     time.Duration
+	cause   error
+}
+
+func (e *videoStreamEndedError) Error() string {
+	return fmt.Sprintf("%s stopped after %s: %v", e.encoder, e.ran.Round(time.Second), e.cause)
+}
+
+func (e *videoStreamEndedError) Unwrap() error { return e.cause }
+
 // cancelWarmup stops any in-flight background encoder probe so it never contends
 // for GPU/WGC/DXGI capture when a real Remote Desktop session opens.
 func cancelWarmup() {
@@ -276,8 +294,10 @@ func streamVideoFFmpeg(
 	var lastErr error
 	var lastEnc string
 	skipTier := map[string]bool{}
+	restarting := false
 
-	for _, cand := range candidates {
+	for i := 0; i < len(candidates); i++ {
+		cand := candidates[i]
 		if cand.tier != "" && skipTier[cand.tier] {
 			continue
 		}
@@ -353,11 +373,14 @@ func streamVideoFFmpeg(
 			cachedEncMu.Unlock()
 		}
 
-		codecTitle := "H.264"
-		if codec == "hevc" {
-			codecTitle = "H.265/HEVC"
+		if !restarting {
+			codecTitle := "H.264"
+			if codec == "hevc" {
+				codecTitle = "H.265/HEVC"
+			}
+			sendInfo(codec, cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU %s (%s · %dx%d @ %d FPS)", codecTitle, cand.name, outW, outH, fps))
 		}
-		sendInfo(codec, cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU %s (%s · %dx%d @ %d FPS)", codecTitle, cand.name, outW, outH, fps))
+		restarting = false
 
 		// Tight 12-frame shock absorber (200ms max) eliminates bufferbloat while absorbing brief Wi-Fi/WAN jitter.
 		type auPacket struct {
@@ -365,6 +388,8 @@ func streamVideoFFmpeg(
 			isKey bool
 		}
 		frameCh := make(chan auPacket, 12)
+		// needKeyCh tells the sender loop that frames were dropped and the viewer now waits for a keyframe.
+		needKeyCh := make(chan struct{}, 1)
 		readDone := make(chan struct{})
 		go func() {
 			defer close(readDone)
@@ -404,6 +429,10 @@ func streamVideoFFmpeg(
 						}
 					} else {
 						droppingUntilKey = true
+						select {
+						case needKeyCh <- struct{}{}:
+						default:
+						}
 					}
 					return true
 				}
@@ -423,38 +452,85 @@ func streamVideoFFmpeg(
 			}
 		}()
 
-		var sendErr error
-		var lastKeyAU []byte
-		for {
+		// A fresh keyframe is produced by restarting the same encoder (new IDR in ~0.1-0.3s).
+		// Replaying an old stored keyframe would jump the picture back in time and smear later
+		// delta frames, and WGC passthrough can go tens of seconds without a natural keyframe.
+		launchedAt := time.Now()
+		var (
+			sendErr      error
+			restart      bool
+			ended        bool
+			restartTimer *time.Timer
+			restartC     <-chan time.Time
+		)
+		requestRestart := func() {
+			if wait := keyframeRestartCooldown - time.Since(launchedAt); wait > 0 {
+				if restartC == nil {
+					restartTimer = time.NewTimer(wait)
+					restartC = restartTimer.C
+				}
+				return
+			}
+			restart = true
+		}
+		// The freshly launched encoder always opens with a keyframe, so requests queued while it started are already met.
+		select {
+		case <-keyframeReqCh:
+		default:
+		}
+	streamLoop:
+		for !restart {
 			select {
 			case <-ctx.Done():
-				goto doneStream
+				break streamLoop
 			case <-keyframeReqCh:
-				if len(lastKeyAU) > 0 {
-					if err := emitVideoFrame(frameType, lastKeyAU, true, outW, outH, seqCounter, sendFrame); err != nil {
-						sendErr = err
-						goto doneStream
-					}
-				}
+				requestRestart()
+			case <-needKeyCh:
+				requestRestart()
+			case <-restartC:
+				restartC = nil
+				restart = true
 			case pkt, ok := <-frameCh:
 				if !ok {
-					goto doneStream
+					ended = true
+					break streamLoop
 				}
-				if pkt.isKey {
-					lastKeyAU = pkt.data
+				if pkt.isKey && restartC != nil {
+					// A natural keyframe already satisfies the pending request.
+					restartTimer.Stop()
+					restartC = nil
 				}
 				if err := emitVideoFrame(frameType, pkt.data, pkt.isKey, outW, outH, seqCounter, sendFrame); err != nil {
 					sendErr = err
-					goto doneStream
+					break streamLoop
 				}
 			}
 		}
+		if restartTimer != nil {
+			restartTimer.Stop()
+		}
 
-	doneStream:
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		<-readDone
-		return cand.name, sendErr
+
+		if sendErr != nil || ctx.Err() != nil {
+			return cand.name, sendErr
+		}
+		if restart {
+			// Relaunch the same encoder; if it fails to start, the loop moves on to the next candidates.
+			restarting = true
+			i--
+			continue
+		}
+		if ended {
+			return cand.name, &videoStreamEndedError{
+				encoder: cand.name,
+				ran:     time.Since(launchedAt),
+				cause:   summarizeFFmpegErr(stderrBuf.String(), io.EOF),
+			}
+		}
+		return cand.name, nil
 	}
 
 	if lastErr == nil {

@@ -25,12 +25,64 @@ const (
 	tileCodecJPEG   = byte(0)
 	tileCodecPNG    = byte(1)
 	maxInFlightACKs = 3
+
+	// videoHealthyRun is how long a video stream must run before its end counts as transient.
+	videoHealthyRun = 4 * time.Second
+	// maxVideoShortRuns is how many short-lived video runs in a row are retried before falling back.
+	maxVideoShortRuns = 2
 )
 
 // ScreenCapturer captures desktop frames, reusing OS handles & memory buffers when supported.
 type ScreenCapturer interface {
 	Capture() (*image.RGBA, error)
 	Close()
+}
+
+// heldInput remembers which keys and mouse buttons the viewer currently holds down.
+// It is used by a single reader goroutine, so it needs no locking.
+type heldInput struct {
+	keys    map[string]InputEvent
+	buttons map[string]InputEvent
+}
+
+func newHeldInput() *heldInput {
+	return &heldInput{keys: map[string]InputEvent{}, buttons: map[string]InputEvent{}}
+}
+
+func (h *heldInput) track(ev InputEvent) {
+	keyID := ev.Code
+	if keyID == "" {
+		keyID = ev.Key
+	}
+	switch ev.Type {
+	case "key_down":
+		if keyID != "" {
+			h.keys[keyID] = ev
+		}
+	case "key_up":
+		delete(h.keys, keyID)
+	case "mouse_down":
+		h.buttons[ev.Button] = ev
+	case "mouse_up":
+		delete(h.buttons, ev.Button)
+	}
+}
+
+// releaseAll returns key_up / mouse_up events for everything still held and forgets them.
+func (h *heldInput) releaseAll() []InputEvent {
+	out := make([]InputEvent, 0, len(h.keys)+len(h.buttons))
+	for _, ev := range h.keys {
+		ev.Type = "key_up"
+		ev.Text = ""
+		out = append(out, ev)
+	}
+	for _, ev := range h.buttons {
+		ev.Type = "mouse_up"
+		out = append(out, ev)
+	}
+	h.keys = map[string]InputEvent{}
+	h.buttons = map[string]InputEvent{}
+	return out
 }
 
 // InputEvent represents mouse, keyboard, ACK pacing, or stream quality control sent from the viewer.
@@ -132,6 +184,16 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 	// Reader loop: handle input, ACK flow control, and live codec/quality switches
 	go func() {
 		defer cancel()
+		held := newHeldInput()
+		// If the link drops while a key or button is down (e.g. mid Ctrl+C or a drag),
+		// release it on the host so it does not stay stuck after the session ends.
+		defer func() {
+			if opts.AllowInput {
+				for _, up := range held.releaseAll() {
+					_ = ApplyInputEvent(up)
+				}
+			}
+		}()
 		for {
 			fType, payload, err := protocol.ReadTypedFrame(stream)
 			if err != nil {
@@ -223,6 +285,7 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				}
 			default:
 				if opts.AllowInput {
+					held.track(ev)
 					_ = ApplyInputEvent(ev)
 				}
 			}
@@ -250,6 +313,7 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 	}
 
 	var seq atomic.Uint32
+	videoShortRuns := 0
 
 	for ctx.Err() == nil {
 		st.mu.Lock()
@@ -275,6 +339,24 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 			if ctx.Err() != nil {
 				return nil
 			}
+			// A working encoder that stopped on its own (resolution change, display sleep, GPU reset)
+			// is restarted with the same codec. Only repeated short runs fall back below.
+			var ended *videoStreamEndedError
+			if errors.As(err, &ended) {
+				if ended.ran >= videoHealthyRun {
+					videoShortRuns = 0
+				} else {
+					videoShortRuns++
+				}
+				st.mu.Lock()
+				sameCodec := st.codec == curCodec
+				st.mu.Unlock()
+				if sameCodec && videoShortRuns <= maxVideoShortRuns {
+					sleepCtx(ctx, time.Duration(videoShortRuns+1)*300*time.Millisecond)
+					continue
+				}
+			}
+			videoShortRuns = 0
 			// If user switched mode intentionally, re-loop with new mode
 			st.mu.Lock()
 			stillSame := st.codec == curCodec
