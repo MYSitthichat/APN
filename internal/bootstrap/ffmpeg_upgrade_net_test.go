@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,5 +32,31 @@ func TestUpgradeFFmpegForWGCDownload(t *testing.T) {
 	}
 	if p, ok := FindFFmpeg(); !ok || p != old {
 		t.Fatalf("FindFFmpeg = %q, want %q", p, old)
+	}
+}
+
+// TestPinnedCloudflaredDownload downloads the pinned cloudflared for this platform and checks
+// its hash. Network only: set APN_NET_TEST=1.
+func TestPinnedCloudflaredDownload(t *testing.T) {
+	if os.Getenv("APN_NET_TEST") != "1" {
+		t.Skip("set APN_NET_TEST=1 to download cloudflared")
+	}
+	pin, name := cloudflaredDownloadTarget()
+	if pin.URL == "" {
+		t.Skip("no cloudflared build for this platform")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	dest := filepath.Join(t.TempDir(), name)
+	if err := NewManager(nil).downloadDirectBinary(ctx, pin, dest, "test"); err != nil {
+		t.Fatal(err)
+	}
+	bad := pin
+	bad.SHA256 = strings.Repeat("0", 64)
+	if err := NewManager(nil).downloadDirectBinary(ctx, bad, dest+".bad", "test"); err == nil {
+		t.Fatal("a download with the wrong hash was installed")
+	}
+	if _, err := os.Stat(dest + ".bad"); !os.IsNotExist(err) {
+		t.Fatal("rejected download left a file behind")
 	}
 }

@@ -283,6 +283,22 @@ func runPeer(args []string, logger *slog.Logger) error {
 		tray.HideConsoleWindow()
 	}
 
+	// A version that was just installed by self-update must prove it runs, or the previous one is
+	// put back (see updater/rollback.go): supervised starts are counted, user mode runs a guard.
+	if *serviceWorker || os.Getenv("APN_SYSTEMD_SERVICE") == "1" {
+		if rolled, err := updater.CountSupervisedStart(appVersion); err != nil {
+			logger.Warn("update start check failed", "err", err)
+		} else if rolled {
+			logger.Error("this update kept failing to start; restored the previous version", "version", appVersion)
+			os.Exit(1) // the supervisor starts the restored binary
+		}
+	} else if handled, err := updater.RunUpdateGuard(appVersion, os.Args[1:]); handled {
+		if err != nil {
+			logger.Error("update guard", "err", err)
+		}
+		return nil
+	}
+
 	if *serviceWorker {
 		// The System Service must own the device. A user-mode APN still holding the UI port
 		// would otherwise make the service exit and restart in a loop, and every setting
@@ -459,6 +475,15 @@ func runPeer(args []string, logger *slog.Logger) error {
 			tray.PopupAppWindow(popupURL, !webui.ApprovalPageActive(4*time.Second))
 		})
 	}
+
+	// Running this long means a just-installed update works: drop the kept previous version.
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-time.After(updater.UpdateHealthyAfter):
+			updater.ConfirmUpdate(appVersion)
+		}
+	}()
 
 	var webDone chan struct{}
 	if cfg.UIAddr != "" {

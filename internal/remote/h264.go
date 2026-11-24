@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -198,24 +199,33 @@ var wgcRetryInterval = 20 * time.Second
 // probeCandidate starts one capture+encoder command line and reports whether it delivers an
 // encoded frame within timeout. Used to check in the background that WGC works again.
 func probeCandidate(ctx context.Context, ffmpegPath string, cand encoderCandidate, timeout time.Duration) bool {
+	ok, _, _ := probeCandidateDetail(ctx, ffmpegPath, cand, timeout)
+	return ok
+}
+
+// probeCandidateDetail is probeCandidate that also reports FFmpeg's error output.
+func probeCandidateDetail(ctx context.Context, ffmpegPath string, cand encoderCandidate, timeout time.Duration) (ok, timedOut bool, stderr string) {
 	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(pctx, ffmpegPath, cand.args...)
 	release := prepareCaptureCmd(cmd)
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		release()
-		return false
+		return false, false, err.Error()
 	}
 	err = cmd.Start()
 	release()
 	if err != nil {
-		return false
+		return false, false, err.Error()
 	}
 	au, _, rerr := newFLVH264Reader(stdout).NextAccessUnit()
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	return rerr == nil && len(au) > 0 && pctx.Err() == nil
+	timedOut = pctx.Err() != nil
+	return rerr == nil && len(au) > 0 && !timedOut, timedOut, errBuf.String()
 }
 
 // noteCaptureStderr starts an FFmpeg upgrade when the installed build lacks Windows Graphics
@@ -232,11 +242,27 @@ func explainVideoFailure(tier, stderr string, err error) (reason string, capture
 	if strings.Contains(strings.ToLower(stderr), "no such filter: 'gfxcapture'") {
 		return "FFmpeg รุ่นนี้ไม่มีตัวจับภาพ WGC (gfxcapture)", true
 	}
+	if hint := driverHint(stderr); hint != "" {
+		return hint, false
+	}
 	raw := summarizeFFmpegErr(stderr, err).Error()
 	if tier != "" && isCaptureTierFailure(tier, stderr) {
 		return "จับภาพไม่ได้: " + raw, true
 	}
 	return raw, false
+}
+
+var nvencDriverRe = regexp.MustCompile(`(?i)minimum required nvidia driver for nvenc is ([0-9.]+)`)
+
+// driverHint turns "driver too old" encoder errors into the action that fixes them.
+func driverHint(stderr string) string {
+	if m := nvencDriverRe.FindStringSubmatch(stderr); len(m) == 2 {
+		return "ต้องอัปเดต driver NVIDIA เป็น " + strings.TrimSuffix(m[1], ".00") + " ขึ้นไปจึงจะใช้ NVENC ได้"
+	}
+	if strings.Contains(strings.ToLower(stderr), "driver does not support the required nvenc api version") {
+		return "driver NVIDIA เก่าเกินไปสำหรับ NVENC — อัปเดต driver แล้วจะใช้ NVENC ได้"
+	}
+	return ""
 }
 
 type videoFailure struct {
@@ -273,6 +299,13 @@ func fallbackReasons(fails []videoFailure, chosen encoderCandidate) []string {
 		}
 		seen[f.tier] = len(out)
 		out = append(out, line)
+	}
+	// A driver update is an action the user can take even when another encoder is working.
+	for _, f := range fails {
+		if strings.Contains(f.reason, "driver NVIDIA") {
+			out = append(out, "NVENC: "+f.reason)
+			break
+		}
 	}
 	if strings.Contains(chosen.name, "x264") {
 		for _, f := range fails {
@@ -791,7 +824,18 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	var list []encoderCandidate
 
 	if runtime.GOOS == "windows" {
-		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=%s:max_framerate=%s", cur, fpsStr)
+		// Capture exactly the primary monitor (where mouse input goes), never a virtual display
+		// that happens to be enumerated first: see primaryCaptureTarget.
+		tgt := primaryCaptureTarget()
+		wgcSel := "monitor_idx=0"
+		if tgt.hmonitor != 0 {
+			wgcSel = fmt.Sprintf("hmonitor=%d", uint64(tgt.hmonitor))
+		}
+		ddaAdapter, ddaOut := -1, 0
+		if tgt.dxgiFound {
+			ddaAdapter, ddaOut = tgt.dxgiAdapt, tgt.dxgiOutput
+		}
+		wgcSrc := fmt.Sprintf("gfxcapture=%s:capture_cursor=%s:max_framerate=%s", wgcSel, cur, fpsStr)
 		if needScale {
 			wgcSrc += fmt.Sprintf(":width=%d:height=%d:resize_mode=scale:scale_mode=bilinear", outW, outH)
 		}
@@ -799,9 +843,11 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		wgcNV12 := wgcSrc + ",hwdownload,format=bgra,format=nv12"
 		wgcYUV := wgcSrc + ",hwdownload,format=bgra,format=yuv420p"
 
-		ddaLavfi := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra", fpsStr, cur)
-		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, cur, nv12Filter)
-		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, cur, yuvFilter)
+		ddaLavfi := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra", ddaOut, fpsStr, cur)
+		ddaNV12 := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra,%s", ddaOut, fpsStr, cur, nv12Filter)
+		ddaYUV := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%s:draw_mouse=%s:allow_fallback=1,hwdownload,format=bgra,%s", ddaOut, fpsStr, cur, yuvFilter)
+		// The D3D12 DXGI candidates let ddagrab open its own device on the default adapter (0).
+		ddaD12OK := ddaAdapter <= 0
 
 		// D3D12VA pipeline helper: uses `-f lavfi -i <src>` + `-init_hw_device d3d12va=d12 -filter_hw_device d12 -vf format=nv12,hwupload`
 		// so gfxcapture/ddagrab owns its own internal D3D11 device while D3D12VA encodes on GPU at 250-340 FPS with ~6ms latency!
@@ -890,9 +936,13 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 				encoderCandidate{name: "WGC + H.265 Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcQSVArgs)},
 				encoderCandidate{name: "WGC + H.265 Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, hevcMFArgs)},
 				encoderCandidate{name: "WGC + H.265 Hardware GPU (MF Safe)", tier: "WGC", args: makeWGC(wgcNV12, hevcMFSafeArgs)},
-				encoderCandidate{name: "DXGI + H.265 D3D12 GPU", tier: "DXGI", args: makeDDAD12(hevcD12Args)},
-				encoderCandidate{name: "DXGI + H.265 Hardware GPU (MF)", tier: "DXGI", args: makeDDA(-1, ddaNV12, hevcMFArgs)},
-				encoderCandidate{name: "DXGI + H.265 Intel QSV GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, hevcQSVArgs)},
+			)
+			if ddaD12OK {
+				list = append(list, encoderCandidate{name: "DXGI + H.265 D3D12 GPU", tier: "DXGI", args: makeDDAD12(hevcD12Args)})
+			}
+			list = append(list,
+				encoderCandidate{name: "DXGI + H.265 Hardware GPU (MF)", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, hevcMFArgs)},
+				encoderCandidate{name: "DXGI + H.265 Intel QSV GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, hevcQSVArgs)},
 			)
 			return list
 		}
@@ -942,23 +992,29 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			encoderCandidate{name: "WGC + Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, mfSafeArgs)},
 		)
 
-		// Tier 2: DXGI Desktop Duplication (ddagrab Adapter 0 with allow_fallback=1)
+		// Tier 2: DXGI Desktop Duplication on the primary monitor's adapter/output (allow_fallback=1)
+		if ddaD12OK {
+			list = append(list, encoderCandidate{name: "DXGI + H.264 D3D12 GPU", tier: "DXGI", args: makeDDAD12(h264D12Args)})
+		}
 		list = append(list,
-			encoderCandidate{name: "DXGI + H.264 D3D12 GPU", tier: "DXGI", args: makeDDAD12(h264D12Args)},
-			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", tier: "DXGI", args: makeDDA(-1, ddaNV12, mfArgs)},
-			encoderCandidate{name: "DXGI + Hardware GPU (MF)", tier: "DXGI", args: makeDDA(-1, ddaNV12, mfSafeArgs)},
-			encoderCandidate{name: "DXGI + Intel QSV GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, qsvArgs)},
-			encoderCandidate{name: "DXGI + AMD AMF GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, amfArgs)},
-			encoderCandidate{name: "DXGI + NVENC GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, nvencArgs)},
-			encoderCandidate{name: "DXGI + x264 ZeroLatency", tier: "DXGI", args: makeDDA(-1, ddaYUV, x264Args)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF)", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, mfSafeArgs)},
+			encoderCandidate{name: "DXGI + Intel QSV GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, qsvArgs)},
+			encoderCandidate{name: "DXGI + AMD AMF GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, amfArgs)},
+			encoderCandidate{name: "DXGI + NVENC GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, nvencArgs)},
+			encoderCandidate{name: "DXGI + x264 ZeroLatency", tier: "DXGI", args: makeDDA(ddaAdapter, ddaYUV, x264Args)},
 		)
 
-		// Tier 3: DXGI Adapter 1 (Hybrid Optimus laptops with older FFmpeg lacking gfxcapture)
-		list = append(list,
-			encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF LD-VBR)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfArgs)},
-			encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfSafeArgs)},
-			encoderCandidate{name: "DXGI-GPU1 + x264 ZeroLatency", tier: "DXGI1", args: makeDDA(1, ddaYUV, x264Args)},
-		)
+		// Tier 3: DXGI Adapter 1 (Hybrid Optimus laptops with older FFmpeg lacking gfxcapture). Only
+		// a guess when the primary monitor's adapter could not be found; otherwise Tier 2 already
+		// uses the right adapter and output.
+		if !tgt.dxgiFound {
+			list = append(list,
+				encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF LD-VBR)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfArgs)},
+				encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfSafeArgs)},
+				encoderCandidate{name: "DXGI-GPU1 + x264 ZeroLatency", tier: "DXGI1", args: makeDDA(1, ddaYUV, x264Args)},
+			)
+		}
 
 		// Tier 4: Last-resort fallback: gdigrab (NOTE: Never pass `-probesize 32` to gdigrab — BMP header is 54 bytes!)
 		list = append(list,

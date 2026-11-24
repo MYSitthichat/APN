@@ -248,6 +248,11 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 				continue
 			}
 			switch ev.Type {
+			case "capture_check":
+				go runCaptureCheck(ctx, func(done bool, results []captureCheckResult) {
+					msg, _ := json.Marshal(map[string]any{"capture_check": map[string]any{"done": done, "results": results}})
+					_ = sendFrame(protocol.FrameTypeStats, msg)
+				})
 			case "ping":
 				// Answered through the same stream as the video, so the round trip includes any
 				// queueing behind picture frames: the delay the user actually feels.

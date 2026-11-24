@@ -672,6 +672,8 @@
     .screen-stats .ss-k { color: var(--text-soft); }
     .screen-stats .ss-v { font-variant-numeric: tabular-nums; }
     .screen-stats .ss-fallback { color: var(--warn); overflow-wrap: anywhere; }
+    .screen-stats .ss-check { margin-top: 6px; max-height: 220px; overflow: auto; font-size: 0.72rem; border-top: 1px solid var(--border); padding-top: 6px; overflow-wrap: anywhere; }
+    .screen-stats .ss-check .bad { color: var(--warn); }
     .screen-stats .ss-hint { margin-top: 6px; padding: 6px 8px; border-radius: 8px; font-weight: 600; }
     .screen-stats .ss-hint.ok { background: color-mix(in srgb, var(--ok, #22c55e) 14%, transparent); color: var(--ok, #22c55e); }
     .screen-stats .ss-hint.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
@@ -3137,6 +3139,7 @@
     let hostStats = null;        // last {stats} report from the host (newer hosts only)
     let hostStatsAt = 0;
     let hostHist = [];           // last few {stats} reports, to judge load over several seconds
+    let captureCheck = null;     // {done, results[]} from the host's capture self-check
     let screenRTT = null;        // latest ping round trip in ms
     let screenRTTAvg = null;
     let remoteCursorShape = '';  // CSS cursor reported by the host ('' = cursor is in the video)
@@ -3416,6 +3419,30 @@
       return `<div class="ss-row"><span class="ss-k">ทางที่เร็วกว่า</span><span class="ss-v ss-fallback">${lines}${up ? `<div>${esc(up)}</div>` : ''}</span></div>`;
     }
 
+    window.startCaptureCheck = () => {
+      captureCheck = { done: false, results: [] };
+      sendInput({ type: 'capture_check' });
+      if (activeScreenTarget) renderScreenStats(activeScreenTarget.agentId, null, null);
+    };
+
+    // captureCheckRows lists the host's capture self-check: every capture method and encoder tried,
+    // with the time to the first frame or the reason it failed.
+    function captureCheckRows() {
+      if (!captureCheck) return '';
+      const rs = captureCheck.results || [];
+      const okN = rs.filter(r => r.ok).length;
+      const head = captureCheck.done
+        ? `ผลตรวจระบบจับภาพ: ใช้ได้ ${okN}/${rs.length}`
+        : `กำลังตรวจระบบจับภาพ… (${rs.length})` + (rs.length === 0 ? ' — ถ้าไม่มีผลขึ้น เครื่องปลายทางอาจยังเป็นเวอร์ชันเก่า' : '');
+      const lines = rs.map(r => {
+        const codec = r.codec === 'hevc' ? 'H.265' : 'H.264';
+        return r.ok
+          ? `<div>✅ ${codec} · ${esc(r.name)} — ${(r.ms / 1000).toFixed(1)} วิ</div>`
+          : `<div class="bad">❌ ${codec} · ${esc(r.name)} — ${esc(r.reason || 'ใช้ไม่ได้')}</div>`;
+      }).join('');
+      return `<div class="ss-check"><div class="ss-k">${esc(head)}</div>${lines}</div>`;
+    }
+
     function renderScreenStats(agentId, rendered, bytesSec) {
       const el = document.getElementById('screenStats');
       if (!el || !el.classList.contains('open')) return;
@@ -3439,7 +3466,7 @@
       const cursorLine = hs?.local_cursor ? 'วาดที่เครื่องนี้ (ไม่หน่วง)' : (wantLocalCursor() ? 'อยู่ในวิดีโอ (ปลายทางยังไม่รองรับ)' : 'อยู่ในวิดีโอ (ตามที่ตั้งไว้)');
       const d = diagnoseScreen(hs, path, rendered, video);
       el.innerHTML = `
-        <div class="ss-head"><span>📊 สถิติการเชื่อมต่อ</span><button class="secondary" onclick="toggleScreenStats(false)">✕</button></div>
+        <div class="ss-head"><span>📊 สถิติการเชื่อมต่อ</span><span style="display:flex;gap:6px"><button class="secondary" onclick="startCaptureCheck()" ${captureCheck && !captureCheck.done ? 'disabled' : ''} title="ลองทุกวิธีจับภาพและตัวเข้ารหัสบนเครื่องปลายทาง แล้วแสดงว่าอันไหนใช้ได้และทำไม (ใช้เวลาไม่เกินราว 1 นาที)">🔎 ตรวจระบบจับภาพ</button><button class="secondary" onclick="toggleScreenStats(false)">✕</button></span></div>
         ${row('เส้นทาง', esc(path.long))}
         ${row('RTT', rtt)}
         ${row('ต้นทาง', esc(hostLine))}
@@ -3450,7 +3477,8 @@
         ${row('เคอร์เซอร์', esc(cursorLine))}
         ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
         ${fallbackRows(hs)}
-        <div class="ss-hint ${d.cls}">${esc(d.text)}</div>`;
+        <div class="ss-hint ${d.cls}">${esc(d.text)}</div>
+        ${captureCheckRows()}`;
     }
 
     function clearVideoFrameQueue() {
@@ -3715,6 +3743,7 @@
       const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}&local_cursor=${wantLocalCursor() ? 1 : 0}`;
       hostStats = null;
       hostHist = [];
+      captureCheck = null;
       screenRTT = null;
       screenRTTAvg = null;
       setRemoteCursorShape('');
@@ -3801,6 +3830,10 @@
             if (typeof msg.pong === 'number') {
               screenRTT = Math.max(0, performance.now() - msg.pong);
               screenRTTAvg = screenRTTAvg === null ? screenRTT : screenRTTAvg * 0.7 + screenRTT * 0.3;
+            }
+            if (msg.capture_check) {
+              captureCheck = msg.capture_check;
+              if (activeScreenTarget) renderScreenStats(activeScreenTarget.agentId, null, null);
             }
             if (msg.stats) {
               hostStats = msg.stats;
@@ -4003,7 +4036,7 @@
 
     function sendInput(ev) {
       if (!screenWS || screenWS.readyState !== WebSocket.OPEN) return;
-      if (ev.type !== 'config' && ev.type !== 'keyframe' && ev.type !== 'ack' && ev.type !== 'ping' &&
+      if (ev.type !== 'config' && ev.type !== 'keyframe' && ev.type !== 'ack' && ev.type !== 'ping' && ev.type !== 'capture_check' &&
           (!screenAllowInput || !document.getElementById('chkControl').checked)) return;
       screenWS.send(JSON.stringify(ev));
     }

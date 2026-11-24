@@ -16,10 +16,6 @@ import (
 	"relayvpn/internal/executil"
 )
 
-// FFmpegWindowsMasterURL is a newer (master) Windows build, tried when the stable release still
-// lacks the Windows Graphics Capture source (gfxcapture).
-const FFmpegWindowsMasterURL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-
 var (
 	wgcUpgradeMu    sync.Mutex
 	wgcUpgradeState string // "", "running", "done", "failed: ..."
@@ -84,22 +80,14 @@ func (m *Manager) upgradeFFmpegForWGC(ctx context.Context) error {
 	newPath := filepath.Join(dir, "ffmpeg-update.exe")
 	defer os.Remove(newPath)
 
-	var lastErr error
-	for _, url := range []string{FFmpegWindowsStableURL, FFmpegWindowsMasterURL} {
-		if err := m.downloadAndExtractZipEntry(ctx, url, "/bin/ffmpeg.exe", newPath, "กำลังอัปเดต FFmpeg (WGC)..."); err != nil {
-			lastErr = err
-			continue
-		}
-		if !FFmpegHasFilter(ctx, newPath, "gfxcapture") {
-			lastErr = errors.New("FFmpeg ที่ดาวน์โหลดมายังไม่มี gfxcapture")
-			continue
-		}
-		return replaceFFmpeg(dir, newPath)
+	// Only the pinned, hash-checked build: never an unpinned "latest" one.
+	if err := m.downloadAndExtractZipEntry(ctx, FFmpegWindows, "/bin/ffmpeg.exe", newPath, "กำลังอัปเดต FFmpeg (WGC)..."); err != nil {
+		return err
 	}
-	if lastErr == nil {
-		lastErr = errors.New("ไม่พบ FFmpeg ที่รองรับ WGC")
+	if !FFmpegHasFilter(ctx, newPath, "gfxcapture") {
+		return errors.New("FFmpeg ที่ดาวน์โหลดมายังไม่มี gfxcapture")
 	}
-	return lastErr
+	return replaceFFmpeg(dir, newPath)
 }
 
 // replaceFFmpeg swaps in the new binary. A running ffmpeg.exe cannot be overwritten on Windows but

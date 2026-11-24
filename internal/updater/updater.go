@@ -342,6 +342,21 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	}
 	_ = os.Chmod(targetPath, 0o755)
 
+	// Keep the previous version until the new one has run for UpdateHealthyAfter, so an update
+	// that does not start is rolled back instead of leaving the machine offline.
+	prev := oldPath
+	if _, err := os.Stat(prev); err != nil {
+		prev = exePath // first install into ~/.local/bin: the previous version is still at exePath
+	}
+	m.mu.Lock()
+	toVersion := m.targetVersion
+	m.mu.Unlock()
+	if err := recordUpdate(targetPath, prev, version.Version, toVersion); err != nil {
+		m.mu.Lock()
+		m.status.Stage = "อัปเดตแล้ว (เก็บเวอร์ชันเดิมสำรองไม่สำเร็จ: " + err.Error() + ")"
+		m.mu.Unlock()
+	}
+
 	// If Linux updated from a root-owned /usr/bin/apn into ~/.local/bin/apn, make sure XDG desktop/autostart
 	// entries also launch the updated user binary on future clicks & logins!
 	if runtime.GOOS == "linux" && filepath.Clean(targetPath) != filepath.Clean(exePath) {
