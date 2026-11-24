@@ -76,9 +76,15 @@ func NewManager(manifestURL string, hc *http.Client) *Manager {
 }
 
 // CleanupOldBinary removes any leftover .old executable renamed during a previous Windows self-update.
+// Files still in use (e.g. by a running service supervisor) are left for a later cleanup.
 func CleanupOldBinary() {
 	if exe, err := os.Executable(); err == nil {
 		_ = os.Remove(exe + ".old")
+		if olds, err := filepath.Glob(exe + ".old-*"); err == nil {
+			for _, f := range olds {
+				_ = os.Remove(f)
+			}
+		}
 	}
 }
 
@@ -295,7 +301,12 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.mu.Unlock()
 
 	oldPath := targetPath + ".old"
-	_ = os.Remove(oldPath)
+	if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
+		// The previous .old is still running (the Windows service supervisor keeps executing the
+		// binary it started from until it restarts), so it cannot be deleted or replaced: renaming
+		// onto it failed with "Access is denied". Park the current binary under a fresh name.
+		oldPath = fmt.Sprintf("%s.old-%d", targetPath, time.Now().UnixNano())
+	}
 	if _, statErr := os.Stat(targetPath); statErr == nil {
 		if err := os.Rename(targetPath, oldPath); err != nil {
 			_ = os.Remove(tmpPath)

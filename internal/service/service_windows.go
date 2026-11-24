@@ -402,10 +402,25 @@ func winServiceMain(argc uint32, argv **uint16) uintptr {
 	setWinServiceState(serviceStartPending, 0, 3000)
 	setWinServiceState(serviceRunning, serviceAcceptStop|serviceAcceptShutdown|serviceAcceptSessionChange, 0)
 
-	superviseActiveConsoleWorker(stopCh, pokeCh)
+	if superviseActiveConsoleWorker(stopCh, pokeCh) {
+		// APN.exe was replaced by an update. Exit without reporting SERVICE_STOPPED so the Service
+		// Control Manager's failure action ("restart/2000") starts the service from the new
+		// binary. Otherwise this supervisor keeps running the old file (renamed to APN.exe.old),
+		// and the next update cannot replace that file ("Access is denied").
+		os.Exit(3)
+	}
 
 	setWinServiceState(serviceStopped, 0, 0)
 	return 0
+}
+
+// binaryStamp identifies the installed APN.exe so the supervisor notices an update.
+func binaryStamp() string {
+	st, err := os.Stat(SystemBinaryPath())
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d|%d", st.Size(), st.ModTime().UnixNano())
 }
 
 func activeConsoleSessionID() uint32 {
@@ -413,7 +428,10 @@ func activeConsoleSessionID() uint32 {
 	return uint32(r)
 }
 
-func superviseActiveConsoleWorker(stopCh <-chan struct{}, pokeCh <-chan struct{}) {
+// superviseActiveConsoleWorker keeps one worker running in the active console session. It returns
+// true when the worker exited after APN.exe was updated, so the service should restart itself.
+func superviseActiveConsoleWorker(stopCh <-chan struct{}, pokeCh <-chan struct{}) (restartForUpdate bool) {
+	startStamp := binaryStamp()
 	var (
 		curSession uint32 = 0xFFFFFFFF
 		workerProc syscall.Handle
@@ -466,7 +484,7 @@ func superviseActiveConsoleWorker(stopCh <-chan struct{}, pokeCh <-chan struct{}
 	for {
 		select {
 		case <-stopCh:
-			return
+			return false
 		case <-workerExit:
 			// Worker exited (e.g. after auto-update or unexpected crash) -> clean up & respawn!
 			if workerProc != 0 {
@@ -474,6 +492,9 @@ func superviseActiveConsoleWorker(stopCh <-chan struct{}, pokeCh <-chan struct{}
 				workerProc = 0
 				workerExit = nil
 				curSession = 0xFFFFFFFF
+			}
+			if stamp := binaryStamp(); startStamp != "" && stamp != "" && stamp != startStamp {
+				return true // updated: restart the whole service from the new binary
 			}
 			select {
 			case <-stopCh:

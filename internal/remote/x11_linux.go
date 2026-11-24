@@ -79,7 +79,9 @@ func setActiveLinuxSession(s linuxSessionEnv) {
 //   4. Filesystem fallback across /tmp/.X11-unix/X* and all /run/user/* / /home/* Xauthority files.
 func discoverLinuxSessions() []linuxSessionEnv {
 	var out []linuxSessionEnv
-	seen := map[string]bool{}
+	seen := map[string]int{}
+	activeVT := readActiveVT()
+	unixSockets := readX11UnixSockets()
 	add := func(s linuxSessionEnv) {
 		s.Display = strings.TrimSpace(s.Display)
 		s.XAuthority = strings.TrimSpace(s.XAuthority)
@@ -94,10 +96,30 @@ func discoverLinuxSessions() []linuxSessionEnv {
 			return
 		}
 		key := fmt.Sprintf("%s|%s|%s|%d", s.Display, s.XAuthority, s.WaylandDisplay, s.UID)
-		if seen[key] {
+		if i, ok := seen[key]; ok {
+			// The same display+auth seen from another process (e.g. Xorg's command line and the
+			// user's gnome-session): keep the best score and fill in the richer environment.
+			// Dropping the later one used to lose the user session's seat/VT score.
+			e := &out[i]
+			if s.Priority > e.Priority {
+				e.Priority = s.Priority
+			}
+			if e.RuntimeDir == "" {
+				e.RuntimeDir = s.RuntimeDir
+			}
+			if e.DBusAddr == "" {
+				e.DBusAddr = s.DBusAddr
+			}
+			if e.Home == "" {
+				e.Home = s.Home
+			}
+			if e.SessionType == "" {
+				e.SessionType = s.SessionType
+			}
+			e.HasUserCred = e.HasUserCred || s.HasUserCred
 			return
 		}
-		seen[key] = true
+		seen[key] = len(out)
 		out = append(out, s)
 	}
 
@@ -163,6 +185,10 @@ func discoverLinuxSessions() []linuxSessionEnv {
 			if comm == "Xorg" || comm == "X" || comm == "Xwayland" {
 				if cmdBytes, err := os.ReadFile(filepath.Join(pidDir, "cmdline")); err == nil && len(cmdBytes) > 0 {
 					disp, xauth := parseXorgCmdline(cmdBytes)
+					if disp == "" {
+						// Started with -displayfd: find the display from the X socket this server listens on.
+						disp = xorgDisplayFromSockets(pidDir, unixSockets)
+					}
 					if disp != "" {
 						p := basePrio + displayNumberPriority(disp)
 						if xauth != "" {
@@ -176,6 +202,7 @@ func discoverLinuxSessions() []linuxSessionEnv {
 						if strings.Contains(cmdStr, "seat0") || strings.Contains(cmdStr, " vt") {
 							p += 180
 						}
+						p += vtScore(xorgVT(cmdBytes), activeVT)
 						add(linuxSessionEnv{
 							Display:     disp,
 							XAuthority:  xauth,
@@ -227,6 +254,7 @@ func discoverLinuxSessions() []linuxSessionEnv {
 			if strings.EqualFold(envMap["XDG_SEAT"], "seat0") || envMap["XDG_VTNR"] != "" {
 				prio += 200
 			}
+			prio += vtScore(atoiOr(envMap["XDG_VTNR"], 0), activeVT)
 			if xauth != "" {
 				prio += 20
 			}
@@ -362,26 +390,6 @@ func parseXorgCmdline(data []byte) (display, xauth string) {
 			display = arg
 		}
 	}
-	// If Xorg used `-displayfd` without an explicit `:N` arg, match a real physical console socket (:0..:9) first
-	if display == "" && xauth != "" {
-		if matches, err := filepath.Glob("/tmp/.X11-unix/X*"); err == nil && len(matches) > 0 {
-			sort.Slice(matches, func(i, j int) bool {
-				ni, nj := displayNumFromSock(matches[i]), displayNumFromSock(matches[j])
-				iPhys, jPhys := ni >= 0 && ni < 10, nj >= 0 && nj < 10
-				if iPhys != jPhys {
-					return iPhys
-				}
-				if iPhys {
-					return ni > nj
-				}
-				return ni < nj
-			})
-			base := filepath.Base(matches[0])
-			if strings.HasPrefix(base, "X") && len(base) > 1 {
-				display = ":" + base[1:]
-			}
-		}
-	}
 	return display, xauth
 }
 
@@ -505,7 +513,11 @@ func detectLinuxDisplayEnv() (display, xauth string) {
 }
 
 func linuxCmdEnv() []string {
-	s := getActiveLinuxSession()
+	return linuxCmdEnvFor(getActiveLinuxSession())
+}
+
+// linuxCmdEnvFor returns the process environment with DISPLAY, XAUTHORITY etc. of session s.
+func linuxCmdEnvFor(s linuxSessionEnv) []string {
 	overrides := map[string]string{}
 	if s.Display != "" {
 		overrides["DISPLAY"] = s.Display
@@ -566,11 +578,138 @@ func applyLinuxUserCred(cmd *exec.Cmd) {
 // captureDisplayKey identifies the X display the capture should follow right now
 // (e.g. the GDM login screen before login, the user's desktop after).
 func captureDisplayKey() string {
-	s := getActiveLinuxSession()
+	s, ok := verifiedCaptureSession()
+	if !ok {
+		s = getActiveLinuxSession()
+	}
 	if s.Display == "" {
 		return ""
 	}
 	return s.Display + "|" + s.XAuthority
+}
+
+// verifiedCaptureSession returns the X session the pure-Go capture connection is attached to,
+// connecting first if needed. That DISPLAY+XAUTHORITY pair has been proven to work, so FFmpeg
+// (x11grab) gets the same one instead of a separately re-discovered guess.
+func verifiedCaptureSession() (linuxSessionEnv, bool) {
+	linuxX11Cap.mu.Lock()
+	defer linuxX11Cap.mu.Unlock()
+	if linuxX11Cap.conn != nil {
+		// A dead connection (X server gone after logout) must not pin a stale session.
+		if _, err := xproto.GetInputFocus(linuxX11Cap.conn).Reply(); err != nil {
+			linuxX11Cap.resetLocked()
+		}
+	}
+	if err := linuxX11Cap.ensureLocked(); err != nil {
+		return linuxSessionEnv{}, false
+	}
+	return linuxX11Cap.session, true
+}
+
+// captureCmdEnv is the environment for capture tools (FFmpeg x11grab).
+func captureCmdEnv() []string {
+	if s, ok := verifiedCaptureSession(); ok {
+		return linuxCmdEnvFor(s)
+	}
+	return linuxCmdEnv()
+}
+
+// captureDisplay is the X display for capture tools (FFmpeg x11grab).
+func captureDisplay() string {
+	if s, ok := verifiedCaptureSession(); ok && s.Display != "" {
+		return s.Display
+	}
+	d, _ := detectLinuxDisplayEnv()
+	return d
+}
+
+// readActiveVT returns the virtual terminal currently on screen (e.g. 2 for tty2), or 0.
+func readActiveVT() int {
+	b, err := os.ReadFile("/sys/class/tty/tty0/active")
+	if err != nil {
+		return 0
+	}
+	return atoiOr(strings.TrimPrefix(strings.TrimSpace(string(b)), "tty"), 0)
+}
+
+// vtScore favours the session on the VT that is on screen and demotes sessions on other VTs
+// (the GDM greeter kept on vt1 after login, or a user switched away from).
+func vtScore(vt, activeVT int) int {
+	if vt <= 0 || activeVT <= 0 {
+		return 0
+	}
+	if vt == activeVT {
+		return 150
+	}
+	return -250
+}
+
+// xorgVT returns N from an Xorg "vtN" argument, or 0.
+func xorgVT(cmdline []byte) int {
+	for _, part := range bytes.Split(cmdline, []byte{0}) {
+		arg := string(part)
+		if len(arg) > 2 && strings.HasPrefix(arg, "vt") {
+			if n := atoiOr(arg[2:], 0); n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func atoiOr(s string, def int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+// readX11UnixSockets maps socket inode -> X display (":N") for X server listening sockets
+// (/tmp/.X11-unix/XN, including the abstract @/tmp/.X11-unix/XN form).
+func readX11UnixSockets() map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile("/proc/net/unix")
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 8 {
+			continue
+		}
+		path := f[7]
+		i := strings.Index(path, ".X11-unix/X")
+		if i < 0 {
+			continue
+		}
+		n := atoiOr(path[i+len(".X11-unix/X"):], -1)
+		if n >= 0 {
+			out[f[6]] = ":" + strconv.Itoa(n)
+		}
+	}
+	return out
+}
+
+// xorgDisplayFromSockets finds the display an X server (pidDir) listens on via its socket fds.
+func xorgDisplayFromSockets(pidDir string, sockets map[string]string) string {
+	if len(sockets) == 0 {
+		return ""
+	}
+	fds, err := os.ReadDir(filepath.Join(pidDir, "fd"))
+	if err != nil {
+		return ""
+	}
+	for _, fd := range fds {
+		link, err := os.Readlink(filepath.Join(pidDir, "fd", fd.Name()))
+		if err != nil || !strings.HasPrefix(link, "socket:[") {
+			continue
+		}
+		if disp, ok := sockets[strings.TrimSuffix(strings.TrimPrefix(link, "socket:["), "]")]; ok {
+			return disp
+		}
+	}
+	return ""
 }
 
 func isLinuxWayland() bool {

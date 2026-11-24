@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"relayvpn/internal/bootstrap"
-	"relayvpn/internal/executil"
 	"relayvpn/internal/protocol"
 )
 
@@ -125,18 +124,18 @@ func WarmupH264Encoder() {
 				}
 				probeCtx, cancel := context.WithTimeout(wCtx, 2400*time.Millisecond)
 				cmd := exec.CommandContext(probeCtx, ffmpegPath, cand.args...)
-				if runtime.GOOS == "linux" {
-					cmd.Env = linuxCmdEnv()
-				}
-				executil.HideWindow(cmd)
+				release := prepareCaptureCmd(cmd)
 				var stderrBuf bytes.Buffer
 				cmd.Stderr = &stderrBuf
 				stdout, err := cmd.StdoutPipe()
 				if err != nil {
+					release()
 					cancel()
 					continue
 				}
-				if err := cmd.Start(); err != nil {
+				err = cmd.Start()
+				release()
+				if err != nil {
 					cancel()
 					continue
 				}
@@ -305,18 +304,18 @@ func streamVideoFFmpeg(
 		}
 		lastEnc = cand.name
 		cmd := exec.CommandContext(ctx, ffmpegPath, cand.args...)
-		if runtime.GOOS == "linux" {
-			cmd.Env = linuxCmdEnv()
-		}
-		executil.HideWindow(cmd)
+		release := prepareCaptureCmd(cmd)
 		var stderrBuf bytes.Buffer
 		cmd.Stderr = &stderrBuf
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
+			release()
 			lastErr = err
 			continue
 		}
-		if err := cmd.Start(); err != nil {
+		err = cmd.Start()
+		release()
+		if err != nil {
 			lastErr = err
 			continue
 		}
@@ -815,7 +814,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	if runtime.GOOS == "darwin" {
 		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", "1", "-i", "1:none"}
 	} else {
-		disp, _ := detectLinuxDisplayEnv()
+		disp := captureDisplay()
 		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", "1", "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
 	}
 	makeUnix := func(vf string, encArgs []string) []string {

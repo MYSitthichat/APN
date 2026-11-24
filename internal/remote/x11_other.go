@@ -20,6 +20,8 @@ func applyLinuxUserCred(_ *exec.Cmd) {}
 
 func captureDisplayKey() string { return "" }
 
+func captureDisplay() string { return "" }
+
 func isLinuxWayland() bool {
 	return false
 }
