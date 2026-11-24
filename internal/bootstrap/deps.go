@@ -20,6 +20,8 @@ import (
 const (
 	// Official stable pinned releases for zero-setup auto-bootstrap.
 	FFmpegWindowsStableURL   = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+	FFmpegLinuxAMD64URL      = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+	FFmpegLinuxARM64URL      = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz"
 	WintunOfficialURL        = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 	CloudflaredWinAMD64URL   = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
 	CloudflaredLinuxAMD64URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
@@ -304,9 +306,10 @@ func (m *Manager) runInstall(ctx context.Context) {
 		}
 	}
 
-	// 3. Auto-install stable FFmpeg for 60 FPS DXGI/GPU H.264 streaming
+	// 3. Auto-install FFmpeg for 60 FPS GPU H.265/H.264 streaming (Windows & Linux!)
 	if _, ok := FindFFmpeg(); !ok {
-		if runtime.GOOS == "windows" {
+		switch runtime.GOOS {
+		case "windows":
 			dest := filepath.Join(dir, "ffmpeg.exe")
 			m.setProgress("กำลังดาวน์โหลด FFmpeg Stable (60 FPS GPU)...", 1, 0, 0)
 			if err := m.downloadAndExtractZipEntry(ctx, FFmpegWindowsStableURL, "/bin/ffmpeg.exe", dest, "กำลังดาวน์โหลด FFmpeg Stable (60 FPS GPU)..."); err != nil {
@@ -318,8 +321,49 @@ func (m *Manager) runInstall(ctx context.Context) {
 			m.setProgress("ติดตั้ง FFmpeg 60 FPS GPU สำเร็จ!", 100, 0, 0)
 			m.logger.Info("auto-installed stable ffmpeg.exe", "path", dest)
 			m.notifyReady()
-		} else {
-			m.setErr("กรุณาติดตั้ง ffmpeg ด้วยแพ็กเกจของ OS (macOS: brew install ffmpeg / Linux: sudo apt install ffmpeg)")
+		case "linux":
+			// Fast path if already running as root (System Service): try distro apt-get first (~5s!)
+			if os.Geteuid() == 0 {
+				if aptPath, aerr := exec.LookPath("apt-get"); aerr == nil {
+					m.setProgress("กำลังติดตั้ง FFmpeg ผ่าน apt...", 25, 0, 0)
+					_ = exec.CommandContext(ctx, aptPath, "update", "-qq").Run()
+					cmd := exec.CommandContext(ctx, aptPath, "install", "-y", "-qq", "ffmpeg")
+					cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+					if err := cmd.Run(); err == nil {
+						if _, ok := FindFFmpeg(); ok {
+							EnsureRuntimePath()
+							m.setProgress("ติดตั้ง FFmpeg 60 FPS GPU สำเร็จ!", 100, 0, 0)
+							m.notifyReady()
+							return
+						}
+					}
+				}
+			}
+			// Zero-root universal path: download official BtbN static Linux GPL FFmpeg (includes x11grab + VAAPI + NVENC + x264!)
+			ffURL := ""
+			switch runtime.GOARCH {
+			case "amd64":
+				ffURL = FFmpegLinuxAMD64URL
+			case "arm64":
+				ffURL = FFmpegLinuxARM64URL
+			}
+			if ffURL == "" {
+				m.setErr("กรุณาติดตั้ง ffmpeg ด้วยคำสั่ง: sudo apt install -y ffmpeg")
+				return
+			}
+			dest := filepath.Join(dir, "ffmpeg")
+			m.setProgress("กำลังดาวน์โหลด FFmpeg Linux (60 FPS GPU)...", 1, 0, 0)
+			if err := m.downloadAndExtractLinuxFFmpeg(ctx, ffURL, dest, "กำลังดาวน์โหลด FFmpeg Linux (60 FPS GPU)..."); err != nil {
+				m.logger.Warn("auto-install linux ffmpeg failed", "err", err)
+				m.setErr("ติดตั้ง FFmpeg อัตโนมัติไม่สำเร็จ (" + err.Error() + ") — หรือรัน: sudo apt install -y ffmpeg")
+				return
+			}
+			EnsureRuntimePath()
+			m.setProgress("ติดตั้ง FFmpeg 60 FPS GPU สำเร็จ!", 100, 0, 0)
+			m.logger.Info("auto-installed static linux ffmpeg", "path", dest)
+			m.notifyReady()
+		default:
+			m.setErr("กรุณาติดตั้ง ffmpeg ด้วยแพ็กเกจของ OS (macOS: brew install ffmpeg)")
 		}
 	}
 }
@@ -517,6 +561,90 @@ func (m *Manager) downloadAndExtractZipEntry(ctx context.Context, url, entrySuff
 		return err
 	}
 	m.setProgress("ติดตั้ง "+filepath.Base(destPath)+" สำเร็จ!", 100, downloaded, total)
+	return nil
+}
+
+func (m *Manager) downloadAndExtractLinuxFFmpeg(ctx context.Context, rawURL, destPath, stageLabel string) error {
+	client := &http.Client{Timeout: 10 * time.Minute}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "APN-Bootstrap/1.3")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	tmpArc := destPath + ".tar.xz"
+	defer os.Remove(tmpArc)
+
+	outFile, err := os.OpenFile(tmpArc, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	total := resp.ContentLength
+	var downloaded int64
+	buf := make([]byte, 64*1024)
+	lastUI := time.Now()
+	for {
+		n, rerr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := outFile.Write(buf[:n]); werr != nil {
+				_ = outFile.Close()
+				return werr
+			}
+			downloaded += int64(n)
+			if time.Since(lastUI) >= 150*time.Millisecond {
+				lastUI = time.Now()
+				pct := 10
+				if total > 0 {
+					pct = int(downloaded * 90 / total)
+				}
+				m.setProgress(stageLabel, pct, downloaded, total)
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			_ = outFile.Close()
+			return rerr
+		}
+	}
+	if err := outFile.Close(); err != nil {
+		return err
+	}
+
+	m.setProgress("กำลังแตกไฟล์ ffmpeg...", 94, downloaded, total)
+	tmpDir := destPath + ".extract"
+	_ = os.RemoveAll(tmpDir)
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cmd := exec.CommandContext(ctx, "tar", "-xJf", tmpArc, "--wildcards", "--strip-components=2", "-C", tmpDir, "*/bin/ffmpeg")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("แตกไฟล์ tar.xz ไม่สำเร็จ: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+	extracted := filepath.Join(tmpDir, "ffmpeg")
+	if _, err := os.Stat(extracted); err != nil {
+		return errors.New("ไม่พบไบนารี ffmpeg หลังแตกไฟล์")
+	}
+	_ = os.Chmod(extracted, 0o755)
+	if err := os.Rename(extracted, destPath); err != nil {
+		if err2 := copyFileBestEffort(extracted, destPath); err2 != nil {
+			return err2
+		}
+		_ = os.Chmod(destPath, 0o755)
+	}
+	m.setProgress("ติดตั้ง ffmpeg สำเร็จ!", 100, downloaded, total)
 	return nil
 }
 

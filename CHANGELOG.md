@@ -4,6 +4,12 @@
 
 ---
 
+## v1.3.1 (2026-11-24)
+- **แก้บั๊ก Linux กดโหลด 60FPS (FFmpeg) แล้วไม่ยอมติดตั้งอัตโนมัติ:**
+  - **เพิ่มตัวดาวน์โหลดและติดตั้ง FFmpeg อัตโนมัติบน Linux (`amd64` / `arm64`) แบบไม่ต้องใช้สิทธิ์ root (`internal/bootstrap/deps.go`):** หากเครื่องรันเป็น System Service (`root`) จะติดตั้งผ่าน `apt-get install -y ffmpeg` ให้ใน ~5 วินาที และหากรันเป็นผู้ใช้ปกติจะโหลดไบนารีสแตติกทางการของ `BtbN/FFmpeg-Builds` (รองรับ `x11grab` + `VAAPI` + `NVENC` + `x264`) มาแตกไว้ในโฟลเดอร์ APN ให้อัตโนมัติพร้อมแถบเปอร์เซ็นต์
+  - **แสดงข้อความแจ้งเตือน `deps.last_error` บนแถบซ้าย (`index.html`):** หากการติดตั้งคอมโพเนนต์ใดติดปัญหาจะเห็นสาเหตุทันที ไม่เงียบหาย
+  - **ปรับปรุงโครงสร้างไฟล์ `.deb` (`scripts/mkdeb/main.go`):** เพิ่ม `./`, `conffiles`, `md5sums`, `Homepage` และเปลี่ยน `Recommends` เป็น `Suggests` เพื่อแก้ปัญหา Ubuntu App Center ขึ้น error ตอนดับเบิลคลิก `.deb`
+
 ## v1.3.0 (2026-11-24)
 - **ระบบ OS System Service เต็มรูปแบบ (รีสตาร์ทแล้วติดเองก่อนล็อกอิน + รีโมตเข้าหน้าล็อกจอ + กดหน้าต่าง Admin/UAC ได้):**
   - **Windows System Service (`APNService` · Pure Go SCM, `CGO_ENABLED=0`):** ลงทะเบียนเป็น Windows Service (`LocalSystem`, Start Automatic, Auto-Restart on Failure) พร้อม Supervisor เปิด Worker สิทธิ์ `SYSTEM` เข้า Active Console Session (`WTSGetActiveConsoleSessionId` + `CreateProcessAsUserW`) ทำงานทันทีตั้งแต่เปิดเครื่องก่อนมีใครล็อกอิน ย้ายไฟล์ `peer.json` (ID 9 หลัก, รหัสผ่านถาวร, ประวัติเครื่อง) และ `ffmpeg`/`cloudflared` ไปยัง `C:\ProgramData\APN` ให้อัตโนมัติ

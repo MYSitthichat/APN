@@ -2183,6 +2183,7 @@
                 <div style="height:4px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin-top:6px">
                   <div style="height:100%;width:${Math.max(4, d.deps.progress || 0)}%;background:linear-gradient(90deg,var(--accent),var(--accent-2))"></div>
                 </div>` : ''}
+              ${d.deps?.last_error && !d.deps?.installing ? `<div class="err" style="font-size:0.7rem;margin-top:5px;line-height:1.35">${esc(d.deps.last_error)}</div>` : ''}
             </div>
 
             <div class="side-bottom">
