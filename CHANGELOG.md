@@ -4,6 +4,10 @@
 
 ---
 
+## v1.3.5 (2026-11-24)
+- **เลือกจับหน้าจอจริง (`seat0` / จอหลักเดียวกับ AnyDesk) ก่อน Virtual X11 Session (`xrdp`/`VNC`/`Chrome Remote Desktop`):**
+  - ปรับระบบจัดลำดับความสำคัญใน `internal/remote/x11_linux.go` ให้ให้คะแนนสูงสุดกับ Session ที่มี `XDG_SEAT=seat0` / `XDG_VTNR` (หรือ `Xorg` บน `vt`/`seat0`) และ Display หลัก (`:0`–`:4`) ก่อน Virtual Display หมายเลขสูง (`:10`, `:20`, `:99`) เช่น XFCE ของ xrdp/VNC/CRD (แต่ยังใช้เป็น fallback ได้หากเครื่องเป็น headless ไม่มีจอจริง)
+
 ## v1.3.4 (2026-11-24)
 - **แก้ปัญหา `HTTP 530` บนท่อข้ามเน็ต 443 (`trycloudflare.com`) ให้ซ่อมตัวเองอัตโนมัติ (Self-Healing Bridge):**
   - **ยกเลิกแคชค้าง 10 นาทีใน Cloudflare Worker (`rendezvous-worker.js`):** ให้ `/api/rendezvous/lookup/` และ `/register` อ่านข้อมูลสดจาก Cloudflare KV ทุกครั้ง (ลด TTL จาก 10 นาทีเหลือ 5 นาที) ไม่ให้ Worker Isolate อื่นส่ง URL `trycloudflare.com` เก่าที่ตายไปแล้วกลับมาเป็น `HTTP 530`

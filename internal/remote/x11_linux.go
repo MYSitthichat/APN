@@ -164,12 +164,17 @@ func discoverLinuxSessions() []linuxSessionEnv {
 				if cmdBytes, err := os.ReadFile(filepath.Join(pidDir, "cmdline")); err == nil && len(cmdBytes) > 0 {
 					disp, xauth := parseXorgCmdline(cmdBytes)
 					if disp != "" {
-						p := basePrio
+						p := basePrio + displayNumberPriority(disp)
 						if xauth != "" {
 							p += 30
 						}
 						if uid >= 1000 || strings.Contains(xauth, "/run/user/1") || strings.Contains(xauth, "/home/") {
 							p += 50
+						}
+						// Real physical console Xorg is always launched with vtN (e.g. vt2 / vt7) or -seat seat0!
+						cmdStr := string(bytes.ReplaceAll(cmdBytes, []byte{0}, []byte{' '}))
+						if strings.Contains(cmdStr, "seat0") || strings.Contains(cmdStr, " vt") {
+							p += 180
 						}
 						add(linuxSessionEnv{
 							Display:     disp,
@@ -214,9 +219,13 @@ func discoverLinuxSessions() []linuxSessionEnv {
 				}
 			}
 
-			prio := basePrio
+			prio := basePrio + displayNumberPriority(disp)
 			if uid >= 1000 {
 				prio += 80 // Logged-in interactive user ALWAYS beats login greeter (gdm/lightdm/sddm)!
+			}
+			// Physical console monitor (seat0 / VT) ALWAYS beats virtual headless sessions (xrdp/VNC/CRD :10/:20)!
+			if strings.EqualFold(envMap["XDG_SEAT"], "seat0") || envMap["XDG_VTNR"] != "" {
+				prio += 200
 			}
 			if xauth != "" {
 				prio += 20
@@ -244,9 +253,18 @@ func discoverLinuxSessions() []linuxSessionEnv {
 	// 3. Filesystem fallback: match all live /tmp/.X11-unix/X* sockets with all system Xauthority files
 	var displays []string
 	if matches, err := filepath.Glob("/tmp/.X11-unix/X*"); err == nil && len(matches) > 0 {
-		// Sort descending so :1 (Ubuntu user desktop) is preferred over :0 (GDM login screen) when both exist
+		// Prefer real physical displays (:1, :0, :2..:9) BEFORE virtual displays (:10, :20, :99)
 		sort.Slice(matches, func(i, j int) bool {
-			return displayNumFromSock(matches[i]) > displayNumFromSock(matches[j])
+			ni, nj := displayNumFromSock(matches[i]), displayNumFromSock(matches[j])
+			iPhys, jPhys := ni >= 0 && ni < 10, nj >= 0 && nj < 10
+			if iPhys != jPhys {
+				return iPhys
+			}
+			if iPhys {
+				// Among physical displays, prefer :1 (logged-in user desktop) over :0 (GDM greeter)
+				return ni > nj
+			}
+			return ni < nj
 		})
 		for _, m := range matches {
 			base := filepath.Base(m)
@@ -261,9 +279,9 @@ func discoverLinuxSessions() []linuxSessionEnv {
 
 	xauthFiles := discoverAllXAuthFiles()
 	for idx, disp := range displays {
-		dispBonus := 0
+		dispBonus := displayNumberPriority(disp)
 		if idx == 0 {
-			dispBonus = 5
+			dispBonus += 5
 		}
 		for _, xa := range xauthFiles {
 			p := 30 + dispBonus
@@ -320,7 +338,8 @@ func parseProcEnviron(data []byte) map[string]string {
 		k := string(entry[:idx])
 		switch k {
 		case "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE",
-			"XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "HOME":
+			"XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "HOME",
+			"XDG_SEAT", "XDG_VTNR":
 			m[k] = string(entry[idx+1:])
 		}
 	}
@@ -343,11 +362,19 @@ func parseXorgCmdline(data []byte) (display, xauth string) {
 			display = arg
 		}
 	}
-	// If Xorg used `-displayfd` without an explicit `:N` arg, try matching a live socket
+	// If Xorg used `-displayfd` without an explicit `:N` arg, match a real physical console socket (:0..:9) first
 	if display == "" && xauth != "" {
 		if matches, err := filepath.Glob("/tmp/.X11-unix/X*"); err == nil && len(matches) > 0 {
 			sort.Slice(matches, func(i, j int) bool {
-				return displayNumFromSock(matches[i]) > displayNumFromSock(matches[j])
+				ni, nj := displayNumFromSock(matches[i]), displayNumFromSock(matches[j])
+				iPhys, jPhys := ni >= 0 && ni < 10, nj >= 0 && nj < 10
+				if iPhys != jPhys {
+					return iPhys
+				}
+				if iPhys {
+					return ni > nj
+				}
+				return ni < nj
 			})
 			base := filepath.Base(matches[0])
 			if strings.HasPrefix(base, "X") && len(base) > 1 {
@@ -368,6 +395,30 @@ func displayNumFromSock(path string) int {
 		return -1
 	}
 	return n
+}
+
+// displayNumberPriority strongly prefers physical console displays (:0..:4) over
+// virtual/headless remote sessions like xrdp (:10), Chrome Remote Desktop (:20), or Xvfb (:99).
+func displayNumberPriority(disp string) int {
+	s := strings.TrimSpace(disp)
+	if !strings.HasPrefix(s, ":") {
+		return 0
+	}
+	s = s[1:]
+	if dot := strings.IndexByte(s, '.'); dot >= 0 {
+		s = s[:dot]
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0
+	}
+	if n <= 4 {
+		return 80
+	}
+	if n < 10 {
+		return 20
+	}
+	return -140
 }
 
 func findXAuthForUser(uid uint32, home string) string {
