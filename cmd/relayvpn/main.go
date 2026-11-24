@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -318,13 +322,25 @@ func runPeer(args []string, logger *slog.Logger) error {
 		updater.CleanupOldBinary()
 	}
 
-	// Single-instance check: if APN is already running in the System Tray on UIAddr,
-	// simply bring up the APN App Window and exit cleanly instead of binding twice!
-	if cfg.UIAddr != "" && isAlreadyRunning(cfg.UIAddr) {
-		if *openBrowser {
-			tray.OpenAppWindow("http://" + cfg.UIAddr)
+	// Single-instance check: verify whether an ACTUAL APN instance (not HiveMQ/Tomcat/other web app
+	// sharing port 8080!) is already running on cfg.UIAddr or APN's fallback port range.
+	if cfg.UIAddr != "" {
+		if existingAddr := findRunningAPNAddr(cfg.UIAddr); existingAddr != "" {
+			if *openBrowser {
+				tray.OpenAppWindow("http://" + existingAddr)
+			}
+			return nil
 		}
-		return nil
+		// Ensure cfg.UIAddr is actually free to bind; if another app (e.g. HiveMQ on :8080) occupies it,
+		// automatically pick a clean free port in APN's dedicated 18480-18499 range!
+		resolvedAddr, err := resolveFreeUIAddr(cfg.UIAddr)
+		if err != nil {
+			return fmt.Errorf("failed to find free local UI port: %w", err)
+		}
+		if resolvedAddr != cfg.UIAddr {
+			logger.Info("configured UI port is occupied by another app, switching APN UI port", "from", cfg.UIAddr, "to", resolvedAddr)
+			cfg.UIAddr = resolvedAddr
+		}
 	}
 
 	node, err := p2p.NewNode(cfg, logger)
@@ -461,8 +477,75 @@ func isAlreadyRunning(uiAddr string) bool {
 	if err != nil {
 		return false
 	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if !strings.Contains(ct, "application/json") {
+		return false
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return false
+	}
+	var payload struct {
+		Mode    string `json:"mode"`
+		Version string `json:"version"`
+		Data    struct {
+			DeviceID string `json:"device_id"`
+			PeerID   string `json:"peer_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	return payload.Mode == "peer" && payload.Version != "" && (payload.Data.DeviceID != "" || payload.Data.PeerID != "")
+}
+
+func apnCandidateUIAddrs(preferred string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(a string) {
+		a = strings.TrimSpace(a)
+		if a != "" && !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	add(preferred)
+	for p := 18480; p <= 18499; p++ {
+		add("127.0.0.1:" + strconv.Itoa(p))
+	}
+	return out
+}
+
+func findRunningAPNAddr(preferred string) string {
+	for _, addr := range apnCandidateUIAddrs(preferred) {
+		if isAlreadyRunning(addr) {
+			return addr
+		}
+	}
+	return ""
+}
+
+func resolveFreeUIAddr(preferred string) (string, error) {
+	for _, addr := range apnCandidateUIAddrs(preferred) {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			actual := ln.Addr().String()
+			_ = ln.Close()
+			return actual, nil
+		}
+	}
+	// Ultimate fallback: let OS assign an unused loopback port
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	actual := ln.Addr().String()
+	_ = ln.Close()
+	return actual, nil
 }
 
 func copyToClipboard(text string) {
