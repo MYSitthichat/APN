@@ -3256,24 +3256,43 @@
           }
           return;
         }
-        // 4) Seamless Ctrl+V: sync local screenshot image or text into remote PC clipboard & paste!
-        if (e.code === 'KeyV' && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        // 4) Seamless Ctrl+V (and Ctrl+Shift+V for Linux Terminal!):
+        //    - Ctrl+V: sync local clipboard into remote PC & paste with Ctrl+V
+        //    - Ctrl+Shift+V: sync local clipboard into remote PC (auto_paste=false), then send Ctrl+Shift+V!
+        if (e.code === 'KeyV' && e.ctrlKey && !e.altKey && !e.metaKey) {
           if (!e.repeat) {
             swallowedLangCode = 'KeyV';
-            if (heldCodes.has('ControlLeft')) {
-              sendInput({ type: 'key_up', code: 'ControlLeft' });
-              heldCodes.delete('ControlLeft');
+            if (e.shiftKey) {
+              for (const mod of ['ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight']) {
+                if (heldCodes.has(mod)) {
+                  sendInput({ type: 'key_up', code: mod });
+                  heldCodes.delete(mod);
+                }
+              }
+              pasteClipboardToRemote(false, false).finally(() => {
+                sendInput({ type: 'key_down', key: 'Control', code: 'ControlLeft', ctrl: true });
+                sendInput({ type: 'key_down', key: 'Shift', code: 'ShiftLeft', ctrl: true, shift: true });
+                sendInput({ type: 'key_down', key: 'V', code: 'KeyV', ctrl: true, shift: true });
+                sendInput({ type: 'key_up', key: 'V', code: 'KeyV', ctrl: true, shift: true });
+                sendInput({ type: 'key_up', key: 'Shift', code: 'ShiftLeft', ctrl: true });
+                sendInput({ type: 'key_up', key: 'Control', code: 'ControlLeft' });
+              });
+            } else {
+              if (heldCodes.has('ControlLeft')) {
+                sendInput({ type: 'key_up', code: 'ControlLeft' });
+                heldCodes.delete('ControlLeft');
+              }
+              if (heldCodes.has('ControlRight')) {
+                sendInput({ type: 'key_up', code: 'ControlRight' });
+                heldCodes.delete('ControlRight');
+              }
+              pasteClipboardToRemote(true, true);
             }
-            if (heldCodes.has('ControlRight')) {
-              sendInput({ type: 'key_up', code: 'ControlRight' });
-              heldCodes.delete('ControlRight');
-            }
-            pasteClipboardToRemote(true, true);
           }
           return;
         }
-        // 5) Seamless Ctrl+C: let remote PC copy, then automatically pull its clipboard into our local PC!
-        if (e.code === 'KeyC' && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !e.repeat) {
+        // 5) Seamless Ctrl+C (and Ctrl+Shift+C for Linux Terminal!): let remote PC copy, then auto-pull into our local PC!
+        if (e.code === 'KeyC' && e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
           setTimeout(() => pullClipboardFromRemote(false), 180);
         }
         if (e.code) heldCodes.add(e.code);

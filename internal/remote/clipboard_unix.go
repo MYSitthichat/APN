@@ -41,7 +41,12 @@ func ReadClipboard() (byte, []byte, error) {
 		}
 	}
 
-	// Linux X11: xclip
+	// Linux X11: 100% pure-Go native X11 CLIPBOARD first (ZERO xclip/xsel dependency!)
+	if kind, data, err := x11ReadClipboard(); err == nil && len(data) > 0 {
+		return kind, data, nil
+	}
+
+	// Fallback: xclip
 	if hasCmd("xclip") {
 		tCmd := exec.Command("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o")
 		tCmd.Env = linuxCmdEnv()
@@ -104,7 +109,7 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		return nil
 	}
 
-	// Linux: wl-copy (Wayland) -> xclip (X11) -> xsel (text fallback)
+	// Linux: wl-copy (Wayland) -> pure-Go native X11 CLIPBOARD (zero deps!) -> xclip -> xsel
 	if isLinuxWayland() && hasCmd("wl-copy") {
 		args := []string{}
 		if isImage {
@@ -116,6 +121,9 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		cmd.Stdin = bytes.NewReader(data)
 		return cmd.Start()
 	}
+	if err := x11WriteClipboard(isImage, data); err == nil {
+		return nil
+	}
 	if hasCmd("xclip") {
 		args := []string{"-selection", "clipboard", "-i"}
 		if isImage {
@@ -124,7 +132,9 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		cmd := exec.Command("xclip", args...)
 		cmd.Env = linuxCmdEnv()
 		cmd.Stdin = bytes.NewReader(data)
-		return cmd.Start()
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		return cmd.Run()
 	}
 	if !isImage && hasCmd("xsel") {
 		cmd := exec.Command("xsel", "--clipboard", "--input")
@@ -132,5 +142,5 @@ func setUnixClipboard(isImage bool, data []byte) error {
 		cmd.Stdin = bytes.NewReader(data)
 		return cmd.Run()
 	}
-	return errors.New("กรุณาติดตั้ง xclip (sudo apt install xclip) บน Linux เพื่อซิงค์คลิปบอร์ด")
+	return errors.New("ไม่สามารถเขียนคลิปบอร์ดบน Linux ได้ (แนะนำติดตั้ง sudo apt install xclip)")
 }

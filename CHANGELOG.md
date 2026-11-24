@@ -4,6 +4,11 @@
 
 ---
 
+## v1.3.9 (2026-11-24)
+- **ซิงค์คลิปบอร์ด (Copy/Paste ข้ามเครื่อง) บน Linux ทำงานได้ทันทีโดยไม่ต้องติดตั้ง `xclip` + รองรับ `Ctrl+Shift+V` / `Ctrl+Shift+C` ใน Linux Terminal:**
+  - **Pure-Go X11 Clipboard (`internal/remote/x11_clipboard_linux.go`):** อ่านและเขียน X11 `CLIPBOARD` (ทั้งข้อความ UTF-8 และรูปภาพ PNG) ตรงผ่าน `xgb` โดยไม่ต้องพึ่ง `xclip` หรือ `xsel` บนเครื่อง Linux อีกต่อไป (และแก้ `xclip` fallback ให้รอจนเขียนเสร็จสมบูรณ์ก่อนวาง)
+  - **รองรับ `Ctrl+Shift+V` และ `Ctrl+Shift+C` ในหน้าต่างรีโมต (`index.html`):** กดวาง/คัดลอกคำสั่งใน Ubuntu Terminal ข้ามเครื่อง Windows ↔ Linux ได้ทันที
+
 ## v1.3.8 (2026-11-24)
 - **เพิ่ม Self-Hosted Rendezvous Directory Server ในตัว (`apn rdv-server`):**
   - **สมุดหน้าเหลืองความเร็วสูงแบบ 64-Shard In-Memory (`internal/rendezvous/server.go`):** แทนที่ Cloudflare KV ได้ 100% โดยไม่ติดโควต้า 1,000 writes/วัน รองรับระดับ 100,000+ เครื่องบนเน็ต 350 Mbps (กิน RAM ~300 MB) พร้อมแคช `/api/releases/latest` จาก GitHub CDN
