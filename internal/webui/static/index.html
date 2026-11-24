@@ -1487,6 +1487,111 @@
       font-size: 0.78rem;
       padding: 0 20px 28px;
     }
+
+    /* Centered Theme-Aware App Dialog (Replaces Native Browser confirm/prompt/alert) */
+    .apn-dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 2500;
+      background: rgba(2, 6, 23, 0.56);
+      backdrop-filter: blur(7px);
+      -webkit-backdrop-filter: blur(7px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .apn-dialog-backdrop.open {
+      display: flex;
+    }
+    @keyframes apnDialogPop {
+      from { opacity: 0; transform: translateY(8px) scale(0.95); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .apn-dialog-card {
+      width: min(440px, 94vw);
+      background: var(--surface-solid);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      border-radius: 18px;
+      padding: 22px 22px 18px;
+      box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.55), var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      animation: apnDialogPop 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .apn-dialog-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 13px;
+    }
+    .apn-dialog-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      flex-shrink: 0;
+      background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+    }
+    .apn-dialog-card.tone-danger .apn-dialog-icon {
+      background: color-mix(in srgb, var(--danger) 16%, var(--surface-2));
+      border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    }
+    .apn-dialog-card.tone-warn .apn-dialog-icon {
+      background: color-mix(in srgb, var(--warn) 16%, var(--surface-2));
+      border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+    }
+    .apn-dialog-card.tone-ok .apn-dialog-icon {
+      background: color-mix(in srgb, var(--ok) 16%, var(--surface-2));
+      border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+    }
+    .apn-dialog-title {
+      font-size: 1.02rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.3;
+      margin: 2px 0 0;
+    }
+    .apn-dialog-msg {
+      margin-top: 6px;
+      font-size: 0.85rem;
+      line-height: 1.58;
+      color: var(--text-soft);
+      white-space: pre-line;
+      word-break: break-word;
+    }
+    .apn-dialog-input {
+      width: 100%;
+      padding: 10px 13px;
+      border-radius: 11px;
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      font-size: 0.9rem;
+    }
+    .apn-dialog-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .apn-dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .apn-dialog-actions button {
+      padding: 9px 16px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      border-radius: 10px;
+      min-width: 86px;
+    }
   </style>
 </head>
 <body>
@@ -1559,6 +1664,24 @@
 
   <footer id="appFooter">APN Remote &amp; VPN · TLS 1.3 End-to-End Encrypted</footer>
   <div id="toast" class="toast"></div>
+
+  <!-- Centered Theme-Aware App Dialog -->
+  <div id="apnDialogBackdrop" class="apn-dialog-backdrop" onclick="if(event.target===this)resolveApnDialog(null)">
+    <div id="apnDialogCard" class="apn-dialog-card" role="dialog" aria-modal="true" aria-labelledby="apnDialogTitle">
+      <div class="apn-dialog-head">
+        <div id="apnDialogIcon" class="apn-dialog-icon">✨</div>
+        <div style="min-width:0;flex:1">
+          <div id="apnDialogTitle" class="apn-dialog-title">ยืนยัน</div>
+          <div id="apnDialogMsg" class="apn-dialog-msg"></div>
+        </div>
+      </div>
+      <input id="apnDialogInput" class="apn-dialog-input" type="text" style="display:none" autocomplete="off" />
+      <div class="apn-dialog-actions">
+        <button id="apnDialogCancel" type="button" class="secondary" onclick="resolveApnDialog(null)">ยกเลิก</button>
+        <button id="apnDialogOk" type="button" onclick="confirmApnDialog()">ตกลง</button>
+      </div>
+    </div>
+  </div>
   <div id="updateOverlay" style="display:none;position:fixed;inset:0;z-index:2000;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);align-items:center;justify-content:center;padding:20px">
     <div style="max-width:420px;width:100%;background:var(--surface-solid);border:1px solid var(--accent);border-radius:16px;padding:24px;text-align:center;box-shadow:var(--shadow);color:var(--text)">
       <div style="font-size:2rem;margin-bottom:8px">⚡</div>
@@ -1811,6 +1934,99 @@
     let peerSearch = '';
     let lastPeerData = null;
     let toastTimer = null;
+
+    // ---- Centered Theme-Aware App Dialog (apnConfirm / apnPrompt / apnAlert) ----
+    let apnDialogResolver = null;
+    let apnDialogMode = 'confirm';
+
+    function openApnDialog(opts) {
+      return new Promise((resolve) => {
+        if (apnDialogResolver) {
+          const prev = apnDialogResolver;
+          apnDialogResolver = null;
+          prev(apnDialogMode === 'prompt' ? null : false);
+        }
+        apnDialogResolver = resolve;
+        apnDialogMode = opts.mode || 'confirm';
+
+        const backdrop = document.getElementById('apnDialogBackdrop');
+        const card = document.getElementById('apnDialogCard');
+        const iconEl = document.getElementById('apnDialogIcon');
+        const titleEl = document.getElementById('apnDialogTitle');
+        const msgEl = document.getElementById('apnDialogMsg');
+        const inputEl = document.getElementById('apnDialogInput');
+        const cancelBtn = document.getElementById('apnDialogCancel');
+        const okBtn = document.getElementById('apnDialogOk');
+
+        card.className = 'apn-dialog-card' + (opts.tone ? ` tone-${opts.tone}` : '');
+        iconEl.textContent = opts.icon || (opts.tone === 'danger' ? '🗑' : '✨');
+        titleEl.textContent = opts.title || 'ยืนยันการทำงาน';
+        msgEl.textContent = opts.message || '';
+        msgEl.style.display = opts.message ? 'block' : 'none';
+
+        okBtn.textContent = opts.okText || 'ตกลง';
+        okBtn.className = opts.tone === 'danger' ? 'danger' : (opts.tone === 'ok' ? 'success' : '');
+        cancelBtn.textContent = opts.cancelText || 'ยกเลิก';
+        cancelBtn.style.display = apnDialogMode === 'alert' ? 'none' : 'inline-flex';
+
+        if (apnDialogMode === 'prompt') {
+          inputEl.style.display = 'block';
+          inputEl.value = opts.defaultValue || '';
+          inputEl.placeholder = opts.placeholder || '';
+        } else {
+          inputEl.style.display = 'none';
+          inputEl.value = '';
+        }
+
+        backdrop.classList.add('open');
+        setTimeout(() => {
+          if (apnDialogMode === 'prompt') {
+            inputEl.focus();
+            inputEl.select();
+          } else {
+            okBtn.focus();
+          }
+        }, 25);
+      });
+    }
+
+    window.resolveApnDialog = (val) => {
+      const backdrop = document.getElementById('apnDialogBackdrop');
+      if (backdrop) backdrop.classList.remove('open');
+      const fn = apnDialogResolver;
+      apnDialogResolver = null;
+      if (!fn) return;
+      if (apnDialogMode === 'prompt') fn(val);
+      else if (apnDialogMode === 'alert') fn();
+      else fn(!!val);
+    };
+
+    window.confirmApnDialog = () => {
+      if (apnDialogMode === 'prompt') {
+        resolveApnDialog(document.getElementById('apnDialogInput')?.value ?? '');
+      } else {
+        resolveApnDialog(true);
+      }
+    };
+
+    window.apnConfirm = (opts) => openApnDialog({ mode: 'confirm', ...opts });
+    window.apnPrompt = (opts) => openApnDialog({ mode: 'prompt', ...opts });
+    window.apnAlert = (opts) => openApnDialog({ mode: 'alert', ...opts });
+
+    document.addEventListener('keydown', (e) => {
+      const backdrop = document.getElementById('apnDialogBackdrop');
+      if (!backdrop || !backdrop.classList.contains('open')) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        resolveApnDialog(null);
+      } else if (e.key === 'Enter') {
+        if (document.activeElement === document.getElementById('apnDialogCancel')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        confirmApnDialog();
+      }
+    }, true);
 
     window.toggleSettingsDrawer = (open, focusId = '') => {
       const el = document.getElementById('settingsDrawer');
@@ -4125,7 +4341,13 @@
     };
 
     window.createLocalFolder = async () => {
-      const name = prompt('ตั้งชื่อโฟลเดอร์ใหม่บนเครื่องนี้:');
+      const name = await apnPrompt({
+        icon: '📁',
+        title: 'สร้างโฟลเดอร์ใหม่ (เครื่องนี้)',
+        message: 'ระบุชื่อโฟลเดอร์ที่ต้องการสร้างในตำแหน่งปัจจุบัน',
+        placeholder: 'เช่น NewFolder',
+        okText: 'สร้างโฟลเดอร์'
+      });
       if (!name || !name.trim()) return;
       try {
         await api('/api/local/files/mkdir', { method: 'POST', body: JSON.stringify({ path: localCurrentPath, name: name.trim() }) });
@@ -4135,7 +4357,14 @@
     };
 
     window.deleteLocalFile = async (targetPath, name) => {
-      if (!confirm(`ต้องการลบ "${name}" บนเครื่องนี้ใช่หรือไม่?`)) return;
+      const ok = await apnConfirm({
+        icon: '🗑',
+        tone: 'danger',
+        title: 'ลบไฟล์บนเครื่องนี้?',
+        message: `ต้องการลบ "${name}" ออกจากเครื่องนี้ใช่หรือไม่? (ไม่สามารถกู้คืนได้)`,
+        okText: 'ลบเลย'
+      });
+      if (!ok) return;
       try {
         await api('/api/local/files/delete', { method: 'POST', body: JSON.stringify({ path: targetPath }) });
         showToast(`🗑 ลบ ${name} แล้ว`);
@@ -4144,7 +4373,13 @@
     };
 
     window.createRemoteFolder = async () => {
-      const name = prompt('ตั้งชื่อโฟลเดอร์ใหม่บนเครื่องปลายทาง:');
+      const name = await apnPrompt({
+        icon: '📁',
+        title: 'สร้างโฟลเดอร์ใหม่ (ปลายทาง)',
+        message: `ระบุชื่อโฟลเดอร์ใหม่บน ${filesPeerName || 'เครื่องปลายทาง'}`,
+        placeholder: 'เช่น NewFolder',
+        okText: 'สร้างโฟลเดอร์'
+      });
       if (!name || !name.trim()) return;
       try {
         await api('/api/peer/files/mkdir', {
@@ -4157,7 +4392,14 @@
     };
 
     window.deleteRemoteFile = async (targetPath, name) => {
-      if (!confirm(`ต้องการลบ "${name}" บนเครื่องปลายทางใช่หรือไม่?`)) return;
+      const ok = await apnConfirm({
+        icon: '🗑',
+        tone: 'danger',
+        title: 'ลบไฟล์บนเครื่องปลายทาง?',
+        message: `ต้องการลบ "${name}" บน ${filesPeerName || 'เครื่องปลายทาง'} ใช่หรือไม่? (ไม่สามารถกู้คืนได้)`,
+        okText: 'ลบเลย'
+      });
+      if (!ok) return;
       try {
         await api('/api/peer/files/delete', {
           method: 'POST',
@@ -4304,7 +4546,14 @@
       } catch (err) { showToast('⚠ ' + err.message); }
     };
     window.peerUninstallApp = async () => {
-      if (!confirm('ถอนการติดตั้ง APN และลบ Shortcut / Auto-Start ใช่หรือไม่? (ประวัติเครื่องจะยังคงเก็บไว้)')) return;
+      const ok = await apnConfirm({
+        icon: '⚠️',
+        tone: 'danger',
+        title: 'ถอนการติดตั้ง APN?',
+        message: 'ระบบจะลบ Shortcut และ Auto-Start ออกจากเครื่องนี้ (ประวัติเครื่องและรหัส ID ของคุณจะยังคงเก็บไว้)',
+        okText: 'ถอนการติดตั้ง'
+      });
+      if (!ok) return;
       try {
         await api('/api/peer/uninstall', { method: 'POST' });
         showToast('✓ ถอนการติดตั้ง APN แล้ว');
@@ -4441,7 +4690,14 @@
       } catch {}
     };
     window.peerRenameSaved = async (deviceId, currentName) => {
-      const next = prompt('ตั้งชื่อเครื่องสำหรับแสดงในประวัติ:', currentName || '');
+      const next = await apnPrompt({
+        icon: '✏️',
+        title: 'เปลี่ยนชื่อเครื่องในประวัติ',
+        message: 'ตั้งชื่อเรียกที่จำง่ายสำหรับแสดงบนการ์ดเครื่องนี้',
+        defaultValue: currentName || '',
+        placeholder: 'เช่น Server ออฟฟิศ, PC ห้องทำงาน',
+        okText: 'บันทึกชื่อ'
+      });
       if (!next || !next.trim()) return;
       try {
         await api(`/api/peer/saved/${encodeURIComponent(deviceId)}/rename`, {
@@ -4460,7 +4716,14 @@
       } catch (err) { showToast('⚠ ' + err.message); }
     };
     window.peerDeleteSaved = async (deviceId) => {
-      if (!confirm('ลบเครื่องนี้ออกจากประวัติใช่หรือไม่?')) return;
+      const ok = await apnConfirm({
+        icon: '🗑',
+        tone: 'danger',
+        title: 'ลบเครื่องนี้ออกจากประวัติ?',
+        message: 'ระบบจะลบการ์ดเครื่องนี้และรหัสผ่านที่จำไว้สำหรับเครื่องนี้ออก',
+        okText: 'ลบเลย'
+      });
+      if (!ok) return;
       try {
         await api(`/api/peer/saved/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
         showToast('🗑 ลบออกจากประวัติแล้ว');
@@ -4491,7 +4754,14 @@
       } catch (err) { errEl.textContent = err.message; }
     };
     window.peerInstallService = async () => {
-      if (!confirm('ติดตั้ง APN เป็น System Service ใช่ไหม?\n\n• ทำงานอัตโนมัติตั้งแต่เปิดเครื่อง (ก่อนล็อกอินเข้า Windows/Linux)\n• รีโมตเข้าไปกรอกรหัสล็อกอิน Windows + กดหน้าต่าง Admin/UAC ได้\n• ย้ายเลข ID 9 หลักและรหัสผ่านถาวรเดิมไปให้ครบอัตโนมัติ\n\n(Windows จะขึ้นหน้าต่าง UAC ขออนุญาต Administrator 1 ครั้ง)')) return;
+      const ok = await apnConfirm({
+        icon: '🛡',
+        tone: 'ok',
+        title: 'ติดตั้ง APN เป็น System Service?',
+        message: '• ทำงานอัตโนมัติตั้งแต่เปิดเครื่อง (ก่อนล็อกอินเข้า Windows/Linux)\n• รีโมตเข้าไปกรอกรหัสล็อกอิน Windows + กดหน้าต่าง Admin/UAC ได้\n• ย้ายเลข ID 9 หลักและรหัสผ่านถาวรเดิมไปให้ครบอัตโนมัติ\n\n(ระบบอาจขอสิทธิ์ Administrator / รหัสผ่าน 1 ครั้ง)',
+        okText: 'ติดตั้ง Service'
+      });
+      if (!ok) return;
       showToast('🛡 กำลังติดตั้ง APN System Service...');
       try {
         await api('/api/peer/service/install', { method: 'POST' });
@@ -4500,7 +4770,14 @@
       } catch (err) { showToast('⚠ ' + err.message); }
     };
     window.peerUninstallService = async () => {
-      if (!confirm('ต้องการถอนการติดตั้ง APN System Service ออกจากเครื่องนี้ใช่ไหม?')) return;
+      const ok = await apnConfirm({
+        icon: '🛡',
+        tone: 'danger',
+        title: 'ถอนการติดตั้ง APN System Service?',
+        message: 'ต้องการถอนการติดตั้ง APN System Service ออกจากเครื่องนี้ใช่หรือไม่? (หลังถอนจะไม่สามารถรีโมตก่อนล็อกอินได้)',
+        okText: 'ถอนการติดตั้ง'
+      });
+      if (!ok) return;
       try {
         await api('/api/peer/service/uninstall', { method: 'POST' });
         showToast('ถอนการติดตั้ง APN System Service แล้ว');
