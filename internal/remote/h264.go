@@ -33,6 +33,18 @@ var (
 // keyframeRestartCooldown limits how often a keyframe request may restart the encoder.
 const keyframeRestartCooldown = 1500 * time.Millisecond
 
+// keyframeInterval is how often every encoder emits a keyframe, in real time. It is forced by
+// timestamp (not by frame count, -g): WGC passes frames through only when the screen changes,
+// so a frame-count GOP could go tens of seconds without a keyframe.
+const keyframeInterval = 2 * time.Second
+
+// keyframeWaitGrace is how long a keyframe request (viewer decoder reset, dropped frames) waits
+// for the next periodic keyframe before the encoder is restarted to force one. Restarting FFmpeg
+// freezes the picture and, on some PCs, makes WGC stall; the periodic keyframe arrives within
+// keyframeInterval whenever the screen is changing. A still screen sends no frames at all, so
+// there the restart after the grace period is invisible.
+const keyframeWaitGrace = keyframeInterval + 300*time.Millisecond
+
 // videoStreamEndedError reports that a working encoder delivered frames and then FFmpeg stopped
 // on its own (resolution change, display sleep, lock screen, GPU reset). The caller restarts
 // video instead of treating the encoder as unsupported.
@@ -611,9 +623,10 @@ func streamVideoFFmpeg(
 			}
 		}()
 
-		// A fresh keyframe is produced by restarting the same encoder (new IDR in ~0.1-0.3s).
+		// A keyframe request is met by the next periodic keyframe (keyframeInterval); only when none
+		// comes within keyframeWaitGrace is the same encoder restarted, which opens with an IDR.
 		// Replaying an old stored keyframe would jump the picture back in time and smear later
-		// delta frames, and WGC passthrough can go tens of seconds without a natural keyframe.
+		// delta frames.
 		launchedAt := time.Now()
 		var (
 			sendErr      error
@@ -623,14 +636,15 @@ func streamVideoFFmpeg(
 			restartC     <-chan time.Time
 		)
 		requestRestart := func() {
-			if wait := keyframeRestartCooldown - time.Since(launchedAt); wait > 0 {
-				if restartC == nil {
-					restartTimer = time.NewTimer(wait)
-					restartC = restartTimer.C
-				}
-				return
+			if restartC != nil {
+				return // already waiting for a keyframe
 			}
-			restart = true
+			wait := keyframeWaitGrace
+			if c := keyframeRestartCooldown - time.Since(launchedAt); c > wait {
+				wait = c
+			}
+			restartTimer = time.NewTimer(wait)
+			restartC = restartTimer.C
 		}
 		// The freshly launched encoder always opens with a keyframe, so requests queued while it started are already met.
 		select {
@@ -811,7 +825,10 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	}
 
 	// Zero-latency length-prefixed FLV / Enhanced-FLV output (supports both H.264 AVC & H.265 HEVC!)
-	outFlags := []string{"-flush_packets", "1", "-f", "flv", "pipe:1"}
+	outFlags := []string{
+		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%g)", keyframeInterval.Seconds()),
+		"-flush_packets", "1", "-f", "flv", "pipe:1",
+	}
 	filterThreads := runtime.NumCPU()
 	if filterThreads > 4 {
 		filterThreads = 4
@@ -1051,7 +1068,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 				args: makeUnix(nv12Filter, []string{"-c:v", "hevc_videotoolbox", "-realtime", "true", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}),
 			})
 		} else {
-			nvenc := []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0"}
+			nvenc := []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-forced-idr", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0"}
 			vaapi := []string{"-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}
 			list = append(list, linuxGPUCandidates("H.265 ", makeUnix, inLowLatency, inputArgs, outFlags, nv12Filter, needScale, outW, outH, nvenc, vaapi)...)
 		}
@@ -1064,7 +1081,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			args: makeUnix(nv12Filter, []string{"-c:v", "h264_videotoolbox", "-realtime", "true", "-profile:v", "baseline", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0"}),
 		})
 	} else {
-		nvenc := []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}
+		nvenc := []string{"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-zerolatency", "1", "-forced-idr", "1", "-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}
 		vaapi := []string{"-c:v", "h264_vaapi", "-profile:v", "constrained_baseline", "-rc_mode", "CBR", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0"}
 		list = append(list, linuxGPUCandidates("", makeUnix, inLowLatency, inputArgs, outFlags, nv12Filter, needScale, outW, outH, nvenc, vaapi)...)
 	}
