@@ -6,6 +6,7 @@ package remote
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"os"
 	"os/exec"
@@ -30,6 +31,48 @@ func xclipIn(t *testing.T, target string, data []byte) {
 		t.Fatalf("xclip -i -t %s: %v", target, err)
 	}
 	time.Sleep(300 * time.Millisecond) // let APN see SelectionClear
+}
+
+// TestX11ClipboardWatch checks the host-side change watcher: a copy by another application
+// (right-click -> Copy, here xclip) is reported; APN's own write (viewer -> host sync) is not,
+// so the two machines never ping-pong the same clipboard.
+func TestX11ClipboardWatch(t *testing.T) {
+	if os.Getenv("DISPLAY") == "" {
+		t.Skip("DISPLAY not set")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := WatchClipboardChanges(ctx)
+	time.Sleep(500 * time.Millisecond) // watcher connects and subscribes
+
+	expect := func(want bool, what string) {
+		t.Helper()
+		select {
+		case <-changes:
+			if !want {
+				t.Fatalf("%s: unexpected change event", what)
+			}
+		case <-time.After(1500 * time.Millisecond):
+			if want {
+				t.Fatalf("%s: no change event", what)
+			}
+		}
+		t.Logf("%s: OK (event=%v)", what, want)
+	}
+
+	xclipIn(t, "UTF8_STRING", []byte("copied on the Linux side"))
+	expect(true, "copy by another app")
+
+	if err := ApplyClipboardPayload(0, []byte("pushed from the viewer")); err != nil {
+		t.Fatal(err)
+	}
+	expect(false, "APN's own write")
+	if got := xclipOut(t, "UTF8_STRING"); string(got) != "pushed from the viewer" {
+		t.Fatalf("APN write not visible to apps: %q", got)
+	}
+
+	xclipIn(t, "UTF8_STRING", []byte("second copy"))
+	expect(true, "another copy after APN's write")
 }
 
 func TestX11ClipboardIntegration(t *testing.T) {

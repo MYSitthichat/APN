@@ -1340,6 +1340,9 @@
         <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer">
           <input type="checkbox" id="chkGraveSwitch" checked style="margin:0" /> กด ~ (ตัวหนอน) เพื่อเปลี่ยนภาษาปลายทาง
         </label>
+        <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer" title="คัดลอกที่เครื่องไหนก็วางอีกเครื่องได้ทันที รวมถึงคลิกขวา → Paste/Copy (ส่งเฉพาะตอนเนื้อหาเปลี่ยน)">
+          <input type="checkbox" id="chkClipSync" checked onchange="localStorage.setItem('apn_clip_autosync', this.checked ? '1' : '0')" style="margin:0" /> ซิงค์คลิปบอร์ดอัตโนมัติ (คลิกขวา Copy/Paste ได้)
+        </label>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'keyframe'}); toggleRemoteSettingsPop(false);">↻ รีเฟรชหน้าจอ</button>
@@ -2749,6 +2752,9 @@
             syncCanvasCursor();
             document.getElementById('screenMeta').textContent = `เชื่อมต่อสำเร็จ (${msg.width}×${msg.height})`;
             canvas.focus();
+            syncLocalClipboardToRemote(true);
+          } else if (msg.type === 'clipboard_changed') {
+            onRemoteClipboardChanged();
           } else if (msg.type === 'info') {
             if (msg.encoder) screenEncoderLabel = msg.encoder;
             if (msg.codec && document.getElementById('selCodec').value !== msg.codec) {
@@ -3074,6 +3080,44 @@
       return false;
     };
 
+    // ---- Automatic two-way clipboard sync (AnyDesk-style) ----
+    // Local -> remote: when this window gets focus, the mouse enters the remote screen or the user
+    // right-clicks it, the local clipboard is sent (no paste) if it changed, so right-click -> Paste
+    // on the remote machine works. Remote -> local: the host announces each copy (frame 0x09) and
+    // we pull it, so right-click -> Copy there is pasteable here. The backend dedupes by content.
+    function clipAutoSyncEnabled() {
+      const chk = document.getElementById('chkClipSync');
+      const saved = localStorage.getItem('apn_clip_autosync');
+      if (chk && saved !== null) chk.checked = saved === '1';
+      return lastMode === 'peer' && !!activeScreenTarget?.agentId && (chk ? chk.checked : saved !== '0');
+    }
+    let clipSyncInFlight = null;
+    let clipSyncLastAt = 0;
+    window.syncLocalClipboardToRemote = (force = false) => {
+      if (!clipAutoSyncEnabled()) return Promise.resolve(false);
+      const now = performance.now();
+      if (clipSyncInFlight) return clipSyncInFlight;
+      if (!force && now - clipSyncLastAt < 700) return Promise.resolve(false);
+      clipSyncLastAt = now;
+      clipSyncInFlight = api('/api/peer/clipboard/sync', {
+        method: 'POST',
+        body: JSON.stringify({ peer_id: activeScreenTarget.agentId })
+      }).then(res => !!res?.pushed).catch(() => false).finally(() => { clipSyncInFlight = null; });
+      return clipSyncInFlight;
+    };
+    let clipPullTimer = null;
+    function onRemoteClipboardChanged() {
+      if (!clipAutoSyncEnabled()) return;
+      if (clipPullTimer) clearTimeout(clipPullTimer);
+      clipPullTimer = setTimeout(() => { clipPullTimer = null; pullClipboardFromRemote(false); }, 150);
+    }
+    window.addEventListener('focus', () => {
+      if (document.getElementById('screenModal')?.classList.contains('open')) syncLocalClipboardToRemote(true);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && document.getElementById('screenModal')?.classList.contains('open')) syncLocalClipboardToRemote(true);
+    });
+
     window.pullClipboardFromRemote = async (notify = false) => {
       if (lastMode !== 'peer' || !activeScreenTarget?.agentId) return false;
       try {
@@ -3200,8 +3244,11 @@
           }
         }
       });
+      el.addEventListener('pointerenter', () => syncLocalClipboardToRemote());
       el.addEventListener('pointerdown', e => {
         el.focus();
+        // Right-click opens the remote context menu (Paste): make sure it has our clipboard.
+        if (e.button === 2) syncLocalClipboardToRemote(true);
         flushPendingMove();
         const p = normCoords(e);
         sendInput({ type: 'mouse_down', x: p.x, y: p.y, button: btnName(e.button) });

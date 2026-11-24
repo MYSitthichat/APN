@@ -414,6 +414,7 @@ func (n *Node) StartAutoDeps(ctx context.Context) bool {
 	if bootstrap.HasFFmpeg() {
 		remote.WarmupH264Encoder()
 	}
+	bootstrap.EnsureLinuxClipboardTools(ctx, n.logger)
 	if n.depsMgr == nil {
 		return false
 	}

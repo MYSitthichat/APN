@@ -83,7 +83,10 @@ func ApplyClipboardPayload(kind byte, data []byte) error {
 		return nil
 	}
 	isImage := kind == 1 || kind == 3
-	if err := setUnixClipboard(isImage, data); err != nil {
+	clipApplyMu.Lock()
+	err := setUnixClipboard(isImage, data)
+	clipApplyMu.Unlock()
+	if err != nil {
 		return err
 	}
 	if kind == 2 || kind == 3 {

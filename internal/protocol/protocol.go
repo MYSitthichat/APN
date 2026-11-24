@@ -39,6 +39,10 @@ const (
 	FrameTypeInfo      byte = 0x06 // Agent -> Client: UTF-8 JSON info/notice
 	FrameTypeClipboard byte = 0x07 // Client -> Agent: [kind:u8 (0=text,1=png,2=text+paste,3=png+paste)][data]
 	FrameTypeHEVC      byte = 0x08 // Agent -> Client: [seq:u32][w:u16][h:u16][flags:u8][annex-b hevc/h265]
+	// FrameTypeClipboardChanged (Agent -> Client, empty payload) tells the viewer that the host's
+	// clipboard changed (e.g. copied with right-click -> Copy), so it can pull it. Older viewers
+	// and bridges ignore unknown frame types.
+	FrameTypeClipboardChanged byte = 0x09
 
 	maxControlFrameBytes = 64 * 1024
 	maxBinaryFrameBytes  = 16 * 1024 * 1024 // 16 MiB max for lossless 4K initial frame

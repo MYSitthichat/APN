@@ -312,6 +312,34 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		_ = sendFrame(protocol.FrameTypeInfo, msg)
 	}
 
+	// Tell the viewer whenever the host clipboard changes (any copy, e.g. right-click -> Copy in a
+	// Linux terminal) so it pulls the content without waiting for Ctrl+C. Debounced, so a burst of
+	// selection changes costs one pull.
+	if opts.AllowInput {
+		go func() {
+			changes := WatchClipboardChanges(ctx)
+			if changes == nil {
+				return
+			}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-changes:
+				}
+				sleepCtx(ctx, 300*time.Millisecond)
+				select {
+				case <-changes:
+				default:
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				_ = sendFrame(protocol.FrameTypeClipboardChanged, nil)
+			}
+		}()
+	}
+
 	var seq atomic.Uint32
 	videoShortRuns := 0
 

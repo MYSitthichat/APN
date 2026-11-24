@@ -546,48 +546,51 @@ func Start(ctx context.Context, opts Options) error {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
-			st, _, err := opts.Peer.OpenPeerStream(r.Context(), strings.TrimSpace(body.PeerID), protocol.StreamOpenRequest{Mode: protocol.ModeClipboard})
-			if err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": friendlyClipboardErr(err)})
+			peerID := strings.TrimSpace(body.PeerID)
+			if status, msg := pushClipboardToPeer(r.Context(), opts.Peer, peerID, kind, data, body.AutoPaste); status != 0 {
+				writeJSON(w, status, map[string]string{"error": msg})
 				return
 			}
-			defer st.Close()
-			if err := protocol.WriteMessage(st, remote.ClipboardRequest{
-				Action:    "set",
-				Kind:      kind,
-				AutoPaste: body.AutoPaste,
-				Size:      int64(len(data)),
-			}); err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-				return
-			}
-			var ready remote.ClipboardResponse
-			if err := protocol.ReadMessage(st, &ready); err != nil || !ready.OK {
-				errMsg := "เครื่องปลายทางไม่พร้อมรับคลิปบอร์ด"
-				if err != nil {
-					errMsg = err.Error()
-				} else if ready.Error != "" {
-					errMsg = ready.Error
-				}
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": errMsg})
-				return
-			}
-			if _, err := st.Write(data); err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-				return
-			}
-			var done remote.ClipboardResponse
-			if err := protocol.ReadMessage(st, &done); err != nil || !done.OK {
-				errMsg := "วางคลิปบอร์ดที่เครื่องปลายทางไม่สำเร็จ"
-				if err != nil {
-					errMsg = err.Error()
-				} else if done.Error != "" {
-					errMsg = done.Error
-				}
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": errMsg})
-				return
-			}
+			clipSync.remember(peerID, kind, data)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kind": kind, "bytes": len(data)})
+		}))
+
+		// Automatic clipboard sync (viewer -> host): called when the remote window gets focus, the
+		// mouse enters the remote screen or the user right-clicks it. Sends the local clipboard
+		// without pasting, so right-click -> Paste on the remote machine has it, but only when it
+		// changed since this peer last got it (never echoes a pulled clipboard back).
+		mux.HandleFunc("POST /api/peer/clipboard/sync", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID string `json:"peer_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			peerID := strings.TrimSpace(body.PeerID)
+			seq := remote.ClipboardSeq()
+			if clipSync.unchangedSeq(peerID, seq) {
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pushed": false})
+				return
+			}
+			kind, data, err := remote.ReadClipboard()
+			if err != nil || len(data) == 0 || len(data) > 16*1024*1024 {
+				clipSync.rememberSeq(peerID, seq)
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pushed": false})
+				return
+			}
+			if clipSync.same(peerID, kind, data) {
+				clipSync.rememberSeq(peerID, seq)
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pushed": false})
+				return
+			}
+			if status, msg := pushClipboardToPeer(r.Context(), opts.Peer, peerID, kind, data, false); status != 0 {
+				writeJSON(w, status, map[string]string{"error": msg})
+				return
+			}
+			clipSync.remember(peerID, kind, data)
+			clipSync.rememberSeq(peerID, seq)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pushed": true, "kind": kind, "bytes": len(data)})
 		}))
 
 		mux.HandleFunc("POST /api/peer/clipboard/pull", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
@@ -624,10 +627,19 @@ func Start(ctx context.Context, opts Options) error {
 					return
 				}
 			}
+			peerID := strings.TrimSpace(body.PeerID)
+			if clipSync.same(peerID, hdr.Kind, data) && remote.ClipboardSeq() != 0 && clipSync.unchangedSeq(peerID, remote.ClipboardSeq()) {
+				// Already on this machine's clipboard (e.g. the echo of our own push).
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kind": hdr.Kind, "bytes": len(data), "unchanged": true})
+				return
+			}
 			if err := remote.ApplyClipboardPayload(hdr.Kind, data); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
+			// Remember it so the next focus sync does not push it straight back to the host.
+			clipSync.remember(peerID, hdr.Kind, data)
+			clipSync.rememberSeq(peerID, remote.ClipboardSeq())
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kind": hdr.Kind, "bytes": len(data)})
 		}))
 
@@ -1310,6 +1322,12 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 					return
 				}
 			}
+		case protocol.FrameTypeClipboardChanged:
+			select {
+			case outCh <- wsOutMsg{msgType: websocket.MessageText, data: []byte(`{"type":"clipboard_changed"}`)}:
+			case <-ctx.Done():
+				return
+			}
 		case protocol.FrameTypeError:
 			errMsg, _ := json.Marshal(map[string]any{"type": "error", "error": string(payload)})
 			select {
@@ -1521,6 +1539,93 @@ func copyWithProgress(dst io.Writer, src io.Reader, buf []byte) (int64, error) {
 			return total, rerr
 		}
 	}
+}
+
+// clipSyncState remembers, per remote peer, which clipboard content it already has, so automatic
+// sync sends only real changes and never bounces a pulled clipboard back to its host.
+type clipSyncState struct {
+	mu   sync.Mutex
+	hash map[string]string
+	seq  map[string]uint32
+}
+
+var clipSync = &clipSyncState{hash: map[string]string{}, seq: map[string]uint32{}}
+
+func (c *clipSyncState) remember(peerID string, kind byte, data []byte) {
+	h := remote.ClipboardHash(kind, data)
+	c.mu.Lock()
+	c.hash[peerID] = h
+	c.mu.Unlock()
+}
+
+func (c *clipSyncState) same(peerID string, kind byte, data []byte) bool {
+	h := remote.ClipboardHash(kind, data)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hash[peerID] == h
+}
+
+// rememberSeq/unchangedSeq use the OS clipboard sequence number (Windows) to skip reading the
+// clipboard at all when nothing was copied since the last sync. seq 0 means "not available".
+func (c *clipSyncState) rememberSeq(peerID string, seq uint32) {
+	if seq == 0 {
+		return
+	}
+	c.mu.Lock()
+	c.seq[peerID] = seq
+	c.mu.Unlock()
+}
+
+func (c *clipSyncState) unchangedSeq(peerID string, seq uint32) bool {
+	if seq == 0 {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	last, ok := c.seq[peerID]
+	return ok && last == seq
+}
+
+// pushClipboardToPeer sets the remote peer's clipboard over a ModeClipboard stream.
+// It returns 0 on success, otherwise an HTTP status and message.
+func pushClipboardToPeer(ctx context.Context, peer *p2p.Node, peerID string, kind byte, data []byte, autoPaste bool) (int, string) {
+	st, _, err := peer.OpenPeerStream(ctx, peerID, protocol.StreamOpenRequest{Mode: protocol.ModeClipboard})
+	if err != nil {
+		return http.StatusBadGateway, friendlyClipboardErr(err)
+	}
+	defer st.Close()
+	if err := protocol.WriteMessage(st, remote.ClipboardRequest{
+		Action:    "set",
+		Kind:      kind,
+		AutoPaste: autoPaste,
+		Size:      int64(len(data)),
+	}); err != nil {
+		return http.StatusBadGateway, err.Error()
+	}
+	var ready remote.ClipboardResponse
+	if err := protocol.ReadMessage(st, &ready); err != nil || !ready.OK {
+		errMsg := "เครื่องปลายทางไม่พร้อมรับคลิปบอร์ด"
+		if err != nil {
+			errMsg = err.Error()
+		} else if ready.Error != "" {
+			errMsg = ready.Error
+		}
+		return http.StatusBadGateway, errMsg
+	}
+	if _, err := st.Write(data); err != nil {
+		return http.StatusBadGateway, err.Error()
+	}
+	var done remote.ClipboardResponse
+	if err := protocol.ReadMessage(st, &done); err != nil || !done.OK {
+		errMsg := "วางคลิปบอร์ดที่เครื่องปลายทางไม่สำเร็จ"
+		if err != nil {
+			errMsg = err.Error()
+		} else if done.Error != "" {
+			errMsg = done.Error
+		}
+		return http.StatusBadGateway, errMsg
+	}
+	return 0, ""
 }
 
 func friendlyClipboardErr(err error) string {

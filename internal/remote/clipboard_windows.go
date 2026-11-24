@@ -134,14 +134,20 @@ func ApplyClipboardPayload(kind byte, data []byte) error {
 		return nil
 	}
 	var err error
+	clipApplyMu.Lock()
 	switch kind {
 	case 0, 2: // text, text+paste
 		err = setWinClipboardText(string(data))
 	case 1, 3: // image, image+paste
 		err = setWinClipboardImage(data)
 	default:
+		clipApplyMu.Unlock()
 		return nil
 	}
+	// Remember the sequence number of our own write so WatchClipboardChanges does not
+	// report it back to the viewer.
+	ownClipSeq = ClipboardSeq()
+	clipApplyMu.Unlock()
 	if err != nil {
 		return err
 	}
