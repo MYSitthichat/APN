@@ -27,6 +27,7 @@ import (
 	"relayvpn/internal/executil"
 	"relayvpn/internal/installer"
 	"relayvpn/internal/p2p"
+	"relayvpn/internal/rendezvous"
 	"relayvpn/internal/security"
 	"relayvpn/internal/server"
 	"relayvpn/internal/service"
@@ -71,6 +72,8 @@ func main() {
 		err = runClient(args, logger)
 	case "peer":
 		err = runPeer(args, logger)
+	case "rdv-server":
+		err = runRdvServer(args, logger)
 	case "service":
 		err = runService(args)
 	case "set-password":
@@ -730,11 +733,39 @@ func runSetPassword(args []string) error {
 	return nil
 }
 
+func runRdvServer(args []string, logger *slog.Logger) error {
+	defaultSnap := "./rdv-snapshot.json"
+	if runtime.GOOS == "linux" {
+		defaultSnap = "/var/lib/apn/rdv-snapshot.json"
+	}
+	fs := flag.NewFlagSet("rdv-server", flag.ExitOnError)
+	listen := fs.String("listen", "127.0.0.1:8787", "HTTP listen address (use 0.0.0.0:8787 for Docker/LAN)")
+	snapshot := fs.String("snapshot", defaultSnap, "Path to periodic disk snapshot JSON (empty disables)")
+	ttl := fs.Duration("ttl", 5*time.Minute, "Peer online entry TTL before expiry")
+	repo := fs.String("repo", "MYSitthichat/APN", "GitHub repo for /api/releases/latest")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv := rendezvous.NewServer(rendezvous.Options{
+		ListenAddr:   *listen,
+		SnapshotPath: *snapshot,
+		TTL:          *ttl,
+		GitHubRepo:   *repo,
+		Logger:       logger,
+	})
+	return srv.Run(ctx)
+}
+
 func printUsage() {
 	fmt.Println(`APN — Cross-Platform 60 FPS P2P Remote Desktop & Encrypted L3 VPN
 
 Usage:
   APN peer         [-open] [-tray] [-tray-icon] [-ui 127.0.0.1:18480]
+  APN rdv-server   [-listen 127.0.0.1:8787] [-snapshot /var/lib/apn/rdv-snapshot.json]
   APN service      <install|uninstall|run|status>  Install/manage OS System Service (runs before login)
   APN set-password <new-password>                  Set permanent password for this device (and restart service)
   APN install      Install APN with Desktop/Start Menu shortcuts & Login Auto-Start

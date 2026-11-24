@@ -1,0 +1,27 @@
+services:
+  apn-rdv:
+    build:
+      context: ../..
+      dockerfile: deploy/rdv-server/Dockerfile
+    container_name: apn-rdv
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - apn_rdv_data:/data
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+
+  # Optional: uncomment and set CLOUDFLARE_TUNNEL_TOKEN in .env to expose rdv.psms-center.com with ZERO port forwarding!
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: apn-rdv-tunnel
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - apn-rdv
+
+volumes:
+  apn_rdv_data:

@@ -4,6 +4,12 @@
 
 ---
 
+## v1.3.8 (2026-11-24)
+- **เพิ่ม Self-Hosted Rendezvous Directory Server ในตัว (`apn rdv-server`):**
+  - **สมุดหน้าเหลืองความเร็วสูงแบบ 64-Shard In-Memory (`internal/rendezvous/server.go`):** แทนที่ Cloudflare KV ได้ 100% โดยไม่ติดโควต้า 1,000 writes/วัน รองรับระดับ 100,000+ เครื่องบนเน็ต 350 Mbps (กิน RAM ~300 MB) พร้อมแคช `/api/releases/latest` จาก GitHub CDN
+  - **Zero-Gap Disk Snapshot:** บันทึกสถานะรายชื่อออนไลน์ลงไฟล์ JSON ทุก 30 วินาทีและตอนปิดเครื่อง โหลดกลับเข้า RAM อัตโนมัติเมื่อรีสตาร์ท
+  - **ไฟล์ติดตั้งพร้อมใช้สำหรับ Ubuntu (`deploy/rdv-server/`):** มีครบทั้ง `apn-rdv.service` (`systemd`), `Dockerfile`, `docker-compose.yml` และคู่มือเชื่อมโดเมน `rdv.psms-center.com` ผ่าน Cloudflare Named Tunnel ฟรี
+
 ## v1.3.7 (2026-11-24)
 - **แก้ Linux System Service รีสตาร์ทเครื่องแล้วเข้าไม่ได้ ("รหัสผ่านที่บันทึกไว้ไม่ตรงกับเครื่องปลายทาง"):**
   - **ซิงค์รหัสผ่านถาวร/ประวัติเครื่องจากแอปโหมดผู้ใช้เข้า Service อัตโนมัติ (`internal/service/service.go`):** ตอน Service เริ่มทำงาน จะดึง `permanent_password_hash`, ค่าขออนุมัติ และ `known_peers` จาก `~/.config/APN/peer.json` (หรือ `%APPDATA%\APN\peer.json` บน Windows) ที่บันทึกใหม่กว่า `/etc/apn/peer.json` ของเครื่องเดียวกัน — ไม่ทำรหัสผ่านที่ตั้งตอนแอปโหมดผู้ใช้ทำงานหายหลังรีบูตอีก และตอนติดตั้ง Service จะใช้รหัสผ่านจากแอปผู้ใช้เสมอ

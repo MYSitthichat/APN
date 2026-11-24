@@ -1,0 +1,14 @@
+[Unit]
+Description=APN Self-Hosted Rendezvous Directory Server (Sharded In-Memory)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/apn/apn rdv-server -listen 127.0.0.1:8787 -snapshot /var/lib/apn/rdv-snapshot.json -ttl 5m
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
