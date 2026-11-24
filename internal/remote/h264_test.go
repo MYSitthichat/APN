@@ -104,6 +104,9 @@ func TestH264CandidatesSanity(t *testing.T) {
 		if bytes.Contains([]byte(joined), []byte("annexb=1")) {
 			t.Errorf("FLV candidate %q must not force annexb=1 in x264-params", c.name)
 		}
+		if bytes.Contains([]byte(joined), []byte("gfxcapture")) && bytes.Contains([]byte(joined), []byte("-fps_mode cfr")) {
+			t.Errorf("WGC candidate %q must use -fps_mode passthrough (cfr causes burst duplicate stutter)", c.name)
+		}
 	}
 	if !isDDACaptureFailure("[Parsed_ddagrab_0] Desktop duplication access denied") {
 		t.Errorf("expected Desktop duplication error to trigger DDA skip")

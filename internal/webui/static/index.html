@@ -2445,38 +2445,21 @@
     function startVideoRenderLoop() {
       if (videoRAF) return;
       const tick = () => {
-        // Adaptive Low-Latency VSync Pacing:
-        // - Queue 1..2 frames: draw 1 frame cleanly per VSync tick (silky 60.0 FPS, absorbs 1-frame jitter).
-        // - Queue >= 3 frames: gently drop 1 stale frame so latency NEVER drifts above 16-33ms!
-        if (videoFrameQueue.length >= 3) {
-          try { videoFrameQueue.shift().close(); } catch {}
-        }
+        // Zero-Lag Latest-Frame VSync Render:
+        // Always draw the newest decoded VideoFrame directly onto Chromium's GPU-accelerated 2D canvas
+        // (preserves DWM Flip-Model VSync & never clears on VFR idle pauses, unlike WebGL preserveDrawingBuffer!).
         if (videoFrameQueue.length > 0) {
-          const frame = videoFrameQueue.shift();
+          const frame = videoFrameQueue.pop();
+          while (videoFrameQueue.length > 0) {
+            try { videoFrameQueue.shift().close(); } catch {}
+          }
           try {
-            // Make WebGL canvas visible BEFORE drawArrays so Frame #1 is NEVER lost to a hidden backbuffer!
-            if (glVideo && glVideo.ok()) {
-              ensureRenderSurface('gl');
-              if (glVideo.draw(frame)) {
-                screenFrames++;
-                screenTotalFrames++;
-                clearScreenFallbackTimers();
-              } else {
-                ensureRenderSurface('2d');
-                if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-                  canvas.width = frame.displayWidth;
-                  canvas.height = frame.displayHeight;
-                }
-                ctx2d.drawImage(frame, 0, 0);
-                screenFrames++;
-                screenTotalFrames++;
-                clearScreenFallbackTimers();
-              }
-            } else {
+            const w = frame.displayWidth, h = frame.displayHeight;
+            if (w > 0 && h > 0) {
               ensureRenderSurface('2d');
-              if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-                canvas.width = frame.displayWidth;
-                canvas.height = frame.displayHeight;
+              if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
               }
               ctx2d.drawImage(frame, 0, 0);
               screenFrames++;
@@ -2484,7 +2467,7 @@
               clearScreenFallbackTimers();
             }
           } catch {}
-          frame.close();
+          try { frame.close(); } catch {}
         }
         videoRAF = requestAnimationFrame(tick);
       };
@@ -2534,9 +2517,9 @@
         h264Decoder = new VideoDecoder({
           output: (frame) => {
             h264Errors = 0;
-            // 3-frame micro-jitter cushion absorbs 20-45ms Wi-Fi/WSS bursts smoothly without dropping or repeating frames,
-            // while bounding latency strictly to <= 33-50ms!
-            while (videoFrameQueue.length >= 4) {
+            // Latest-wins 1-frame latch: immediately drop any older unrendered frame so display latency
+            // stays pinned at 0-16ms with zero rubber-band queue buildup or burst replay stutter!
+            while (videoFrameQueue.length > 0) {
               try { videoFrameQueue.shift().close(); } catch {}
             }
             videoFrameQueue.push(frame);

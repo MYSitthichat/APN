@@ -522,8 +522,10 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 
 		// Tier 1: Windows Graphics Capture (WGC / gfxcapture — FFmpeg 9.1+, Windows 10/11):
 		// Captures directly from Windows DWM at 60 FPS across ALL GPUs (Optimus RTX A1000 laptops,
-		// multi-GPU workstations, Intel UHD/Iris, AMD, HDR & Parsec virtual displays) with GPU-side scaling
-		// and 5x lower idle CPU than ddagrab/gdigrab!
+		// multi-GPU workstations, Intel UHD/Iris, AMD, HDR & Parsec virtual displays) with GPU-side scaling!
+		// CRITICAL: Use `-fps_mode passthrough` (NEVER `-fps_mode cfr`, which retroactively dumps
+		// 20-90 stale duplicate frames in a burst after every brief idle pause -> 118 FPS stutter!),
+		// and prioritize 0-frame-buffer encoders (NVENC / x264 zerolatency) ahead of MF (which buffers 3-4 frames).
 		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=1:max_framerate=%s", fpsStr)
 		if needScale {
 			wgcSrc += fmt.Sprintf(":width=%d:height=%d:resize_mode=scale:scale_mode=bilinear", outW, outH)
@@ -532,18 +534,18 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		wgcYUV := wgcSrc + ",hwdownload,format=bgra,format=yuv420p"
 		makeWGC := func(filter string, encArgs []string) []string {
 			args := append([]string{}, inLowLatency...)
-			args = append(args, "-filter_complex", filter, "-fps_mode", "cfr", "-r", fpsStr)
+			args = append(args, "-filter_complex", filter, "-fps_mode", "passthrough")
 			args = append(args, encArgs...)
 			args = append(args, outFlags...)
 			return args
 		}
 		list = append(list,
+			encoderCandidate{name: "WGC + NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, nvencArgs)},
+			encoderCandidate{name: "WGC + x264 ZeroLatency", tier: "WGC", args: makeWGC(wgcYUV, x264Args)},
+			encoderCandidate{name: "WGC + AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, amfArgs)},
 			encoderCandidate{name: "WGC + Hardware GPU (MF LD-VBR)", tier: "WGC", args: makeWGC(wgcNV12, mfArgs)},
 			encoderCandidate{name: "WGC + Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, mfSafeArgs)},
 			encoderCandidate{name: "WGC + Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, qsvArgs)},
-			encoderCandidate{name: "WGC + AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, amfArgs)},
-			encoderCandidate{name: "WGC + NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, nvencArgs)},
-			encoderCandidate{name: "WGC + x264 ZeroLatency", tier: "WGC", args: makeWGC(wgcYUV, x264Args)},
 		)
 
 		// Tier 2: DXGI Desktop Duplication (ddagrab Adapter 0 with allow_fallback=1 for HDR/10-bit displays)
