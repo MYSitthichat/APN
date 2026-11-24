@@ -98,6 +98,11 @@ type PeerConfig struct {
 	AllowScreen           bool            `json:"allow_screen"`
 	AllowInput            bool            `json:"allow_input"`
 	AllowShell            bool            `json:"allow_shell"`
+	// AllowReverseAccess lets a device that THIS machine connected to open screen, shell, files,
+	// clipboard or TCP tunnels back on this machine. Off by default: otherwise connecting to a
+	// stranger's ID (e.g. a fake "support" request) handed them full control of this computer
+	// without knowing its password.
+	AllowReverseAccess bool `json:"allow_reverse_access,omitempty"`
 	EnableVPN             bool            `json:"enable_vpn"`
 	EnableBridge          bool            `json:"enable_bridge"`      // auto-start zero-VPS Port 443 Internet Bridge (cloudflared)
 	VPNIP                 string          `json:"vpn_ip,omitempty"`   // auto-derived 10.99.x.y if empty

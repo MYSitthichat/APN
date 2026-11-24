@@ -58,8 +58,24 @@ jobs:
           (cd release-dist && sha256sum APN-v* > SHA256SUMS.txt)
           ls -lh release-dist
 
-      - name: Extract Release Notes & Generate latest.json
+      # Releases are published (and latest.json signed with the offline release key) by
+      # scripts/release.ps1 / publish-update.ps1. Never overwrite them: CI-built binaries have
+      # different hashes and an unsigned latest.json, which clients would refuse.
+      - name: Check whether the release already exists
+        id: existing
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $GITHUB_REF_NAME already published; CI only builds and tests."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract Release Notes & Generate latest.json
+        if: startsWith(github.ref, 'refs/tags/v') && steps.existing.outputs.exists != 'true'
         run: |
           NOTES=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}")
           if [ -n "$NOTES" ]; then
@@ -92,7 +108,7 @@ jobs:
           PY
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v3
         with:
           body_path: release-notes.md

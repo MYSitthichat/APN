@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 	"testing"
 )
 
@@ -55,7 +56,7 @@ func TestMergePeerConfigNewerUserPasswordAndNamesWin(t *testing.T) {
 		},
 	})
 
-	changed, err := mergePeerConfig(user, sys, true)
+	changed, err := mergePeerConfig(user, sys, true, false)
 	if err != nil || !changed {
 		t.Fatalf("merge changed=%v err=%v", changed, err)
 	}
@@ -85,7 +86,7 @@ func TestMergePeerConfigNeverMixesDifferentDevices(t *testing.T) {
 	sys := filepath.Join(dir, "sys.json")
 	writeJSONFile(t, sys, map[string]any{"device_id": "111111111", "permanent_password_hash": "a"})
 	writeJSONFile(t, user, map[string]any{"device_id": "222222222", "permanent_password_hash": "b"})
-	if changed, _ := mergePeerConfig(user, sys, true); changed {
+	if changed, _ := mergePeerConfig(user, sys, true, false); changed {
 		t.Fatal("configs of different devices must not be merged")
 	}
 	if readJSONFile(t, sys)["permanent_password_hash"] != "a" {
@@ -99,7 +100,56 @@ func TestMergePeerConfigFillOnlyKeepsExisting(t *testing.T) {
 	sys := filepath.Join(dir, "sys.json")
 	writeJSONFile(t, sys, map[string]any{"device_id": "1", "permanent_password_hash": "keep"})
 	writeJSONFile(t, user, map[string]any{"device_id": "1", "permanent_password_hash": "other"})
-	if changed, _ := mergePeerConfig(user, sys, false); changed {
+	if changed, _ := mergePeerConfig(user, sys, false, false); changed {
 		t.Fatal("fill-only merge must not replace an existing password")
+	}
+}
+
+func TestSyncNewerUserConfigOnlyFromInstallingUser(t *testing.T) {
+	dir := t.TempDir()
+	sys := filepath.Join(dir, "sys.json")
+	installer := filepath.Join(dir, "installer.json")
+	other := filepath.Join(dir, "other.json")
+	writeJSONFile(t, sys, map[string]any{
+		"device_id": "595514895", "permanent_password_hash": "old", "require_approval": true,
+		"migrated_from": installer,
+	})
+	if uid := fileOwnerUID(sys); uid >= 0 {
+		m := readJSONFile(t, sys)
+		m["migrated_from_uid"] = uid
+		writeJSONFile(t, sys, m)
+	}
+	past := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(sys, past, past)
+
+	// Another user's newer file is never read.
+	writeJSONFile(t, other, map[string]any{"device_id": "595514895", "permanent_password_hash": "attacker"})
+	if got := SyncNewerUserConfig(sys); len(got) != 0 {
+		t.Fatalf("synced from a file that is not the installing user's: %v", got)
+	}
+
+	// The installer's file without a device_id is refused.
+	writeJSONFile(t, installer, map[string]any{"permanent_password_hash": "attacker"})
+	if got := SyncNewerUserConfig(sys); len(got) != 0 {
+		t.Fatalf("synced a file without device_id: %v", got)
+	}
+
+	// The installer's own file with the same device id is merged, but cannot turn approval off.
+	writeJSONFile(t, installer, map[string]any{"device_id": "595514895", "permanent_password_hash": "new", "require_approval": false})
+	if got := SyncNewerUserConfig(sys); len(got) != 1 {
+		t.Fatalf("installing user's newer config not synced: %v", got)
+	}
+	m := readJSONFile(t, sys)
+	if m["permanent_password_hash"] != "new" || m["require_approval"] != true {
+		t.Fatalf("after sync: hash=%v approval=%v, want new/true", m["permanent_password_hash"], m["require_approval"])
+	}
+}
+
+func TestSyncWithoutRecordedSourceDoesNothing(t *testing.T) {
+	dir := t.TempDir()
+	sys := filepath.Join(dir, "sys.json")
+	writeJSONFile(t, sys, map[string]any{"device_id": "1", "permanent_password_hash": "keep"})
+	if got := SyncNewerUserConfig(sys); len(got) != 0 {
+		t.Fatalf("synced without a recorded install source: %v", got)
 	}
 }

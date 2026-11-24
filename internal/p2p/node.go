@@ -74,6 +74,9 @@ type connectedPeer struct {
 	session      MuxSession
 	cancel       context.CancelFunc
 	activeConns  atomic.Int64
+	// outbound is true when this machine started the connection (it authenticated to the other
+	// side, not the other way round). Such peers get no access to this machine by default.
+	outbound bool
 
 	tunMu     sync.Mutex
 	tunStream io.ReadWriteCloser
@@ -98,12 +101,12 @@ type PeerInfo struct {
 
 // PendingApproval represents an incoming connection waiting for the host owner to Accept or Reject.
 type PendingApproval struct {
-	ID         string    `json:"id"`
-	DeviceID   string    `json:"device_id"`
-	PeerID     string    `json:"peer_id"`
-	Name       string    `json:"name"`
-	OS         string    `json:"os"`
-	RemoteAddr string    `json:"remote_addr"`
+	ID          string    `json:"id"`
+	DeviceID    string    `json:"device_id"`
+	PeerID      string    `json:"peer_id"`
+	Name        string    `json:"name"`
+	OS          string    `json:"os"`
+	RemoteAddr  string    `json:"remote_addr"`
 	RequestedAt time.Time `json:"requested_at"`
 }
 
@@ -196,7 +199,7 @@ type NodeSnapshot struct {
 	Name                 string                     `json:"name"`
 	OS                   string                     `json:"os"`
 	Fingerprint          string                     `json:"fingerprint"`
-	PairSecret           string                     `json:"pair_secret"`
+	PairSecret           string                     `json:"-"`
 	QUICListenAddr       string                     `json:"quic_listen_addr"`
 	WSListenAddr         string                     `json:"ws_listen_addr"`
 	PublicUDPAddr        string                     `json:"public_udp_addr,omitempty"`
@@ -257,6 +260,7 @@ type Node struct {
 	peers            map[string]*connectedPeer
 	presence         map[string]peerPresence
 	approvals        map[string]*approvalWaiter
+	authLimit        *authLimiter
 	sessions         map[string]*liveSession
 	tunnels          map[string]*managedTunnel
 	tunnelOrder      []string
@@ -327,6 +331,7 @@ func NewNode(cfg *config.PeerConfig, logger *slog.Logger) (*Node, error) {
 		peers:         make(map[string]*connectedPeer),
 		presence:      make(map[string]peerPresence),
 		approvals:     make(map[string]*approvalWaiter),
+		authLimit:     newAuthLimiter(),
 		sessions:      make(map[string]*liveSession),
 		tunnels:       make(map[string]*managedTunnel),
 		rdvClient: &http.Client{
@@ -1712,9 +1717,18 @@ func (n *Node) handleIncomingWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Forwarding headers are trusted only from a proxy on this machine (cloudflared connects
+	// from loopback); a direct client could otherwise fake its address to dodge rate limits.
 	remoteAddr := r.RemoteAddr
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		remoteAddr = strings.TrimSpace(strings.Split(xff, ",")[0])
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			if cf := strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip")); cf != "" {
+				remoteAddr = cf
+			} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				parts := strings.Split(xff, ",")
+				remoteAddr = strings.TrimSpace(parts[len(parts)-1])
+			}
+		}
 	}
 	transport := "WSS/ReverseProxy"
 	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
@@ -1801,7 +1815,7 @@ func (n *Node) completeOutboundHandshake(ctx context.Context, sess MuxSession, p
 		return PeerInfo{}, &peerRejectedError{msg: resp.Error}
 	}
 
-	p := n.registerPeer(sess, resp.Peer)
+	p := n.registerPeer(sess, resp.Peer, true)
 
 	// Simultaneous UDP hole-punch upgrade: when connected over Cloudflare WSS/443, the host just started
 	// punching back toward our STUN UDP addr at the exact same millisecond. Give direct QUIC/UDP 1.4s to
@@ -1850,6 +1864,11 @@ func (n *Node) requestOwnerApproval(hello peerHello, remoteAddr string) bool {
 	}
 
 	n.mu.Lock()
+	// Never stack up more than a few prompts: anyone can request approval with an empty password.
+	if len(n.approvals) >= maxPendingAsk {
+		n.mu.Unlock()
+		return false
+	}
 	n.approvals[reqID] = w
 	n.mu.Unlock()
 
@@ -1886,8 +1905,34 @@ func (n *Node) handleIncomingSession(sess MuxSession) {
 		return
 	}
 
+	key := authKey(sess.RemoteAddr())
+	if !n.authLimit.allow(key) {
+		time.Sleep(authFailDelay)
+		_ = protocol.WriteMessage(stream, peerHelloResponse{
+			OK:    false,
+			Error: "ใส่รหัสผิดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่",
+		})
+		_ = stream.Close()
+		// Let the reply reach the caller before tearing the session down.
+		time.AfterFunc(500*time.Millisecond, func() { _ = sess.Close() })
+		n.logger.Warn("p2p login refused: too many failed attempts", "remote", sess.RemoteAddr())
+		return
+	}
+
 	matched, reqApproval := n.verifyIncomingAuth(hello.PairSecret)
 	authorized := matched
+	// A wrong password counts as a guess. (An empty password in approval mode is a request for
+	// the owner to decide, not a guess.)
+	if !matched && (hello.PairSecret != "" || !reqApproval) {
+		if n.authLimit.fail(key) {
+			if pin, err := n.RotateTempPIN(); err == nil && pin != "" {
+				n.logger.Warn("rotated the temporary PIN after repeated failed logins")
+			}
+		}
+		time.Sleep(authFailDelay)
+	} else if matched {
+		n.authLimit.success(key)
+	}
 
 	if reqApproval {
 		// When interactive approval mode is ON, ask the device owner on the Dashboard.
@@ -1930,10 +1975,10 @@ func (n *Node) handleIncomingSession(sess MuxSession) {
 		go n.sendUDPPunches(hello.UDPAddrs, 2500*time.Millisecond)
 	}
 
-	n.registerPeer(sess, hello)
+	n.registerPeer(sess, hello, false)
 }
 
-func (n *Node) registerPeer(sess MuxSession, remotePeer peerHello) *connectedPeer {
+func (n *Node) registerPeer(sess MuxSession, remotePeer peerHello, outbound bool) *connectedPeer {
 	parent := n.rootCtx
 	if parent == nil {
 		parent = context.Background()
@@ -1955,6 +2000,7 @@ func (n *Node) registerPeer(sess MuxSession, remotePeer peerHello) *connectedPee
 		capabilities: remotePeer.Capabilities,
 		session:      sess,
 		cancel:       cancel,
+		outbound:     outbound,
 	}
 
 	n.mu.Lock()
@@ -2089,6 +2135,18 @@ func (n *Node) handleIncomingRemoteStream(ctx context.Context, p *connectedPeer,
 		_ = protocol.WriteMessage(stream, protocol.StreamOpenResponse{
 			OK:    false,
 			Error: "remote access is paused by device owner",
+		})
+		_ = stream.Close()
+		return
+	}
+
+	// A peer we connected to never proved it knows OUR password, so it gets no access to this
+	// machine unless the owner allowed reverse access. Only the VPN stream is let through while
+	// the VPN is enabled (it carries packets for the tunnel this side set up).
+	if p.outbound && !n.cfg.AllowReverseAccess && !(req.Mode == protocol.ModeTUN && n.cfg.EnableVPN) {
+		_ = protocol.WriteMessage(stream, protocol.StreamOpenResponse{
+			OK:    false,
+			Error: "this device connected to you; it does not accept remote access back (allow_reverse_access is off)",
 		})
 		_ = stream.Close()
 		return
@@ -2779,7 +2837,7 @@ func FormatDeviceID(id string) string {
 
 func defaultQUICConfig() *quic.Config {
 	return &quic.Config{
-		EnableDatagrams:                true, // RFC 9221 Unreliable Datagrams for zero-HoL L3 VPN!
+		EnableDatagrams: true, // RFC 9221 Unreliable Datagrams for zero-HoL L3 VPN!
 		// 5s keepalive / 20s idle: a dead path (Wi-Fi switch, sleep, NAT timeout) is detected in
 		// about 20s instead of 60s so the viewer reconnects quickly, and NAT mappings stay open.
 		KeepAlivePeriod:                5 * time.Second,

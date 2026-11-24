@@ -2127,6 +2127,14 @@
       }[c]));
     }
 
+    // jsArg makes a value safe as a JavaScript string argument inside an inline on*="..." handler.
+    // esc() alone is NOT enough there: the browser decodes &#39; back to ' before running the
+    // handler, so a peer name or LAN beacon like  x');evil()//  broke out and ran code.
+    // JSON.stringify yields a correctly escaped JS string literal; esc() then protects the attribute.
+    function jsArg(v) {
+      return esc(JSON.stringify(String(v ?? '')));
+    }
+
     function fmtDevID(id) {
       const d = String(id || '').replace(/\D/g, '');
       return d.length === 9 ? `${d.slice(0,3)} ${d.slice(3,6)} ${d.slice(6,9)}` : (id || '-');
@@ -2189,13 +2197,13 @@
       const btns = [];
       if (caps.allow_screen) {
         const hasFF = !!caps.has_ffmpeg;
-        btns.push(`<button class="success" onclick="openRemoteScreen('${esc(a.id)}','${esc(a.name)}',${hasFF})">🖥 Remote Desktop${hasFF ? ' (60 FPS)' : ''}</button>`);
+        btns.push(`<button class="success" onclick="openRemoteScreen(${jsArg(a.id)},${jsArg(a.name)},${hasFF})">🖥 Remote Desktop${hasFF ? ' (60 FPS)' : ''}</button>`);
       }
       if (caps.allow_files) {
-        btns.push(`<button class="secondary" onclick="openRemoteFiles('${esc(a.id)}','${esc(a.name)}')">📁 โอนไฟล์</button>`);
+        btns.push(`<button class="secondary" onclick="openRemoteFiles(${jsArg(a.id)},${jsArg(a.name)})">📁 โอนไฟล์</button>`);
       }
       if (caps.allow_shell) {
-        btns.push(`<button class="secondary" onclick="openRemoteShell('${esc(a.id)}','${esc(a.name)}')">💻 Terminal</button>`);
+        btns.push(`<button class="secondary" onclick="openRemoteShell(${jsArg(a.id)},${jsArg(a.name)})">💻 Terminal</button>`);
       }
       return btns.length ? `<div class="row-actions">${btns.join('')}</div>` : '<span class="muted">ปิดใช้งาน</span>';
     }
@@ -2368,7 +2376,7 @@
                   <td>${esc(a.os)}</td>
                   <td>${renderAgentRemoteButtons(a)}</td>
                   <td>${(a.targets || []).map(t =>
-                    `<button class="secondary" style="margin:2px" onclick="quickFill('${esc(a.id)}','${esc(t.name)}','${esc(t.address)}')">+ ${esc(t.name)}</button>`
+                    `<button class="secondary" style="margin:2px" onclick="quickFill(${jsArg(a.id)},${jsArg(t.name)},${jsArg(t.address)})">+ ${esc(t.name)}</button>`
                   ).join('') || '<span class="muted">-</span>'}</td>
                 </tr>`).join('')}
             </tbody>
@@ -2399,8 +2407,8 @@
                   <td><span class="badge"><span class="dot ${t.running ? 'ok' : ''}"></span>${t.running ? `Active (${t.active_conns})` : 'Stopped'}</span></td>
                   <td>↑ ${fmtBytes(t.bytes_sent)} / ↓ ${fmtBytes(t.bytes_recv)}</td>
                   <td class="row-actions">
-                    <button class="secondary" onclick="toggleTunnel('${esc(t.id)}', ${!t.running})">${t.running ? 'หยุด' : 'เริ่ม'}</button>
-                    <button class="danger" onclick="deleteTunnel('${esc(t.id)}')">ลบ</button>
+                    <button class="secondary" onclick="toggleTunnel(${jsArg(t.id)}, ${!t.running})">${t.running ? 'หยุด' : 'เริ่ม'}</button>
+                    <button class="danger" onclick="deleteTunnel(${jsArg(t.id)})">ลบ</button>
                   </td>
                 </tr>`).join('')}
             </tbody>
@@ -2487,8 +2495,8 @@
                   </div>
                   <div class="muted" style="font-size:0.75rem"><code>${esc(t.local_addr)}</code> → <code>${esc(t.peer_id)}</code> (<code>${esc(t.target_addr)}</code>)</div>
                   <div class="row-actions">
-                    <button class="secondary" style="padding:4px 9px;font-size:0.75rem" onclick="peerToggleTunnel('${esc(t.id)}', ${!t.running})">${t.running ? 'หยุด' : 'เริ่ม'}</button>
-                    <button class="danger" style="padding:4px 9px;font-size:0.75rem" onclick="peerDeleteTunnel('${esc(t.id)}')">ลบ</button>
+                    <button class="secondary" style="padding:4px 9px;font-size:0.75rem" onclick="peerToggleTunnel(${jsArg(t.id)}, ${!t.running})">${t.running ? 'หยุด' : 'เริ่ม'}</button>
+                    <button class="danger" style="padding:4px 9px;font-size:0.75rem" onclick="peerDeleteTunnel(${jsArg(t.id)})">ลบ</button>
                   </div>
                 </div>`).join('')}
             </div>` : ''}
@@ -2556,7 +2564,7 @@
                 <div style="margin-top:16px">
                   <div class="stat-label" style="margin-bottom:8px">📡 พบเครื่องในวง LAN เดียวกัน (คลิกเพื่อกรอก ID)</div>
                   <div class="row-actions" style="justify-content:center">
-                    ${disc.map(dp => `<button type="button" class="lan-chip" onclick="fillEasyLAN('${esc(dp.device_id || dp.quic_addr)}')"><span class="dot ok"></span><span>${esc(dp.name)}</span><code>${esc(fmtDevID(dp.device_id))}</code></button>`).join('')}
+                    ${disc.map(dp => `<button type="button" class="lan-chip" onclick="fillEasyLAN(${jsArg(dp.device_id || dp.quic_addr)})"><span class="dot ok"></span><span>${esc(dp.name)}</span><code>${esc(fmtDevID(dp.device_id))}</code></button>`).join('')}
                   </div>
                 </div>` : ''}
             </div>`;
@@ -2582,11 +2590,11 @@
                       <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
                         <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ${statusDot}"></span>${statusLabel}</span>
                         <div class="card-menu-wrap">
-                          <button type="button" class="secondary icon-btn" style="padding:3px 7px;font-size:0.86rem;line-height:1" onclick="toggleCardMenu(event,'cm-${esc(sp.device_id)}')" title="จัดการเครื่องนี้">⋮</button>
+                          <button type="button" class="secondary icon-btn" style="padding:3px 7px;font-size:0.86rem;line-height:1" onclick="toggleCardMenu(event,${jsArg('cm-' + sp.device_id)})" title="จัดการเครื่องนี้">⋮</button>
                           <div id="cm-${esc(sp.device_id)}" class="card-menu-pop">
-                            <button type="button" onclick="closeCardMenus(); peerRenameSaved('${esc(sp.device_id)}','${esc(sp.name)}')">✏️ เปลี่ยนชื่อเครื่อง</button>
-                            ${sp.has_saved_password ? `<button type="button" onclick="closeCardMenus(); peerClearSavedPass('${esc(sp.device_id)}')">🔓 ลืมรหัสผ่านที่จำไว้</button>` : ''}
-                            <button type="button" class="menu-danger" onclick="closeCardMenus(); peerDeleteSaved('${esc(sp.device_id)}')">🗑 ลบออกจากประวัติ</button>
+                            <button type="button" onclick="closeCardMenus(); peerRenameSaved(${jsArg(sp.device_id)},${jsArg(sp.name)})">✏️ เปลี่ยนชื่อเครื่อง</button>
+                            ${sp.has_saved_password ? `<button type="button" onclick="closeCardMenus(); peerClearSavedPass(${jsArg(sp.device_id)})">🔓 ลืมรหัสผ่านที่จำไว้</button>` : ''}
+                            <button type="button" class="menu-danger" onclick="closeCardMenus(); peerDeleteSaved(${jsArg(sp.device_id)})">🗑 ลบออกจากประวัติ</button>
                           </div>
                         </div>
                       </div>
@@ -2594,19 +2602,19 @@
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem" class="muted">
                       ${sp.has_saved_password ? '<span class="badge" style="padding:2px 7px;font-size:0.7rem">🔑 จำรหัสแล้ว</span>' : '<span class="badge" style="padding:2px 7px;font-size:0.7rem;opacity:0.7">ยังไม่จำรหัส</span>'}
                       ${renderPeerVersionBadge(cp?.version || sp.version, !!cp)}
-                      ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText('${esc(sp.vpn_ip)}','คัดลอก VPN IP ${esc(sp.vpn_ip)} แล้ว')">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
+                      ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText(${jsArg(sp.vpn_ip)},${jsArg('คัดลอก VPN IP ' + sp.vpn_ip + ' แล้ว')})">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
                       ${sp.last_connected ? `<span>${esc(fmtTimeAgo(sp.last_connected))}</span>` : ''}
                     </div>
                     <div class="saved-card-actions">
                       ${cp ? `
-                        <button class="success" style="flex:1;min-width:0;padding:7px 9px;font-size:0.81rem" onclick="openRemoteScreen('${esc(cp.id)}','${esc(cp.name)}',${!!cp.capabilities?.has_ffmpeg})">🖥 เปิดหน้าจอ</button>
-                        <button class="secondary icon-btn" style="padding:6px 9px" title="${cp.capabilities?.allow_files ? 'โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)' : 'เครื่องปลายทางต้องอัปเดตเป็น v1.2.7 เพื่อใช้โอนไฟล์'}" onclick="openRemoteFiles('${esc(cp.id)}','${esc(cp.name)}',${!!cp.capabilities?.allow_files})">📁</button>
-                        <button class="secondary icon-btn" style="padding:6px 9px" title="เปิด Terminal" onclick="openRemoteShell('${esc(cp.id)}','${esc(cp.name)}')">💻</button>
-                        <button class="danger icon-btn" style="padding:6px 9px" title="ตัดการเชื่อมต่อ" onclick="peerDisconnect('${esc(cp.id)}')">✕</button>
+                        <button class="success" style="flex:1;min-width:0;padding:7px 9px;font-size:0.81rem" onclick="openRemoteScreen(${jsArg(cp.id)},${jsArg(cp.name)},${!!cp.capabilities?.has_ffmpeg})">🖥 เปิดหน้าจอ</button>
+                        <button class="secondary icon-btn" style="padding:6px 9px" title="${cp.capabilities?.allow_files ? 'โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)' : 'เครื่องปลายทางต้องอัปเดตเป็น v1.2.7 เพื่อใช้โอนไฟล์'}" onclick="openRemoteFiles(${jsArg(cp.id)},${jsArg(cp.name)},${!!cp.capabilities?.allow_files})">📁</button>
+                        <button class="secondary icon-btn" style="padding:6px 9px" title="เปิด Terminal" onclick="openRemoteShell(${jsArg(cp.id)},${jsArg(cp.name)})">💻</button>
+                        <button class="danger icon-btn" style="padding:6px 9px" title="ตัดการเชื่อมต่อ" onclick="peerDisconnect(${jsArg(cp.id)})">✕</button>
                       ` : (sp.has_saved_password ? `
-                        <button class="${sp.online ? 'success' : 'secondary'}" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect('${esc(sp.device_id)}','${esc(sp.name)}',true)">🖥 รีโมตเลย</button>
+                        <button class="${sp.online ? 'success' : 'secondary'}" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect(${jsArg(sp.device_id)},${jsArg(sp.name)},true)">🖥 รีโมตเลย</button>
                       ` : `
-                        <button class="secondary" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect('${esc(sp.device_id)}','${esc(sp.name)}',false)">🔑 กรอกรหัสต่อ</button>
+                        <button class="secondary" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect(${jsArg(sp.device_id)},${jsArg(sp.name)},false)">🔑 กรอกรหัสต่อ</button>
                       `)}
                     </div>
                   </div>`;
@@ -2626,11 +2634,11 @@
                     </div>
                     <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>${esc(p.transport)}</span>
                   </div>
-                  ${p.vpn_ip ? `<div class="muted" style="font-size:0.76rem">VPN IP: <code style="cursor:pointer" onclick="copyText('${esc(p.vpn_ip)}','คัดลอก VPN IP แล้ว')">🛡 ${esc(p.vpn_ip)}</code></div>` : ''}
+                  ${p.vpn_ip ? `<div class="muted" style="font-size:0.76rem">VPN IP: <code style="cursor:pointer" onclick="copyText(${jsArg(p.vpn_ip)},'คัดลอก VPN IP แล้ว')">🛡 ${esc(p.vpn_ip)}</code></div>` : ''}
                   <div class="row-actions">${renderAgentRemoteButtons(p)}</div>
                   <div class="row-actions" style="margin-top:auto;padding-top:4px;border-top:1px solid var(--border)">
-                    ${(p.targets || []).map(t => `<button class="secondary" style="padding:4px 8px;font-size:0.74rem" onclick="peerQuickFill('${esc(p.id)}','${esc(t.name)}','${esc(t.address)}')">+ ${esc(t.name)}</button>`).join('')}
-                    <button class="danger" style="margin-left:auto;padding:5px 10px;font-size:0.76rem" onclick="peerDisconnect('${esc(p.id)}')">ตัด</button>
+                    ${(p.targets || []).map(t => `<button class="secondary" style="padding:4px 8px;font-size:0.74rem" onclick="peerQuickFill(${jsArg(p.id)},${jsArg(t.name)},${jsArg(t.address)})">+ ${esc(t.name)}</button>`).join('')}
+                    <button class="danger" style="margin-left:auto;padding:5px 10px;font-size:0.76rem" onclick="peerDisconnect(${jsArg(p.id)})">ตัด</button>
                   </div>
                 </div>`).join('')}
             </div>`;
@@ -2645,7 +2653,7 @@
                     <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>LAN Direct</span>
                   </div>
                   <div><code>${esc(fmtDevID(dp.device_id))}</code> <span class="muted" style="font-size:0.75rem">${esc(dp.os)}</span></div>
-                  <button class="success" style="margin-top:auto;padding:7px 10px;font-size:0.82rem" onclick="fillEasyLAN('${esc(dp.device_id || dp.quic_addr)}')">⚡ เลือกเครื่องนี้</button>
+                  <button class="success" style="margin-top:auto;padding:7px 10px;font-size:0.82rem" onclick="fillEasyLAN(${jsArg(dp.device_id || dp.quic_addr)})">⚡ เลือกเครื่องนี้</button>
                 </div>`).join('')}
             </div>`;
       } else if (peerTab === 'incoming') {
@@ -2673,7 +2681,7 @@
               <div class="stat-label" style="font-size:0.72rem">รหัสเครื่องของคุณ (ID 9 หลัก)</div>
               <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
                 <div class="side-id">${esc(fmtDevID(d.device_id))}</div>
-                <button class="secondary icon-btn" style="padding:6px 10px;font-size:0.78rem" onclick="copyText('${esc(d.device_id)}','คัดลอก ID 9 หลักแล้ว')">📋 คัดลอก</button>
+                <button class="secondary icon-btn" style="padding:6px 10px;font-size:0.78rem" onclick="copyText(${jsArg(d.device_id)},'คัดลอก ID 9 หลักแล้ว')">📋 คัดลอก</button>
               </div>
             </div>
 
@@ -2683,7 +2691,7 @@
                 <div class="side-pin">${esc(fmtPIN(d.temp_pin))}</div>
                 <div class="row-actions" style="gap:5px">
                   <button class="secondary icon-btn" style="padding:5px 7px" onclick="toggleHidePIN()" title="ซ่อน/แสดง PIN">${hidePIN ? '👁️' : '🙈'}</button>
-                  <button class="secondary icon-btn" style="padding:5px 8px;font-size:0.76rem" onclick="copyText('${esc(d.temp_pin)}','คัดลอก PIN 6 หลักแล้ว')">📋</button>
+                  <button class="secondary icon-btn" style="padding:5px 8px;font-size:0.76rem" onclick="copyText(${jsArg(d.temp_pin)},'คัดลอก PIN 6 หลักแล้ว')">📋</button>
                   <button class="secondary icon-btn" style="padding:5px 8px" onclick="peerRotatePIN()" title="สุ่ม PIN ใหม่">↻</button>
                 </div>
               </div>
@@ -2701,7 +2709,7 @@
               <div style="min-width:0">
                 <div style="font-weight:700">🛡 Built-in L3 VPN</div>
                 <div class="muted" style="font-size:0.72rem">
-                  <code style="cursor:pointer;font-size:0.74rem" title="คลิกคัดลอก VPN IP" onclick="copyText('${esc(d.vpn?.vpn_ip || '')}','คัดลอก VPN IP แล้ว')">${esc(d.vpn?.vpn_ip || '-')}</code>
+                  <code style="cursor:pointer;font-size:0.74rem" title="คลิกคัดลอก VPN IP" onclick="copyText(${jsArg(d.vpn?.vpn_ip || '')},'คัดลอก VPN IP แล้ว')">${esc(d.vpn?.vpn_ip || '-')}</code>
                   ${d.vpn?.enabled ? ` · <span style="color:var(--ok)">ON</span>` : ' · ปิด'}
                 </div>
               </div>
@@ -2778,8 +2786,8 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 13px;border-radius:10px;border:2px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,var(--surface))">
                   <div style="font-size:0.86rem"><strong>🔔 มีคำขอรีโมตเข้าเครื่องนี้:</strong> ${esc(a.name || a.peer_id)} (<code>${esc(fmtDevID(a.device_id))}</code>)</div>
                   <div class="row-actions">
-                    <button class="success" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove('${esc(a.id)}', true)">✓ อนุญาต</button>
-                    <button class="danger" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove('${esc(a.id)}', false)">✕ ปฏิเสธ</button>
+                    <button class="success" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove(${jsArg(a.id)}, true)">✓ อนุญาต</button>
+                    <button class="danger" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove(${jsArg(a.id)}, false)">✕ ปฏิเสธ</button>
                   </div>
                 </div>`).join('')}
 
@@ -4126,17 +4134,17 @@
         const e = entries[idx];
         if (filter && !(e.name || '').toLowerCase().includes(filter)) continue;
         const checked = selSet.has(e.path);
-        const jsPath = esc(e.path.replace(/\\/g, '\\\\'));
-        const openFn = side === 'local' ? `loadLocalDir('${jsPath}')` : `loadRemoteDir('${jsPath}')`;
-        const delFn = side === 'local' ? `deleteLocalFile('${jsPath}','${esc(e.name)}')` : `deleteRemoteFile('${jsPath}','${esc(e.name)}')`;
+        const jsPath = jsArg(e.path);
+        const openFn = side === 'local' ? `loadLocalDir(${jsPath})` : `loadRemoteDir(${jsPath})`;
+        const delFn = side === 'local' ? `deleteLocalFile(${jsPath},${jsArg(e.name)})` : `deleteRemoteFile(${jsPath},${jsArg(e.name)})`;
         rows.push(`
           <div class="ft-row ${checked ? 'selected' : ''}"
-               onclick="toggleFileSelect('${side}', ${idx}, event)"
+               onclick="toggleFileSelect(${jsArg(side)}, ${Number(idx)}, event)"
                ondblclick="${e.is_dir ? openFn : (side === 'local' ? `pushSingleLocalFile(${idx})` : `pullSingleRemoteFile(${idx})`)}"
                title="${esc(e.name)}">
             ${e.is_dir
               ? `<span style="text-align:center;opacity:0.45;font-size:0.76rem">▸</span>`
-              : `<input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect('${side}', ${idx})" style="margin:0;cursor:pointer" />`}
+              : `<input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect(${jsArg(side)}, ${Number(idx)})" style="margin:0;cursor:pointer" />`}
             <span class="ft-name ${e.is_dir ? 'is-dir' : ''}">
               <span class="ft-icon">${fileIconFor(e)}</span>
               <span class="ft-name-text">${esc(e.name)}</span>
@@ -4182,7 +4190,7 @@
         document.getElementById('localPathInput').value = localCurrentPath;
         document.getElementById('localCountInfo').textContent = `${localEntriesCache.length} รายการ`;
         document.getElementById('localShortcuts').innerHTML = (res.shortcuts || []).map(s =>
-          `<button type="button" onclick="loadLocalDir('${esc(s.path.replace(/\\/g, '\\\\'))}')">${esc(s.label)}</button>`
+          `<button type="button" onclick="loadLocalDir(${jsArg(s.path)})">${esc(s.label)}</button>`
         ).join('');
         body.innerHTML = renderFilePaneRows('local', localEntriesCache);
         updateTransferButtonCounts();
@@ -4205,7 +4213,7 @@
         document.getElementById('filesPathInput').value = filesCurrentPath;
         document.getElementById('filesCountInfo').textContent = `${remoteEntriesCache.length} รายการ`;
         document.getElementById('filesShortcuts').innerHTML = (res.shortcuts || []).map(s =>
-          `<button type="button" onclick="loadRemoteDir('${esc(s.path.replace(/\\/g, '\\\\'))}')">${esc(s.label)}</button>`
+          `<button type="button" onclick="loadRemoteDir(${jsArg(s.path)})">${esc(s.label)}</button>`
         ).join('');
         body.innerHTML = renderFilePaneRows('remote', remoteEntriesCache);
         updateTransferButtonCounts();

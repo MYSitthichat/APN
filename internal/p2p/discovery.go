@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -88,6 +89,10 @@ func (d *lanDiscovery) listenLoop(ctx context.Context) {
 			continue
 		}
 		if (b.PeerID == "" && b.DeviceID == "") || (b.DeviceID != "" && b.DeviceID == d.selfDeviceID) || b.PeerID == d.selfID {
+			continue
+		}
+		// Beacons are unauthenticated UDP from anyone on the LAN: accept only well-formed values.
+		if !validBeacon(&b) {
 			continue
 		}
 		host, _, err := net.SplitHostPort(addr.String())
@@ -280,4 +285,36 @@ func formatInt(n int) string {
 		n /= 10
 	}
 	return string(digits[i:])
+}
+
+// validBeacon rejects malformed or oversized LAN beacon fields (any host on the LAN can send one)
+// and trims display strings.
+func validBeacon(b *lanBeacon) bool {
+	if b.DeviceID != "" {
+		if len(b.DeviceID) < 6 || len(b.DeviceID) > 16 {
+			return false
+		}
+		for _, c := range b.DeviceID {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+	if len(b.PeerID) > 128 || len(b.Fingerprint) > 80 || b.QUICPort < 0 || b.QUICPort > 65535 || b.WSPort < 0 || b.WSPort > 65535 {
+		return false
+	}
+	if b.Fingerprint != "" && !strings.HasPrefix(b.Fingerprint, "sha256:") {
+		return false
+	}
+	b.Name = truncRunes(b.Name, 64)
+	b.OS = truncRunes(b.OS, 32)
+	return true
+}
+
+func truncRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }

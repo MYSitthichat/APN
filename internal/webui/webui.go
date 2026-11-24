@@ -1022,7 +1022,7 @@ func Start(ctx context.Context, opts Options) error {
 
 	httpSrv := &http.Server{
 		Addr:              opts.Addr,
-		Handler:           mux,
+		Handler:           localGuard(mux, opts.Logger),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Info describes the live OS-level System Service state (Windows Service / Linux systemd system unit).
@@ -79,12 +80,44 @@ func migrateConfigDir(srcCfgPath, dstCfgDir string) {
 		}
 		_ = copyFileAtomic(src, dst, 0o600)
 	}
+	// Remember which user config this service was installed from. SyncNewerUserConfig only ever
+	// reads that one file, never other users' files.
+	if abs, err := filepath.Abs(srcCfgPath); err == nil {
+		recordMigrationSource(filepath.Join(dstCfgDir, "peer.json"), abs)
+	}
+}
+
+// recordMigrationSource stores the installing user's config path (and on Linux its owner uid)
+// in the system peer.json.
+func recordMigrationSource(dstPath, srcPath string) {
+	b, err := os.ReadFile(dstPath)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return
+	}
+	m["migrated_from"] = srcPath
+	if uid := fileOwnerUID(srcPath); uid >= 0 {
+		m["migrated_from_uid"] = uid
+	} else {
+		delete(m, "migrated_from_uid")
+	}
+	out, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := dstPath + ".tmp"
+	if os.WriteFile(tmp, out, 0o600) == nil {
+		_ = os.Rename(tmp, dstPath)
+	}
 }
 
 // mergePeerPasswordIfMissing is used at install time: the user-mode config being migrated is the
 // current truth, so its permanent password and known peers win over an older system config.
 func mergePeerPasswordIfMissing(srcPath, dstPath string) {
-	_, _ = mergePeerConfig(srcPath, dstPath, true)
+	_, _ = mergePeerConfig(srcPath, dstPath, true, false)
 }
 
 // SyncNewerUserConfig pulls settings into the system service config (systemCfgPath) from any
@@ -95,6 +128,11 @@ func mergePeerPasswordIfMissing(srcPath, dstPath string) {
 // when the service started with its older copy: the viewer's saved password then no longer
 // matched ("saved password does not match"). Call this before the service loads its config.
 // It returns the user config paths that were merged.
+//
+// Security: only the config of the user who installed the service is read (recorded at install
+// as "migrated_from", with its owner uid on Linux), it must carry the same non-empty device_id,
+// and it can never switch "require approval" off. Reading every user's peer.json let any local
+// user set the service's password.
 func SyncNewerUserConfig(systemCfgPath string) []string {
 	if systemCfgPath == "" {
 		return nil
@@ -103,26 +141,38 @@ func SyncNewerUserConfig(systemCfgPath string) []string {
 	if err != nil {
 		return nil
 	}
-	var merged []string
-	for _, cand := range userConfigCandidates() {
-		if filepath.Clean(cand) == filepath.Clean(systemCfgPath) {
-			continue
-		}
-		st, err := os.Stat(cand)
-		if err != nil || !st.ModTime().After(sysInfo.ModTime()) {
-			continue
-		}
-		if ok, _ := mergePeerConfig(cand, systemCfgPath, true); ok {
-			merged = append(merged, cand)
-		}
+	b, err := os.ReadFile(systemCfgPath)
+	if err != nil {
+		return nil
 	}
-	return merged
+	var sysMap map[string]any
+	if json.Unmarshal(b, &sysMap) != nil {
+		return nil
+	}
+	src, _ := sysMap["migrated_from"].(string)
+	if src == "" || filepath.Clean(src) == filepath.Clean(systemCfgPath) {
+		return nil
+	}
+	st, err := os.Lstat(src)
+	if err != nil || !st.Mode().IsRegular() || !st.ModTime().After(sysInfo.ModTime()) {
+		return nil
+	}
+	if want, ok := sysMap["migrated_from_uid"].(float64); ok && fileOwnerUID(src) != int(want) {
+		return nil // the file is no longer owned by the installing user
+	}
+	if ok, _ := mergePeerConfig(src, systemCfgPath, true, true); ok {
+		return []string{src}
+	}
+	return nil
 }
 
 // mergePeerConfig merges the permanent password, approval setting and known peers of srcPath
 // into dstPath when both belong to the same device ID. With srcWins, src values replace dst
 // values; otherwise only missing values are filled in. It reports whether dst changed.
-func mergePeerConfig(srcPath, dstPath string, srcWins bool) (bool, error) {
+//
+// strict (used for the automatic sync at service start) also requires both files to carry the
+// same non-empty device_id and never turns require_approval off.
+func mergePeerConfig(srcPath, dstPath string, srcWins, strict bool) (bool, error) {
 	srcBytes, err := os.ReadFile(srcPath)
 	if err != nil {
 		return false, err
@@ -144,6 +194,9 @@ func mergePeerConfig(srcPath, dstPath string, srcWins bool) (bool, error) {
 		// A different device's config: never mix passwords between machines.
 		return false, nil
 	}
+	if strict && (srcID == "" || dstID == "") {
+		return false, nil
+	}
 
 	changed := false
 	srcHash, _ := srcMap["permanent_password_hash"].(string)
@@ -154,7 +207,7 @@ func mergePeerConfig(srcPath, dstPath string, srcWins bool) (bool, error) {
 	}
 	if srcWins {
 		if v, ok := srcMap["require_approval"].(bool); ok {
-			if cur, _ := dstMap["require_approval"].(bool); cur != v {
+			if cur, _ := dstMap["require_approval"].(bool); cur != v && !(strict && cur && !v) {
 				dstMap["require_approval"] = v
 				changed = true
 			}
@@ -271,7 +324,10 @@ func migrateBinDir(srcBinDir, dstBinDir string) {
 		return
 	}
 	for _, e := range entries {
-		if e.IsDir() {
+		// Only the known helper tools, and only regular files (no symlinks): this directory is
+		// later used by the root/SYSTEM service, so copying arbitrary user files (e.g. a fake
+		// "ip" or "netsh") into it would let a local user run code with service privileges.
+		if !migratableBinNames[strings.ToLower(e.Name())] || e.Type()&os.ModeType != 0 {
 			continue
 		}
 		src := filepath.Join(srcBinDir, e.Name())
@@ -281,4 +337,8 @@ func migrateBinDir(srcBinDir, dstBinDir string) {
 		}
 		_ = copyFileAtomic(src, dst, 0o755)
 	}
+}
+
+var migratableBinNames = map[string]bool{
+	"ffmpeg": true, "ffmpeg.exe": true, "cloudflared": true, "cloudflared.exe": true,
 }

@@ -22,16 +22,6 @@ func SystemDataDir() string    { return "/etc/apn" }
 func SystemConfigPath() string { return "/etc/apn/peer.json" }
 func SystemBinDir() string     { return "/var/lib/apn/bin" }
 
-// userConfigCandidates lists every user's user-mode APN config (~/.config/APN/peer.json).
-func userConfigCandidates() []string {
-	var out []string
-	for _, pat := range []string{"/home/*/.config/APN/peer.json", "/home/*/.config/apn/peer.json", "/root/.config/APN/peer.json"} {
-		if m, err := filepath.Glob(pat); err == nil {
-			out = append(out, m...)
-		}
-	}
-	return out
-}
 
 func IsElevated() bool {
 	return os.Geteuid() == 0
@@ -159,16 +149,17 @@ func resolveLinuxSudoMigratePaths(cfgPath, binDir string) (string, string) {
 		}
 	}
 
+	// Only the user who ran `sudo` / `pkexec` — never every /home/* directory: copying another
+	// user's config or bin directory into the root service would let that user plant files.
 	var homes []string
+	var u *user.User
 	if sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER")); sudoUser != "" && sudoUser != "root" {
-		if u, err := user.Lookup(sudoUser); err == nil && u.HomeDir != "" {
-			homes = append(homes, u.HomeDir)
-		} else {
-			homes = append(homes, filepath.Join("/home", sudoUser))
-		}
+		u, _ = user.Lookup(sudoUser)
+	} else if uid := strings.TrimSpace(os.Getenv("PKEXEC_UID")); uid != "" && uid != "0" {
+		u, _ = user.LookupId(uid)
 	}
-	if matches, err := filepath.Glob("/home/*"); err == nil {
-		homes = append(homes, matches...)
+	if u != nil && u.HomeDir != "" {
+		homes = append(homes, u.HomeDir)
 	}
 
 	for _, h := range homes {
@@ -183,7 +174,7 @@ func resolveLinuxSudoMigratePaths(cfgPath, binDir string) (string, string) {
 			}
 		}
 		if binMissing {
-			for _, sub := range []string{".config/APN/bin", ".local/share/APN/bin", ".config/apn/bin"} {
+			for _, sub := range []string{".local/share/relayvpn/bin", ".config/APN/bin", ".local/share/APN/bin", ".config/apn/bin"} {
 				cand := filepath.Join(h, sub)
 				if st, err := os.Stat(cand); err == nil && st.IsDir() {
 					binDir = cand

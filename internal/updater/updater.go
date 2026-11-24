@@ -25,6 +25,7 @@ import (
 type Asset struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256,omitempty"`
+	Sig    string `json:"sig,omitempty"` // Ed25519 release signature (see verify.go)
 }
 
 // Manifest is the JSON payload returned by /api/releases/latest.
@@ -56,9 +57,10 @@ type Manager struct {
 	client      *http.Client
 	manifestURL string
 
-	mu          sync.Mutex
-	status      Status
-	targetAsset Asset
+	mu            sync.Mutex
+	status        Status
+	targetAsset   Asset
+	targetVersion string
 }
 
 // NewManager creates an auto-updater bound to the given manifest URL and resilient HTTP client.
@@ -148,12 +150,23 @@ func (m *Manager) Check(ctx context.Context) Status {
 	platKey := platformKey()
 	asset, hasAsset := mf.Assets[platKey]
 
+	latest := strings.TrimPrefix(strings.TrimSpace(mf.Version), "v")
+	verifyErr := errors.New("no asset for this platform")
+	if hasAsset {
+		verifyErr = verifyAsset(latest, platKey, asset)
+	}
+
 	m.mu.Lock()
-	m.status.LatestVersion = strings.TrimPrefix(strings.TrimSpace(mf.Version), "v")
+	m.status.LatestVersion = latest
 	m.status.ReleaseNotes = mf.ReleaseNotes
-	m.status.HasBinary = hasAsset && asset.URL != ""
-	m.status.UpdateAvailable = isNewerVersion(m.status.LatestVersion, version.Version) && m.status.HasBinary
+	// Only a release signed by the APN release key for this exact version and platform is offered.
+	m.status.HasBinary = hasAsset && verifyErr == nil
+	m.status.UpdateAvailable = isNewerVersion(latest, version.Version) && m.status.HasBinary
+	if hasAsset && verifyErr != nil && isNewerVersion(latest, version.Version) {
+		m.status.LastError = verifyErr.Error()
+	}
 	m.targetAsset = asset
+	m.targetVersion = latest
 	m.mu.Unlock()
 
 	return m.Status()
@@ -172,6 +185,11 @@ func (m *Manager) Apply(ctx context.Context, onRestart func()) error {
 		return errors.New("คุณใช้เวอร์ชันล่าสุดอยู่แล้ว หรือยังไม่มีไฟล์อัปเดตสำหรับแพลตฟอร์มนี้")
 	}
 	asset := m.targetAsset
+	// Verify again right before installing (defence in depth against a changed manifest).
+	if err := verifyAsset(m.targetVersion, platformKey(), asset); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	m.status.Updating = true
 	m.status.Progress = 2
 	m.status.Stage = "กำลังดาวน์โหลด APN v" + m.status.LatestVersion + "..."
@@ -196,9 +214,13 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 		return err
 	}
 
+	if !isAllowedDownloadURL(asset.URL) {
+		return errBadURL
+	}
 	dlClient := &http.Client{
-		Transport: m.client.Transport,
-		Timeout:   5 * time.Minute,
+		Transport:     m.client.Transport,
+		Timeout:       5 * time.Minute,
+		CheckRedirect: restrictRedirects, // HTTPS GitHub release hosts only
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.URL, nil)
 	if err != nil {
@@ -287,12 +309,11 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.status.Stage = "กำลังตรวจสอบความถูกต้องไฟล์ (SHA-256)..."
 	m.mu.Unlock()
 
-	if expected := strings.TrimSpace(strings.ToLower(asset.SHA256)); expected != "" {
-		actual := hex.EncodeToString(hasher.Sum(nil))
-		if actual != expected {
-			_ = os.Remove(tmpPath)
-			return errors.New("ไฟล์อัปเดตไม่ผ่านการตรวจ SHA-256 (ยกเลิกเพื่อความปลอดภัย)")
-		}
+	// The SHA-256 is mandatory and covered by the release signature (verifyAsset).
+	expected := strings.TrimSpace(strings.ToLower(asset.SHA256))
+	if actual := hex.EncodeToString(hasher.Sum(nil)); expected == "" || actual != expected {
+		_ = os.Remove(tmpPath)
+		return errors.New("ไฟล์อัปเดตไม่ผ่านการตรวจ SHA-256 (ยกเลิกเพื่อความปลอดภัย)")
 	}
 
 	m.mu.Lock()

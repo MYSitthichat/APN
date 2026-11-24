@@ -48,6 +48,8 @@ func TestP2PBidirectionalQUICAndWebSocket(t *testing.T) {
 		AllowScreen:   true,
 		AllowInput:    true,
 		AllowShell:    true,
+		// A dials B below and the test then drives A from B over the same connection.
+		AllowReverseAccess: true,
 		AllowedTargets: []config.AllowedTarget{
 			{Name: "Echo A", Address: echoA},
 		},
@@ -145,15 +147,16 @@ func TestP2PBidirectionalQUICAndWebSocket(t *testing.T) {
 
 	// 7. Security: Wrong PairSecret MUST be rejected
 	cfgC := &config.PeerConfig{
-		PeerID:        "peer-c",
-		Name:          "Node C",
-		PairSecret:    "secret-c-1234567890",
-		QUICAddr:      "127.0.0.1:0",
-		WSAddr:        "127.0.0.1:0",
-		CertFile:      filepath.Join(dirC, "peer.crt"),
-		KeyFile:       filepath.Join(dirC, "peer.key"),
-		EnableLANDisc: false,
-		AllowShell:    true,
+		PeerID:             "peer-c",
+		Name:               "Node C",
+		PairSecret:         "secret-c-1234567890",
+		QUICAddr:           "127.0.0.1:0",
+		WSAddr:             "127.0.0.1:0",
+		CertFile:           filepath.Join(dirC, "peer.crt"),
+		KeyFile:            filepath.Join(dirC, "peer.key"),
+		EnableLANDisc:      false,
+		AllowShell:         true,
+		AllowReverseAccess: true, // B opens a shell back on C (which dialled B)
 	}
 	nodeC, err := p2p.NewNode(cfgC, logger)
 	if err != nil {
@@ -402,4 +405,86 @@ func TestEasyPINPermanentPasswordAndApproval(t *testing.T) {
 		t.Fatalf("timed out waiting for approved connect")
 	}
 	verifyPeerShell(t, ctx, callerNode, "host-desk", fmt.Sprintf("APPROVED_%s", reqID))
+}
+
+// TestReverseAccessDeniedByDefault: a device you connect to must not get screen, shell, files,
+// clipboard or tunnels on YOUR machine (it never proved it knows your password).
+func TestReverseAccessDeniedByDefault(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mk := func(id string) (*p2p.Node, *config.PeerConfig) {
+		dir := t.TempDir()
+		cfg := &config.PeerConfig{
+			PeerID: id, Name: id, PairSecret: "secret-" + id + "-1234567890",
+			QUICAddr: "127.0.0.1:0", WSAddr: "127.0.0.1:0",
+			CertFile: filepath.Join(dir, "peer.crt"), KeyFile: filepath.Join(dir, "peer.key"),
+			AllowScreen: true, AllowInput: true, AllowShell: true,
+		}
+		n, err := p2p.NewNode(cfg, logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := n.StartAsync(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return n, cfg
+	}
+	caller, _ := mk("victim")
+	host, hostCfg := mk("stranger")
+	snap := host.Snapshot()
+	if _, err := caller.ConnectDirect(ctx, snap.QUICListenAddr, hostCfg.PairSecret, snap.Fingerprint); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	waitUntil(t, 4*time.Second, "host sees caller", func() bool { return len(host.Snapshot().ConnectedPeers) == 1 })
+
+	// The caller can still use the host normally.
+	verifyPeerShell(t, ctx, caller, "stranger", "FORWARD_OK")
+
+	// The host gets nothing on the caller.
+	for _, mode := range []string{protocol.ModeShell, protocol.ModeFiles, protocol.ModeScreen, protocol.ModeClipboard, protocol.ModeTCP} {
+		st, _, err := host.OpenPeerStream(ctx, "victim", protocol.StreamOpenRequest{Mode: mode, TargetAddr: "127.0.0.1:1"})
+		if err == nil {
+			_ = st.Close()
+			t.Fatalf("mode %s: host opened a stream on the machine that connected to it", mode)
+		}
+		if !strings.Contains(err.Error(), "does not accept remote access back") {
+			t.Fatalf("mode %s: unexpected error %v", mode, err)
+		}
+	}
+}
+
+// TestWrongPINsRotateTempPINAndLockOut: guessing the 6-digit PIN is cut off quickly.
+func TestWrongPINsRotateTempPINAndLockOut(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mk := func(id string) *p2p.Node {
+		dir := t.TempDir()
+		n, err := p2p.NewNode(&config.PeerConfig{
+			PeerID: id, Name: id, QUICAddr: "127.0.0.1:0", WSAddr: "127.0.0.1:0",
+			CertFile: filepath.Join(dir, "peer.crt"), KeyFile: filepath.Join(dir, "peer.key"),
+		}, logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := n.StartAsync(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	host := mk("host")
+	attacker := mk("attacker")
+	snap := host.Snapshot()
+	pin := snap.TempPIN
+	for i := 0; i < 5; i++ {
+		if _, err := attacker.ConnectDirect(ctx, snap.QUICListenAddr, "000000", snap.Fingerprint); err == nil {
+			t.Fatal("wrong PIN accepted")
+		}
+	}
+	// The source is now locked out, even with the correct PIN.
+	_, err := attacker.ConnectDirect(ctx, snap.QUICListenAddr, pin, snap.Fingerprint)
+	if err == nil || !strings.Contains(err.Error(), "15") {
+		t.Fatalf("correct PIN after 5 failures from the same address: err=%v, want lockout", err)
+	}
 }

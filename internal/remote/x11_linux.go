@@ -1123,3 +1123,13 @@ var w3cCodeToEvdevX11 = map[string]byte{
 	"MetaRight":      134,
 	"ContextMenu":    135,
 }
+
+// ActiveDesktopUID returns the uid of the user logged in on the local screen (not the login
+// greeter), if any. Used to decide who may drive a root-run APN's local dashboard.
+func ActiveDesktopUID() (int, bool) {
+	s := getActiveLinuxSession()
+	if !s.HasUserCred || s.UID == 0 {
+		return 0, false
+	}
+	return int(s.UID), true
+}
