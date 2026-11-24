@@ -34,6 +34,11 @@
       --danger: #ef4444;
       --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65);
       --radius: 16px;
+      --stage-bg: #03050c;
+      --term-bg: #070b15;
+      --term-fg: #a7f3d0;
+      --term-surface: #0d1323;
+      --ft-dir: #7dd3fc;
     }
 
     [data-theme="light"] {
@@ -56,6 +61,11 @@
       --warn: #d97706;
       --danger: #dc2626;
       --shadow: 0 12px 30px -14px rgba(15, 23, 42, 0.14);
+      --stage-bg: #e2e8f0;
+      --term-bg: #f8fafc;
+      --term-fg: #0f172a;
+      --term-surface: #ffffff;
+      --ft-dir: #0284c7;
     }
 
     [data-theme="emerald"] {
@@ -78,6 +88,11 @@
       --warn: #fbbf24;
       --danger: #f87171;
       --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+      --stage-bg: #030a08;
+      --term-bg: #040d0b;
+      --term-fg: #6ee7b7;
+      --term-surface: #091915;
+      --ft-dir: #34d399;
     }
 
     [data-theme="rose"] {
@@ -100,6 +115,11 @@
       --warn: #f59e0b;
       --danger: #fb7185;
       --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.72);
+      --stage-bg: #0a040b;
+      --term-bg: #100612;
+      --term-fg: #fbcfe8;
+      --term-surface: #1b0d1d;
+      --ft-dir: #f472b6;
     }
 
     [data-theme="amber"] {
@@ -122,6 +142,11 @@
       --warn: #fbbf24;
       --danger: #ef4444;
       --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.72);
+      --stage-bg: #0a0704;
+      --term-bg: #0f0b06;
+      --term-fg: #fde68a;
+      --term-surface: #1b140d;
+      --ft-dir: #fbbf24;
     }
 
     * { box-sizing: border-box; }
@@ -502,43 +527,48 @@
     .modal {
       position: fixed;
       inset: 0;
-      background: #04070f;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(900px 520px at 10% -5%, var(--bg-glow-1), transparent 60%),
+        radial-gradient(800px 480px at 95% 0%, var(--bg-glow-2), transparent 60%);
       z-index: 1000;
       display: none;
       flex-direction: column;
-      color: #f1f5f9;
+      color: var(--text);
     }
     .modal.open { display: flex; }
     .modal-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 16px;
-      background: rgba(15, 23, 42, 0.92);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+      padding: 10px 18px;
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
       gap: 10px;
       flex-wrap: wrap;
+      flex-shrink: 0;
     }
     .modal-bar select, .modal-bar input {
-      background: rgba(15, 23, 42, 0.95);
-      color: #f1f5f9;
-      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
       padding: 6px 10px;
       font-size: 0.82rem;
     }
     .modal-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
     #screenMeta {
-      max-width: 280px;
+      max-width: 300px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .modal-bar.remote-slim-bar {
-      padding: 5px 12px;
+      padding: 6px 14px;
       gap: 8px;
       flex-wrap: nowrap;
-      min-height: 40px;
+      min-height: 44px;
     }
     .modal-bar.remote-slim-bar button {
       padding: 5px 10px;
@@ -547,34 +577,62 @@
     }
     .remote-settings-pop {
       position: fixed;
-      top: 46px;
+      top: 50px;
       right: 12px;
       z-index: 1090;
-      width: min(350px, 92vw);
-      max-height: calc(100vh - 64px);
+      width: min(358px, 92vw);
+      max-height: calc(100vh - 68px);
       overflow-y: auto;
-      background: rgba(15, 23, 42, 0.97);
+      background: var(--surface-solid);
       backdrop-filter: blur(16px);
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      padding: 14px 16px;
-      box-shadow: 0 22px 54px rgba(0, 0, 0, 0.72);
+      border: 1px solid var(--border-strong);
+      border-radius: 15px;
+      padding: 15px 16px;
+      box-shadow: var(--shadow);
       display: none;
       flex-direction: column;
       gap: 11px;
-      color: #f1f5f9;
+      color: var(--text);
     }
     .remote-settings-pop.open {
       display: flex;
     }
+    .remote-settings-pop label {
+      color: var(--muted);
+    }
     .remote-settings-pop select,
     .remote-settings-pop input[type="text"] {
       width: 100%;
-      background: rgba(7, 11, 20, 0.92);
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
       padding: 7px 10px;
       font-size: 0.82rem;
+    }
+    .remote-opts-box {
+      display: grid;
+      gap: 7px;
+      padding: 9px 11px;
+      border-radius: 11px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+    .remote-opts-box label {
+      flex-direction: row;
+      align-items: center;
+      gap: 7px;
+      color: var(--text-soft);
+      font-size: 0.81rem;
+      cursor: pointer;
+    }
+    .screen-notice {
+      display: none;
+      padding: 7px 16px;
+      background: color-mix(in srgb, var(--warn) 14%, var(--surface-solid));
+      color: var(--warn);
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
     }
     .screen-stage {
       flex: 1;
@@ -583,49 +641,51 @@
       align-items: center;
       justify-content: center;
       overflow: auto;
-      padding: 2px;
-      background: #03050c;
+      padding: 4px;
+      background: var(--stage-bg);
       position: relative;
     }
     .screen-placeholder {
       max-width: 560px;
-      padding: 20px 24px;
-      border-radius: 14px;
-      background: rgba(15, 23, 42, 0.88);
-      border: 1px solid rgba(148, 163, 184, 0.25);
-      color: #cbd5e1;
+      padding: 22px 26px;
+      border-radius: 15px;
+      background: var(--surface-solid);
+      border: 1px solid var(--border-strong);
+      color: var(--text-soft);
       text-align: center;
       font-size: 0.92rem;
       line-height: 1.55;
+      box-shadow: var(--shadow);
     }
     .screen-placeholder.is-err {
-      border-color: rgba(248, 113, 113, 0.55);
-      color: #fecaca;
+      border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+      color: var(--danger);
     }
     #remoteCanvas,
     #remoteVideoCanvas {
       max-width: 100%;
       max-height: 100%;
-      border: 1px solid rgba(148, 163, 184, 0.2);
+      border: 1px solid var(--border-strong);
       border-radius: 8px;
       cursor: default;
       outline: none;
       touch-action: none;
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.7);
+      box-shadow: var(--shadow);
     }
     #remoteCanvas.hide-local-cursor,
     #remoteVideoCanvas.hide-local-cursor {
       cursor: none;
     }
 
-    /* TeamViewer-Style Dual-Pane File Transfer Modal */
+    /* Modern Theme-Aware Dual-Pane File Transfer Modal */
     .ft-grid {
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 142px minmax(0, 1fr);
-      gap: 0;
-      background: #070b14;
+      grid-template-columns: minmax(0, 1fr) 152px minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px 16px;
+      background: transparent;
       overflow: hidden;
     }
     .ft-pane {
@@ -633,20 +693,24 @@
       flex-direction: column;
       min-width: 0;
       min-height: 0;
-      border-right: 1px solid rgba(148, 163, 184, 0.16);
-      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      background: var(--surface-solid);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: border-color 0.16s ease, box-shadow 0.16s ease;
     }
-    .ft-pane:last-child {
-      border-right: none;
-      border-left: 1px solid rgba(148, 163, 184, 0.16);
+    .ft-pane.drag-over {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
     }
     .ft-pane-head {
-      padding: 10px 14px;
-      background: rgba(15, 23, 42, 0.95);
-      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      padding: 12px 14px 10px;
+      background: color-mix(in srgb, var(--surface-2) 68%, var(--surface-solid));
+      border-bottom: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 9px;
       flex-shrink: 0;
     }
     .ft-pane-title {
@@ -654,8 +718,30 @@
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      font-size: 0.9rem;
+      font-size: 0.91rem;
       font-weight: 700;
+      color: var(--text);
+    }
+    .ft-pane-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .ft-pane-badge span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ft-count-pill {
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      white-space: nowrap;
     }
     .ft-shortcuts {
       display: flex;
@@ -663,26 +749,62 @@
       flex-wrap: wrap;
     }
     .ft-shortcuts button {
-      padding: 4px 8px;
+      padding: 4px 10px;
       font-size: 0.74rem;
-      background: rgba(30, 41, 59, 0.9);
-      color: #e2e8f0;
-      border: 1px solid rgba(148, 163, 184, 0.22);
+      font-weight: 600;
+      border-radius: 999px;
+      background: var(--surface-solid);
+      color: var(--text-soft);
+      border: 1px solid var(--border);
       box-shadow: none;
+      transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+    }
+    .ft-shortcuts button:hover {
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface-solid));
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      color: var(--text);
+      transform: none;
     }
     .ft-path-row {
       display: flex;
-      gap: 5px;
+      gap: 6px;
       align-items: center;
     }
     .ft-path-row input {
       flex: 1;
       min-width: 0;
-      padding: 5px 9px;
-      font-size: 0.8rem;
-      background: rgba(4, 7, 15, 0.9);
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 6px 10px;
+      font-size: 0.79rem;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      border-radius: 9px;
+    }
+    .ft-path-row .ft-filter-input {
+      flex: 0 0 128px;
+      font-family: inherit;
+    }
+    .ft-path-row button {
+      padding: 6px 9px;
+      font-size: 0.78rem;
+      border-radius: 9px;
+      flex-shrink: 0;
+    }
+    .ft-col-head {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr) 82px 30px;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.71rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      flex-shrink: 0;
     }
     .ft-list {
       flex: 1;
@@ -690,69 +812,142 @@
       overflow-y: auto;
       padding: 6px 8px;
     }
+    .ft-list::-webkit-scrollbar,
+    .term-output::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    .ft-list::-webkit-scrollbar-thumb,
+    .term-output::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 999px;
+    }
     .ft-row {
       display: grid;
-      grid-template-columns: 22px minmax(0, 1fr) 78px 28px;
+      grid-template-columns: 26px minmax(0, 1fr) 82px 30px;
       align-items: center;
       gap: 8px;
-      padding: 7px 9px;
-      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 2px;
+      border-radius: 10px;
       font-size: 0.83rem;
       cursor: pointer;
       user-select: none;
       border: 1px solid transparent;
+      transition: background 0.12s ease, border-color 0.12s ease;
     }
     .ft-row:hover {
-      background: rgba(56, 189, 248, 0.08);
+      background: color-mix(in srgb, var(--accent) 9%, transparent);
     }
     .ft-row.selected {
-      background: rgba(99, 102, 241, 0.2);
-      border-color: rgba(99, 102, 241, 0.5);
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 48%, transparent);
     }
     .ft-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow: hidden;
+      min-width: 0;
+      color: var(--text);
+    }
+    .ft-name-text {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: #f1f5f9;
     }
     .ft-name.is-dir {
-      color: #7dd3fc;
+      color: var(--ft-dir);
       font-weight: 600;
+    }
+    .ft-icon {
+      font-size: 0.96rem;
+      flex-shrink: 0;
+      line-height: 1;
     }
     .ft-size {
       text-align: right;
-      color: #94a3b8;
-      font-size: 0.76rem;
+      color: var(--muted);
+      font-size: 0.75rem;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
+    }
+    .ft-del-btn {
+      padding: 4px 6px;
+      font-size: 0.76rem;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      box-shadow: none;
+      border-radius: 7px;
+      opacity: 0.6;
+      transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+    }
+    .ft-row:hover .ft-del-btn {
+      opacity: 1;
+    }
+    .ft-del-btn:hover {
+      background: color-mix(in srgb, var(--danger) 15%, transparent);
+      color: var(--danger);
+      border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+      transform: none;
     }
     .ft-center {
       display: flex;
       flex-direction: column;
       align-items: stretch;
       justify-content: center;
-      gap: 12px;
-      padding: 14px 10px;
-      background: #070b14;
+      gap: 10px;
+      padding: 16px 12px;
+      align-self: center;
+      border-radius: 15px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
     }
     .ft-center button {
-      padding: 11px 8px;
+      padding: 11px 10px;
       font-size: 0.82rem;
+      font-weight: 700;
+      border-radius: 11px;
       white-space: nowrap;
     }
-    @media (max-width: 900px) {
+    .ft-transfer-bar {
+      display: none;
+      padding: 10px 18px;
+      background: color-mix(in srgb, var(--accent-2) 13%, var(--surface-solid));
+      border-bottom: 1px solid color-mix(in srgb, var(--accent-2) 38%, var(--border));
+      flex-shrink: 0;
+    }
+    .ft-footer {
+      padding: 8px 18px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      font-size: 0.76rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    @media (max-width: 960px) {
       .ft-grid {
         grid-template-columns: 1fr;
         grid-template-rows: 1fr auto 1fr;
+        padding: 10px;
+        gap: 10px;
       }
       .ft-center {
         flex-direction: row;
+        align-self: stretch;
+        align-items: center;
         padding: 8px 12px;
       }
-      .ft-pane {
-        border-right: none;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-      }
+      .ft-center-hint { display: none; }
+      .ft-path-row .ft-filter-input { display: none; }
     }
     .saved-grid {
       display: grid;
@@ -1142,33 +1337,136 @@
         display: none;
       }
     }
-    .quick-bar {
-      display: flex;
-      gap: 8px;
-      padding: 9px 16px;
-      background: rgba(15, 23, 42, 0.94);
-      border-top: 1px solid rgba(148, 163, 184, 0.18);
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .quick-bar input {
+    /* Modern Theme-Aware Remote Terminal */
+    .term-wrap {
       flex: 1;
-      min-width: 180px;
-      background: rgba(7, 11, 20, 0.9);
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.25);
+      min-height: 0;
+      padding: 14px 18px 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .term-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--term-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 15px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .term-subbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 14px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .term-chips {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .term-chip {
+      padding: 4px 10px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+      border-radius: 999px;
+      background: var(--surface-solid);
+      color: var(--text-soft);
+      border: 1px solid var(--border);
+      box-shadow: none;
+    }
+    .term-chip:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface-solid));
+      transform: none;
+    }
+    .term-chip.chip-danger {
+      color: var(--danger);
+      border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+    }
+    .term-chip.chip-danger:hover {
+      background: color-mix(in srgb, var(--danger) 14%, var(--surface-solid));
     }
     .term-output {
       flex: 1;
       margin: 0;
-      padding: 16px 18px;
-      background: #060913;
-      color: #6ee7b7;
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-      font-size: 0.88rem;
+      padding: 16px 20px;
+      background: var(--term-bg);
+      color: var(--term-fg);
+      font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.87rem;
+      line-height: 1.58;
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-word;
+    }
+    .quick-bar {
+      display: flex;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--surface-2);
+      border-top: 1px solid var(--border);
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .term-prompt-box {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      border-radius: 11px;
+      background: var(--input-bg);
+      border: 1px solid var(--border-strong);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .term-prompt-box:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .term-prompt-glyph {
+      color: var(--accent);
+      font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+      font-weight: 800;
+      font-size: 0.95rem;
+      user-select: none;
+    }
+    .term-prompt-box input {
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      color: var(--text);
+      border: none;
+      outline: none;
+      box-shadow: none;
+      padding: 6px 2px;
+      font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+      font-size: 0.87rem;
+    }
+    .term-prompt-box input:focus {
+      box-shadow: none;
+      border: none;
+    }
+    .term-hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    @media (max-width: 720px) {
+      .term-wrap { padding: 8px; }
+      .term-hint { display: none; }
     }
     .login-box { max-width: 440px; margin: 48px auto; }
 
@@ -1261,8 +1559,8 @@
 
   <footer id="appFooter">APN Remote &amp; VPN · TLS 1.3 End-to-End Encrypted</footer>
   <div id="toast" class="toast"></div>
-  <div id="updateOverlay" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(4,7,15,0.92);backdrop-filter:blur(10px);align-items:center;justify-content:center;padding:20px">
-    <div style="max-width:420px;width:100%;background:var(--surface-solid);border:1px solid var(--accent);border-radius:16px;padding:24px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.65)">
+  <div id="updateOverlay" style="display:none;position:fixed;inset:0;z-index:2000;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);align-items:center;justify-content:center;padding:20px">
+    <div style="max-width:420px;width:100%;background:var(--surface-solid);border:1px solid var(--accent);border-radius:16px;padding:24px;text-align:center;box-shadow:var(--shadow);color:var(--text)">
       <div style="font-size:2rem;margin-bottom:8px">⚡</div>
       <div id="updateOverlayTitle" style="font-size:1.08rem;font-weight:800;margin-bottom:6px">กำลังอัปเดตและรีสตาร์ท APN...</div>
       <div id="updateOverlaySub" class="muted" style="font-size:0.84rem;margin-bottom:14px">หน้าต่างนี้จะรีโหลดเข้าเวอร์ชันใหม่ให้อัตโนมัติ ไม่ต้องปิดเปิดใหม่</div>
@@ -1272,19 +1570,19 @@
     </div>
   </div>
 
-  <!-- Live Remote Desktop Modal (Ultra-Slim 1-Row Bar + Floating Settings Popover = Maximum Screen Size!) -->
+  <!-- Live Remote Desktop Modal (Theme-Aware Ultra-Slim 1-Row Bar + Floating Settings Popover) -->
   <div id="screenModal" class="modal">
     <div class="modal-bar remote-slim-bar">
       <div class="modal-controls" style="flex-wrap:nowrap;overflow:hidden">
         <strong id="screenTitle" style="font-size:0.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🖥 Remote Desktop</strong>
-        <span id="screenMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0;padding:3px 9px;font-size:0.74rem">กำลังเชื่อมต่อ...</span>
+        <span id="screenMeta" class="badge" style="padding:3px 9px;font-size:0.74rem">กำลังเชื่อมต่อ...</span>
       </div>
       <div class="modal-controls" style="flex-wrap:nowrap;flex-shrink:0">
         <button class="success icon-btn" onclick="pasteClipboardToRemote(true)" title="วางรูปแคปหน้าจอ (Win+Shift+S) หรือข้อความจากเครื่องเราลงแชทเครื่องปลายทางทันที (หรือกด Ctrl+V)">📋 วาง</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="pullClipboardFromRemote(true)" title="ดึงรูปแคปหรือข้อความจากคลิปบอร์ดเครื่องปลายทางมาวางในเครื่องเรา (กด Ctrl+C ก็ซิงค์อัตโนมัติ)">📥 ดึง</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่องแบบ 2 ฝั่ง (ฟรี 100%)">📁 ไฟล์</button>
-        <button id="btnRemoteSettings" class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleRemoteSettingsPop()" title="ตั้งค่าภาพ FPS, เมาส์, ภาษา และปุ่มลัด">⚙️ ตั้งค่า</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleFullscreen()" title="เข้าโหมดเต็มจอ (กด Esc ค้างเพื่อออก)">⛶ เต็มจอ</button>
+        <button class="secondary icon-btn" onclick="pullClipboardFromRemote(true)" title="ดึงรูปแคปหรือข้อความจากคลิปบอร์ดเครื่องปลายทางมาวางในเครื่องเรา (กด Ctrl+C ก็ซิงค์อัตโนมัติ)">📥 ดึง</button>
+        <button class="secondary icon-btn" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่องแบบ 2 ฝั่ง (ฟรี 100%)">📁 ไฟล์</button>
+        <button id="btnRemoteSettings" class="secondary icon-btn" onclick="toggleRemoteSettingsPop()" title="ตั้งค่าภาพ FPS, เมาส์, ภาษา และปุ่มลัด">⚙️ ตั้งค่า</button>
+        <button class="secondary icon-btn" onclick="toggleFullscreen()" title="เข้าโหมดเต็มจอ (กด Esc ค้างเพื่อออก)">⛶ เต็มจอ</button>
         <button class="danger icon-btn" onclick="closeScreenModal()">✕ ปิด</button>
       </div>
     </div>
@@ -1293,10 +1591,10 @@
     <div id="remoteSettingsPop" class="remote-settings-pop">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <strong style="font-size:0.9rem">⚙️ ตั้งค่าหน้าจอรีโมต</strong>
-        <button class="secondary icon-btn" style="padding:3px 8px;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="toggleRemoteSettingsPop(false)">✕</button>
+        <button class="secondary icon-btn" style="padding:3px 8px" onclick="toggleRemoteSettingsPop(false)">✕</button>
       </div>
       <div style="display:grid;gap:8px">
-        <label style="font-size:0.78rem;color:#94a3b8">โหมดภาพ
+        <label style="font-size:0.78rem">โหมดภาพ
           <select id="selCodec" onchange="sendScreenConfig()">
             <option value="hevc">🚀 วิดีโอ 60 FPS (H.265/HEVC GPU · ประหยัดเน็ต 50%)</option>
             <option value="h264">🎬 วิดีโอ 60 FPS (H.264 GPU)</option>
@@ -1305,14 +1603,14 @@
           </select>
         </label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <label style="font-size:0.78rem;color:#94a3b8">ความละเอียด
+          <label style="font-size:0.78rem">ความละเอียด
             <select id="selScale" onchange="sendScreenConfig()">
               <option value="0" selected>Native 100%</option>
               <option value="1920">1080p</option>
               <option value="1280">720p</option>
             </select>
           </label>
-          <label style="font-size:0.78rem;color:#94a3b8">เฟรมเรต
+          <label style="font-size:0.78rem">เฟรมเรต
             <select id="selFPS" onchange="sendScreenConfig()">
               <option value="15">15 FPS</option>
               <option value="24" selected>24 FPS</option>
@@ -1321,7 +1619,7 @@
             </select>
           </label>
         </div>
-        <label style="font-size:0.78rem;color:#94a3b8">คุณภาพ / บิตเรต
+        <label style="font-size:0.78rem">คุณภาพ / บิตเรต
           <select id="selQuality" onchange="sendScreenConfig()">
             <option value="65">ประหยัดเน็ต (2.5M / Q65)</option>
             <option value="82" selected>สมดุลคมชัด (5M LD-VBR)</option>
@@ -1330,31 +1628,31 @@
           </select>
         </label>
       </div>
-      <div style="display:grid;gap:7px;padding:8px 10px;border-radius:10px;background:rgba(7,11,20,0.65);border:1px solid rgba(148,163,184,0.16)">
-        <label style="flex-direction:row;align-items:center;gap:7px;color:#e2e8f0;font-size:0.82rem;cursor:pointer">
+      <div class="remote-opts-box">
+        <label>
           <input type="checkbox" id="chkControl" checked onchange="syncCanvasCursor()" style="margin:0" /> อนุญาตควบคุมเมาส์และคีย์บอร์ด
         </label>
-        <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer">
+        <label>
           <input type="checkbox" id="chkHideCursor" onchange="syncCanvasCursor(true)" style="margin:0" /> ซ่อนเคอร์เซอร์เครื่องเรา (เมาส์เดี่ยว)
         </label>
-        <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer">
+        <label>
           <input type="checkbox" id="chkGraveSwitch" checked style="margin:0" /> กด ~ (ตัวหนอน) เพื่อเปลี่ยนภาษาปลายทาง
         </label>
-        <label style="flex-direction:row;align-items:center;gap:7px;color:#cbd5e1;font-size:0.81rem;cursor:pointer" title="คัดลอกที่เครื่องไหนก็วางอีกเครื่องได้ทันที รวมถึงคลิกขวา → Paste/Copy (ส่งเฉพาะตอนเนื้อหาเปลี่ยน)">
+        <label title="คัดลอกที่เครื่องไหนก็วางอีกเครื่องได้ทันที รวมถึงคลิกขวา → Paste/Copy (ส่งเฉพาะตอนเนื้อหาเปลี่ยน)">
           <input type="checkbox" id="chkClipSync" checked onchange="localStorage.setItem('apn_clip_autosync', this.checked ? '1' : '0')" style="margin:0" /> ซิงค์คลิปบอร์ดอัตโนมัติ (คลิกขวา Copy/Paste ได้)
         </label>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'keyframe'}); toggleRemoteSettingsPop(false);">↻ รีเฟรชหน้าจอ</button>
-        <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendInput({type:'switch_lang'}); toggleRemoteSettingsPop(false);">🌐 เปลี่ยนภาษา</button>
+        <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem" onclick="sendInput({type:'keyframe'}); toggleRemoteSettingsPop(false);">↻ รีเฟรชหน้าจอ</button>
+        <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem" onclick="sendInput({type:'switch_lang'}); toggleRemoteSettingsPop(false);">🌐 เปลี่ยนภาษา</button>
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
-        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Meta')">⊞ Win</button>
-        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Escape')">Esc</button>
-        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
-        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
-        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Backspace')">⌫</button>
-        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(245,158,11,0.22);border-color:rgba(245,158,11,0.45);color:#fde68a" title="ส่ง Ctrl+Alt+Del เพื่อปลดล็อกหน้าล็อกอิน Windows (ต้องติดตั้ง System Service)" onclick="sendInput({type:'cad'}); showToast('🔑 ส่ง Ctrl+Alt+Del แล้ว');">Ctrl+Alt+Del</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem" onclick="sendSpecialKey('Meta')">⊞ Win</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem" onclick="sendSpecialKey('Escape')">Esc</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem" onclick="sendSpecialKey('Tab')">Tab</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem" onclick="sendSpecialKey('Enter')">Enter</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem" onclick="sendSpecialKey('Backspace')">⌫</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:color-mix(in srgb,var(--warn) 18%,var(--surface-2));border-color:color-mix(in srgb,var(--warn) 48%,transparent);color:var(--warn)" title="ส่ง Ctrl+Alt+Del เพื่อปลดล็อกหน้าล็อกอิน Windows (ต้องติดตั้ง System Service)" onclick="sendInput({type:'cad'}); showToast('🔑 ส่ง Ctrl+Alt+Del แล้ว');">Ctrl+Alt+Del</button>
       </div>
       <div style="display:flex;gap:6px">
         <input id="txtSendText" type="text" placeholder="พิมพ์ข้อความส่งตรงเข้าปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
@@ -1362,7 +1660,7 @@
       </div>
     </div>
 
-    <div id="screenNotice" style="display:none;padding:6px 14px;background:#1e293b;color:#fde68a;font-size:0.8rem;border-bottom:1px solid rgba(148,163,184,0.2)"></div>
+    <div id="screenNotice" class="screen-notice"></div>
     <div class="screen-stage" id="screenStage">
       <div id="screenPlaceholder" class="screen-placeholder">⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...</div>
       <canvas id="remoteVideoCanvas" tabindex="0" style="display:none"></canvas>
@@ -1370,47 +1668,66 @@
     </div>
   </div>
 
-  <!-- Interactive Remote Terminal Modal -->
+  <!-- Interactive Remote Terminal Modal (Theme-Aware Modern Console) -->
   <div id="shellModal" class="modal">
     <div class="modal-bar">
       <div class="modal-controls">
-        <strong id="shellTitle">💻 Remote Terminal</strong>
-        <span id="shellMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">กำลังเชื่อมต่อ...</span>
+        <strong id="shellTitle" style="font-size:0.94rem">💻 Remote Terminal</strong>
+        <span id="shellMeta" class="badge"><span id="shellDot" class="dot"></span><span id="shellMetaText">กำลังเชื่อมต่อ...</span></span>
       </div>
       <div class="modal-controls">
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="document.getElementById('termOut').textContent=''">ล้างหน้าจอ</button>
+        <button class="secondary icon-btn" onclick="copyShellOutput()" title="คัดลอกข้อความทั้งหมดในหน้าจอ Terminal">📋 คัดลอก</button>
+        <button class="secondary icon-btn" onclick="clearShellOutput()" title="ล้างหน้าจอ (Ctrl+L)">🧹 ล้างหน้าจอ</button>
         <button class="danger icon-btn" onclick="closeShellModal()">✕ ปิด</button>
       </div>
     </div>
-    <pre id="termOut" class="term-output"></pre>
-    <div class="quick-bar">
-      <input id="termInput" placeholder="พิมพ์คำสั่ง (เช่น whoami, ipconfig, dir) แล้วกด Enter..." onkeydown="if(event.key==='Enter'){sendShellCmd();}" />
-      <button onclick="sendShellCmd()">ส่งคำสั่ง</button>
+    <div class="term-wrap">
+      <div class="term-card">
+        <div class="term-subbar">
+          <div class="term-chips">
+            <span class="muted" style="font-size:0.73rem;font-weight:700;margin-right:2px">คำสั่งด่วน:</span>
+            <button type="button" class="term-chip" onclick="runQuickShellCmd('whoami')">whoami</button>
+            <button type="button" class="term-chip" onclick="runQuickShellCmd('hostname')">hostname</button>
+            <button type="button" class="term-chip" onclick="runQuickShellCmd('ipconfig || ip -br a')">IP</button>
+            <button type="button" class="term-chip" onclick="runQuickShellCmd('dir || ls -la')">Files</button>
+            <button type="button" class="term-chip chip-danger" onclick="sendShellCtrlC()" title="ส่ง Ctrl+C เพื่อหยุดคำสั่งที่รันค้างอยู่">⛔ Ctrl+C</button>
+          </div>
+          <span class="term-hint">ใช้ลูกศร ↑ / ↓ ดูคำสั่งย้อนหลัง · Ctrl+L ล้างจอ</span>
+        </div>
+        <pre id="termOut" class="term-output" onclick="if(!window.getSelection().toString()) document.getElementById('termInput').focus()"></pre>
+        <div class="quick-bar">
+          <div class="term-prompt-box">
+            <span class="term-prompt-glyph">❯</span>
+            <input id="termInput" autocomplete="off" spellcheck="false" placeholder="พิมพ์คำสั่ง (เช่น whoami, ipconfig, ls -la) แล้วกด Enter..." onkeydown="handleShellKeydown(event)" />
+          </div>
+          <button onclick="sendShellCmd()" style="padding:9px 16px;white-space:nowrap">ส่งคำสั่ง ↵</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- TeamViewer-Style Dual-Pane P2P File Transfer Modal -->
+  <!-- Modern Theme-Aware Dual-Pane P2P File Transfer Modal -->
   <div id="filesModal" class="modal" style="z-index:1150">
     <div class="modal-bar">
       <div class="modal-controls">
-        <strong id="filesTitle">📁 โอนไฟล์ข้ามเครื่อง (TeamViewer Style · ฟรี 100%)</strong>
-        <span id="filesMeta" class="badge" style="background:rgba(30,41,59,0.85);color:#e2e8f0">P2P TLS 1.3 Direct</span>
+        <strong id="filesTitle" style="font-size:0.94rem">📁 โอนไฟล์ข้ามเครื่อง</strong>
+        <span id="filesMeta" class="badge"><span class="dot ok"></span><span>P2P TLS 1.3 Direct</span></span>
       </div>
       <div class="modal-controls">
         <input id="fileUploadInput" type="file" multiple style="display:none" onchange="uploadSelectedFiles(this.files); this.value='';" />
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="document.getElementById('fileUploadInput').click()">📂 เลือกไฟล์ส่งด่วน</button>
-        <button class="secondary icon-btn" style="background:rgba(30,41,59,0.85);color:#f8fafc" onclick="loadLocalDir(localCurrentPath); loadRemoteDir(filesCurrentPath);">↻ รีเฟรช 2 ฝั่ง</button>
+        <button class="secondary icon-btn" onclick="document.getElementById('fileUploadInput').click()">📂 เลือกไฟล์ส่งด่วน</button>
+        <button class="secondary icon-btn" onclick="loadLocalDir(localCurrentPath); loadRemoteDir(filesCurrentPath);">↻ รีเฟรช 2 ฝั่ง</button>
         <button class="danger icon-btn" onclick="closeFilesModal()">✕ ปิด</button>
       </div>
     </div>
 
-    <div id="filesTransferBar" style="display:none;padding:9px 16px;background:rgba(14,116,144,0.25);border-bottom:1px solid rgba(56,189,248,0.4);flex-shrink:0">
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.84rem;margin-bottom:5px;gap:10px">
-        <span id="filesTransferLabel" style="font-weight:700">กำลังโอนไฟล์...</span>
-        <span id="filesTransferStats" style="color:#7dd3fc;font-variant-numeric:tabular-nums">0%</span>
+    <div id="filesTransferBar" class="ft-transfer-bar">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.84rem;margin-bottom:6px;gap:10px">
+        <span id="filesTransferLabel" style="font-weight:700;color:var(--text)">กำลังโอนไฟล์...</span>
+        <span id="filesTransferStats" style="color:var(--accent-2);font-weight:700;font-variant-numeric:tabular-nums">0%</span>
       </div>
-      <div style="height:6px;background:rgba(15,23,42,0.8);border-radius:999px;overflow:hidden">
-        <div id="filesTransferProgress" style="height:100%;width:4%;background:linear-gradient(90deg,#38bdf8,#10b981);transition:width 0.12s ease"></div>
+      <div style="height:6px;background:var(--surface-2);border-radius:999px;overflow:hidden">
+        <div id="filesTransferProgress" style="height:100%;width:4%;background:linear-gradient(90deg,var(--accent),var(--accent-2),var(--ok));transition:width 0.12s ease"></div>
       </div>
     </div>
 
@@ -1419,26 +1736,33 @@
       <div class="ft-pane">
         <div class="ft-pane-head">
           <div class="ft-pane-title">
-            <span>💻 เครื่องนี้ (Local)</span>
-            <span id="localCountInfo" class="muted" style="font-size:0.74rem;font-weight:500">-</span>
+            <div class="ft-pane-badge"><span>💻 เครื่องนี้ (Local)</span></div>
+            <span id="localCountInfo" class="ft-count-pill">-</span>
           </div>
           <div id="localShortcuts" class="ft-shortcuts"></div>
           <form class="ft-path-row" onsubmit="event.preventDefault(); loadLocalDir(document.getElementById('localPathInput').value);">
-            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="goLocalParentDir()" title="ขึ้น 1 ชั้น">⬆</button>
+            <button type="button" class="secondary icon-btn" onclick="goLocalParentDir()" title="ขึ้น 1 ชั้น">⬆</button>
             <input id="localPathInput" type="text" placeholder="โฟลเดอร์เครื่องนี้..." />
-            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="createLocalFolder()" title="สร้างโฟลเดอร์ใหม่">+📁</button>
-            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="loadLocalDir(localCurrentPath)" title="รีเฟรช">↻</button>
+            <input id="localFilterInput" class="ft-filter-input" type="text" placeholder="🔍 กรองไฟล์..." oninput="filterFilePane('local', this.value)" />
+            <button type="button" class="secondary icon-btn" onclick="createLocalFolder()" title="สร้างโฟลเดอร์ใหม่">+📁</button>
+            <button type="button" class="secondary icon-btn" onclick="loadLocalDir(localCurrentPath)" title="รีเฟรช">↻</button>
           </form>
+        </div>
+        <div class="ft-col-head">
+          <input id="chkSelectAllLocal" type="checkbox" title="เลือกไฟล์ทั้งหมดฝั่งซ้าย" onchange="toggleSelectAllFiles('local', this.checked)" style="margin:0;cursor:pointer" />
+          <span>ชื่อไฟล์ / โฟลเดอร์</span>
+          <span style="text-align:right">ขนาด</span>
+          <span></span>
         </div>
         <div id="localListBody" class="ft-list"></div>
       </div>
 
-      <!-- CENTER ACTION STRIP (TeamViewer Style!) -->
+      <!-- CENTER ACTION DOCK -->
       <div class="ft-center">
         <button id="btnPushFiles" class="success" onclick="pushCheckedLocalFiles()" title="ส่งไฟล์ที่ติ๊กเลือกจากเครื่องนี้ไปโฟลเดอร์ฝั่งขวา">ส่งไป ➔</button>
-        <button id="btnPullFiles" style="background:linear-gradient(135deg,#0284c7,#38bdf8)" onclick="pullCheckedRemoteFiles()" title="ดึงไฟล์ที่ติ๊กเลือกจากเครื่องปลายทางมาเก็บในโฟลเดอร์ฝั่งซ้าย">⬅ ดึงมา</button>
-        <div class="muted" style="font-size:0.71rem;text-align:center;line-height:1.45;margin-top:4px">
-          ติ๊กเลือกไฟล์แล้วกดปุ่ม<br/>หรือดับเบิลคลิกโฟลเดอร์เพื่อเปิด
+        <button id="btnPullFiles" style="background:linear-gradient(135deg,var(--accent),var(--accent-2))" onclick="pullCheckedRemoteFiles()" title="ดึงไฟล์ที่ติ๊กเลือกจากเครื่องปลายทางมาเก็บในโฟลเดอร์ฝั่งซ้าย">⬅ ดึงมา</button>
+        <div class="ft-center-hint muted" style="font-size:0.71rem;text-align:center;line-height:1.45;margin-top:2px">
+          ติ๊กเลือกไฟล์แล้วกดปุ่ม<br/>ดับเบิลคลิกเพื่อเปิด/ส่งทันที
         </div>
       </div>
 
@@ -1446,24 +1770,31 @@
       <div class="ft-pane" id="filesDropZone">
         <div class="ft-pane-head">
           <div class="ft-pane-title">
-            <span id="remotePaneTitle">🌐 เครื่องปลายทาง (Remote)</span>
-            <span id="filesCountInfo" class="muted" style="font-size:0.74rem;font-weight:500">-</span>
+            <div class="ft-pane-badge"><span id="remotePaneTitle">🌐 เครื่องปลายทาง (Remote)</span></div>
+            <span id="filesCountInfo" class="ft-count-pill">-</span>
           </div>
           <div id="filesShortcuts" class="ft-shortcuts"></div>
           <form class="ft-path-row" onsubmit="event.preventDefault(); loadRemoteDir(document.getElementById('filesPathInput').value);">
-            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="goRemoteParentDir()" title="ขึ้น 1 ชั้น">⬆</button>
+            <button type="button" class="secondary icon-btn" onclick="goRemoteParentDir()" title="ขึ้น 1 ชั้น">⬆</button>
             <input id="filesPathInput" type="text" placeholder="โฟลเดอร์เครื่องปลายทาง..." />
-            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="createRemoteFolder()" title="สร้างโฟลเดอร์ใหม่">+📁</button>
-            <button type="button" class="secondary icon-btn" style="padding:4px 8px;background:rgba(30,41,59,0.9);color:#f8fafc" onclick="loadRemoteDir(filesCurrentPath)" title="รีเฟรช">↻</button>
+            <input id="remoteFilterInput" class="ft-filter-input" type="text" placeholder="🔍 กรองไฟล์..." oninput="filterFilePane('remote', this.value)" />
+            <button type="button" class="secondary icon-btn" onclick="createRemoteFolder()" title="สร้างโฟลเดอร์ใหม่">+📁</button>
+            <button type="button" class="secondary icon-btn" onclick="loadRemoteDir(filesCurrentPath)" title="รีเฟรช">↻</button>
           </form>
+        </div>
+        <div class="ft-col-head">
+          <input id="chkSelectAllRemote" type="checkbox" title="เลือกไฟล์ทั้งหมดฝั่งขวา" onchange="toggleSelectAllFiles('remote', this.checked)" style="margin:0;cursor:pointer" />
+          <span>ชื่อไฟล์ / โฟลเดอร์</span>
+          <span style="text-align:right">ขนาด</span>
+          <span></span>
         </div>
         <div id="filesListBody" class="ft-list"></div>
       </div>
     </div>
 
-    <div style="padding:7px 16px;background:rgba(15,23,42,0.95);border-top:1px solid rgba(148,163,184,0.16);font-size:0.76rem;color:#94a3b8;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;flex-shrink:0">
-      <span>💡 ติ๊กเลือกไฟล์ได้หลายไฟล์พร้อมกันแล้วกด <strong>ส่งไป ➔</strong> หรือ <strong>⬅ ดึงมา</strong> · ลากไฟล์จาก Windows/Linux มาวางฝั่งขวาได้ทันที · ฟรี 100% เข้ารหัส TLS 1.3</span>
-      <span id="filesStatusHint">พร้อมโอนไฟล์</span>
+    <div class="ft-footer">
+      <span>💡 ติ๊กเลือกหลายไฟล์พร้อมกันแล้วกด <strong>ส่งไป ➔</strong> หรือ <strong>⬅ ดึงมา</strong> · ลากไฟล์จากเครื่องมาวางฝั่งขวาได้ทันที · ฟรี 100% เข้ารหัส TLS 1.3</span>
+      <span id="filesStatusHint" style="font-weight:600;color:var(--text-soft)">พร้อมโอนไฟล์</span>
     </div>
   </div>
 
@@ -3363,20 +3694,33 @@
       heldCodes.clear();
     });
 
-    // ---- Remote Terminal ----
+    // ---- Remote Terminal (with Command History, Quick Chips & Copy) ----
     let shellWS = null;
+    const shellHistory = [];
+    let shellHistIdx = -1;
+
+    function setShellStatus(text, dotState) {
+      const txtEl = document.getElementById('shellMetaText');
+      const dotEl = document.getElementById('shellDot');
+      if (txtEl) txtEl.textContent = text;
+      if (dotEl) {
+        dotEl.className = 'dot' + (dotState ? ' ' + dotState : '');
+      }
+    }
+
     window.openRemoteShell = (agentId, name) => {
       closeShellModal();
       const modal = document.getElementById('shellModal');
       const out = document.getElementById('termOut');
-      out.textContent = `กำลังเชื่อมต่อ Terminal ไปยัง ${name || agentId}...\n`;
+      out.textContent = `⏳ กำลังเชื่อมต่อ Terminal ไปยัง ${name || agentId}...\n`;
       document.getElementById('shellTitle').textContent = `💻 Remote Terminal — ${name || agentId}`;
-      document.getElementById('shellMeta').textContent = 'Connecting...';
+      setShellStatus('Connecting...', '');
+      shellHistIdx = shellHistory.length;
       modal.classList.add('open');
 
       shellWS = new WebSocket(`${wsBaseURL()}/ws/remote/shell?agent_id=${encodeURIComponent(agentId)}`);
       shellWS.onopen = () => {
-        document.getElementById('shellMeta').textContent = 'Connected';
+        setShellStatus('Connected', 'ok');
         document.getElementById('termInput').focus();
       };
       shellWS.onmessage = (ev) => {
@@ -3384,7 +3728,7 @@
         out.scrollTop = out.scrollHeight;
       };
       shellWS.onclose = () => {
-        document.getElementById('shellMeta').textContent = 'Disconnected';
+        setShellStatus('Disconnected', 'err');
         out.textContent += '\n[Session Closed]\n';
       };
     };
@@ -3392,18 +3736,78 @@
       if (shellWS) { shellWS.close(); shellWS = null; }
       document.getElementById('shellModal').classList.remove('open');
     };
+    window.clearShellOutput = () => {
+      const out = document.getElementById('termOut');
+      if (out) out.textContent = '';
+      document.getElementById('termInput')?.focus();
+    };
+    window.copyShellOutput = async () => {
+      const txt = document.getElementById('termOut')?.textContent || '';
+      if (!txt) { showToast('ยังไม่มีข้อความใน Terminal'); return; }
+      try {
+        await navigator.clipboard.writeText(txt);
+        showToast('📋 คัดลอกข้อความ Terminal แล้ว!');
+      } catch {
+        showToast('คัดลอกไม่สำเร็จ — สามารถลากคลุมแล้วกด Ctrl+C ได้เลย');
+      }
+    };
+    window.sendShellCtrlC = () => {
+      if (!shellWS || shellWS.readyState !== WebSocket.OPEN) return;
+      shellWS.send('\x03');
+      const out = document.getElementById('termOut');
+      if (out) { out.textContent += '^C\n'; out.scrollTop = out.scrollHeight; }
+      document.getElementById('termInput')?.focus();
+    };
+    window.runQuickShellCmd = (cmd) => {
+      const el = document.getElementById('termInput');
+      if (!el) return;
+      el.value = cmd;
+      sendShellCmd();
+      el.focus();
+    };
+    window.handleShellKeydown = (e) => {
+      const el = document.getElementById('termInput');
+      if (!el) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendShellCmd();
+      } else if (e.key === 'ArrowUp') {
+        if (shellHistory.length === 0) return;
+        e.preventDefault();
+        if (shellHistIdx > 0) shellHistIdx--;
+        el.value = shellHistory[shellHistIdx] || '';
+      } else if (e.key === 'ArrowDown') {
+        if (shellHistory.length === 0) return;
+        e.preventDefault();
+        if (shellHistIdx < shellHistory.length - 1) {
+          shellHistIdx++;
+          el.value = shellHistory[shellHistIdx] || '';
+        } else {
+          shellHistIdx = shellHistory.length;
+          el.value = '';
+        }
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        clearShellOutput();
+      }
+    };
     window.sendShellCmd = () => {
       const el = document.getElementById('termInput');
       if (!shellWS || shellWS.readyState !== WebSocket.OPEN) return;
       const cmd = el.value;
+      if (cmd.trim() && shellHistory[shellHistory.length - 1] !== cmd) {
+        shellHistory.push(cmd);
+        if (shellHistory.length > 100) shellHistory.shift();
+      }
+      shellHistIdx = shellHistory.length;
       const out = document.getElementById('termOut');
-      out.textContent += `> ${cmd}\n`;
+      out.textContent += `❯ ${cmd}\n`;
       out.scrollTop = out.scrollHeight;
       shellWS.send(cmd + '\n');
       el.value = '';
     };
 
-    // ---- TeamViewer-Style Dual-Pane P2P File Transfer Manager ----
+    // ---- Modern Dual-Pane P2P File Transfer Manager ----
     let filesPeerId = '';
     let filesPeerName = '';
     let localCurrentPath = '';
@@ -3412,9 +3816,24 @@
     let filesParentPath = '';
     let localEntriesCache = [];
     let remoteEntriesCache = [];
+    let localFilterText = '';
+    let remoteFilterText = '';
     const selectedLocal = new Set();
     const selectedRemote = new Set();
     let ftProgressTimer = null;
+
+    function fileIconFor(entry) {
+      if (entry.is_dir) return '📁';
+      const n = (entry.name || '').toLowerCase();
+      if (/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/.test(n)) return '🖼';
+      if (/\.(mp4|mkv|mov|avi|webm)$/.test(n)) return '🎬';
+      if (/\.(mp3|wav|flac|ogg|m4a)$/.test(n)) return '🎵';
+      if (/\.(zip|rar|7z|tar|gz|xz|deb|rpm)$/.test(n)) return '📦';
+      if (/\.(exe|msi|sh|bat|ps1|cmd|appimage)$/.test(n)) return '⚙️';
+      if (/\.(pdf|doc|docx|xls|xlsx|ppt|pptx)$/.test(n)) return '📑';
+      if (/\.(txt|md|json|yaml|yml|toml|ini|conf|log|go|js|ts|py|html|css|sql)$/.test(n)) return '📝';
+      return '📄';
+    }
 
     window.openActiveRemoteFiles = () => {
       if (!activeScreenTarget || !activeScreenTarget.agentId) return;
@@ -3430,8 +3849,14 @@
       filesPeerName = name || peerId;
       localCurrentPath = '';
       filesCurrentPath = '';
+      localFilterText = '';
+      remoteFilterText = '';
       selectedLocal.clear();
       selectedRemote.clear();
+      const lf = document.getElementById('localFilterInput'); if (lf) lf.value = '';
+      const rf = document.getElementById('remoteFilterInput'); if (rf) rf.value = '';
+      const sal = document.getElementById('chkSelectAllLocal'); if (sal) sal.checked = false;
+      const sar = document.getElementById('chkSelectAllRemote'); if (sar) sar.checked = false;
       document.getElementById('filesTitle').textContent = `📁 โอนไฟล์ — เครื่องนี้ ⇄ ${filesPeerName}`;
       document.getElementById('remotePaneTitle').textContent = `🌐 ${filesPeerName} (Remote)`;
       document.getElementById('filesTransferBar').style.display = 'none';
@@ -3448,29 +3873,66 @@
     window.goLocalParentDir = () => { if (localParentPath) loadLocalDir(localParentPath); };
     window.goRemoteParentDir = () => { if (filesParentPath) loadRemoteDir(filesParentPath); };
 
+    window.filterFilePane = (side, q) => {
+      if (side === 'local') {
+        localFilterText = (q || '').trim().toLowerCase();
+        document.getElementById('localListBody').innerHTML = renderFilePaneRows('local', localEntriesCache);
+      } else {
+        remoteFilterText = (q || '').trim().toLowerCase();
+        document.getElementById('filesListBody').innerHTML = renderFilePaneRows('remote', remoteEntriesCache);
+      }
+    };
+
+    window.toggleSelectAllFiles = (side, checked) => {
+      const list = side === 'local' ? localEntriesCache : remoteEntriesCache;
+      const selSet = side === 'local' ? selectedLocal : selectedRemote;
+      const filter = side === 'local' ? localFilterText : remoteFilterText;
+      selSet.clear();
+      if (checked) {
+        list.forEach(e => {
+          if (!e.is_dir && (!filter || (e.name || '').toLowerCase().includes(filter))) {
+            selSet.add(e.path);
+          }
+        });
+      }
+      document.getElementById(side === 'local' ? 'localListBody' : 'filesListBody').innerHTML = renderFilePaneRows(side, list);
+      updateTransferButtonCounts();
+    };
+
     function renderFilePaneRows(side, entries) {
       const selSet = side === 'local' ? selectedLocal : selectedRemote;
+      const filter = side === 'local' ? localFilterText : remoteFilterText;
       if (!entries || entries.length === 0) {
-        return `<div class="muted" style="padding:28px;text-align:center;font-size:0.83rem">📂 โฟลเดอร์นี้ว่างเปล่า</div>`;
+        return `<div class="muted" style="padding:36px 20px;text-align:center;font-size:0.84rem">📂 โฟลเดอร์นี้ว่างเปล่า</div>`;
       }
-      return entries.map((e, idx) => {
+      const rows = [];
+      for (let idx = 0; idx < entries.length; idx++) {
+        const e = entries[idx];
+        if (filter && !(e.name || '').toLowerCase().includes(filter)) continue;
         const checked = selSet.has(e.path);
         const jsPath = esc(e.path.replace(/\\/g, '\\\\'));
         const openFn = side === 'local' ? `loadLocalDir('${jsPath}')` : `loadRemoteDir('${jsPath}')`;
         const delFn = side === 'local' ? `deleteLocalFile('${jsPath}','${esc(e.name)}')` : `deleteRemoteFile('${jsPath}','${esc(e.name)}')`;
-        return `
+        rows.push(`
           <div class="ft-row ${checked ? 'selected' : ''}"
                onclick="toggleFileSelect('${side}', ${idx}, event)"
                ondblclick="${e.is_dir ? openFn : (side === 'local' ? `pushSingleLocalFile(${idx})` : `pullSingleRemoteFile(${idx})`)}"
                title="${esc(e.name)}">
             ${e.is_dir
-              ? `<span style="text-align:center;opacity:0.7">📁</span>`
+              ? `<span style="text-align:center;opacity:0.45;font-size:0.76rem">▸</span>`
               : `<input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect('${side}', ${idx})" style="margin:0;cursor:pointer" />`}
-            <span class="ft-name ${e.is_dir ? 'is-dir' : ''}">${e.is_dir ? esc(e.name) : '📄 ' + esc(e.name)}</span>
+            <span class="ft-name ${e.is_dir ? 'is-dir' : ''}">
+              <span class="ft-icon">${fileIconFor(e)}</span>
+              <span class="ft-name-text">${esc(e.name)}</span>
+            </span>
             <span class="ft-size">${e.is_dir ? 'โฟลเดอร์' : fmtBytes(e.size)}</span>
-            <button type="button" class="secondary icon-btn" style="padding:2px 5px;font-size:0.72rem;background:transparent;border:none;color:#94a3b8" onclick="event.stopPropagation(); ${delFn}" title="ลบ">🗑</button>
-          </div>`;
-      }).join('');
+            <button type="button" class="ft-del-btn" onclick="event.stopPropagation(); ${delFn}" title="ลบ">🗑</button>
+          </div>`);
+      }
+      if (rows.length === 0) {
+        return `<div class="muted" style="padding:32px 20px;text-align:center;font-size:0.83rem">🔍 ไม่พบไฟล์ที่ตรงกับ "${esc(filter)}"</div>`;
+      }
+      return rows.join('');
     }
 
     function updateTransferButtonCounts() {
@@ -3500,6 +3962,7 @@
         localParentPath = res.parent || '';
         localEntriesCache = res.entries || [];
         selectedLocal.clear();
+        const sal = document.getElementById('chkSelectAllLocal'); if (sal) sal.checked = false;
         document.getElementById('localPathInput').value = localCurrentPath;
         document.getElementById('localCountInfo').textContent = `${localEntriesCache.length} รายการ`;
         document.getElementById('localShortcuts').innerHTML = (res.shortcuts || []).map(s =>
@@ -3508,7 +3971,7 @@
         body.innerHTML = renderFilePaneRows('local', localEntriesCache);
         updateTransferButtonCounts();
       } catch (err) {
-        body.innerHTML = `<div style="padding:22px;text-align:center;color:#fca5a5">⚠️ ${esc(err.message)}</div>`;
+        body.innerHTML = `<div style="padding:22px;text-align:center;color:var(--danger)">⚠️ ${esc(err.message)}</div>`;
       }
     };
 
@@ -3522,6 +3985,7 @@
         filesParentPath = res.parent || '';
         remoteEntriesCache = res.entries || [];
         selectedRemote.clear();
+        const sar = document.getElementById('chkSelectAllRemote'); if (sar) sar.checked = false;
         document.getElementById('filesPathInput').value = filesCurrentPath;
         document.getElementById('filesCountInfo').textContent = `${remoteEntriesCache.length} รายการ`;
         document.getElementById('filesShortcuts').innerHTML = (res.shortcuts || []).map(s =>
@@ -3530,7 +3994,7 @@
         body.innerHTML = renderFilePaneRows('remote', remoteEntriesCache);
         updateTransferButtonCounts();
       } catch (err) {
-        body.innerHTML = `<div style="padding:22px;text-align:center;color:#fca5a5">⚠️ ${esc(err.message)}</div>`;
+        body.innerHTML = `<div style="padding:22px;text-align:center;color:var(--danger)">⚠️ ${esc(err.message)}</div>`;
       }
     };
 
@@ -3708,15 +4172,14 @@
     const filesDropZone = document.getElementById('filesDropZone');
     filesDropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      filesDropZone.style.outline = '2px dashed #38bdf8';
-      filesDropZone.style.outlineOffset = '-8px';
+      filesDropZone.classList.add('drag-over');
     });
     filesDropZone.addEventListener('dragleave', () => {
-      filesDropZone.style.outline = 'none';
+      filesDropZone.classList.remove('drag-over');
     });
     filesDropZone.addEventListener('drop', (e) => {
       e.preventDefault();
-      filesDropZone.style.outline = 'none';
+      filesDropZone.classList.remove('drag-over');
       if (e.dataTransfer?.files?.length) {
         uploadSelectedFiles(e.dataTransfer.files);
       }
