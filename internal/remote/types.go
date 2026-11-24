@@ -189,7 +189,7 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 					st.codec = normalizeCodec(ev.Codec)
 					st.pendingH264Upgrade = false
 					st.fallbackNotice = ""
-					if st.codec == "h264" {
+					if st.codec == "h264" || st.codec == "hevc" {
 						st.h264AutoRetries = 0
 					}
 				}
@@ -199,8 +199,8 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 						st.forceKeyframe = true
 					}
 				}
-				h264Changed := st.codec == "h264" && (st.fps != prevFPS || st.quality != prevQuality || st.maxWidth != prevMaxW)
-				if st.codec != prevCodec || h264Changed {
+				vidChanged := (st.codec == "h264" || st.codec == "hevc") && (st.fps != prevFPS || st.quality != prevQuality || st.maxWidth != prevMaxW)
+				if st.codec != prevCodec || vidChanged {
 					st.forceKeyframe = true
 					select {
 					case st.modeCh <- struct{}{}:
@@ -258,46 +258,52 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		curQuality := st.quality
 		st.mu.Unlock()
 
-		if curCodec == "h264" {
-			h264Ctx, h264Cancel := context.WithCancel(ctx)
-			// Cancel H.264 loop immediately if user switches codec or changes FPS/Resolution/Quality
+		if curCodec == "hevc" || curCodec == "h264" {
+			vidCtx, vidCancel := context.WithCancel(ctx)
+			// Cancel video loop immediately if user switches codec or changes FPS/Resolution/Quality
 			go func() {
 				select {
-				case <-h264Ctx.Done():
+				case <-vidCtx.Done():
 				case <-st.modeCh:
-					h264Cancel()
+					vidCancel()
 				}
 			}()
 
-			encName, err := streamH264FFmpeg(h264Ctx, curFPS, curMaxW, curQuality, &seq, st.keyframeReqCh, sendFrame, sendInfo)
-			h264Cancel()
+			encName, err := streamVideoFFmpeg(vidCtx, curCodec, curFPS, curMaxW, curQuality, &seq, st.keyframeReqCh, sendFrame, sendInfo)
+			vidCancel()
 			if ctx.Err() != nil {
 				return nil
 			}
 			// If user switched mode intentionally, re-loop with new mode
 			st.mu.Lock()
-			stillH264 := st.codec == "h264"
-			if stillH264 {
-				// Auto-fallback to Smart Tiles cleanly if ffmpeg/H.264 unavailable.
-				// Keep the real failure notice visible (never wipe it on serveDirtyTileLoop entry!)
-				// and auto-upgrade back to 60 FPS H.264 once FFmpeg finishes downloading OR after
-				// a transient screen lock / UAC interruption (up to 2 auto-retries).
-				st.codec = "tiles"
-				st.forceKeyframe = true
-				hasFF := bootstrap.HasFFmpeg()
-				if !hasFF {
-					st.pendingH264Upgrade = true
-					st.fallbackNotice = "กำลังติดตั้งตัวเข้ารหัส 60 FPS (FFmpeg) เบื้องหลัง — ใช้ Smart Tiles ชั่วคราวและจะสลับเป็น 60 FPS อัตโนมัติเมื่อพร้อม"
+			stillSame := st.codec == curCodec
+			if stillSame {
+				if curCodec == "hevc" && bootstrap.HasFFmpeg() {
+					// Remote host GPU has no H.265 encoder -> seamlessly step down to 60 FPS H.264!
+					st.codec = "h264"
+					st.forceKeyframe = true
 				} else {
-					if st.h264AutoRetries < 2 {
-						st.h264AutoRetries++
+					// Auto-fallback to Smart Tiles cleanly if ffmpeg/video unavailable.
+					// Keep the real failure notice visible (never wipe it on serveDirtyTileLoop entry!)
+					// and auto-upgrade back to 60 FPS video once FFmpeg finishes downloading OR after
+					// a transient screen lock / UAC interruption (up to 2 auto-retries).
+					st.codec = "tiles"
+					st.forceKeyframe = true
+					hasFF := bootstrap.HasFFmpeg()
+					if !hasFF {
 						st.pendingH264Upgrade = true
+						st.fallbackNotice = "กำลังติดตั้งตัวเข้ารหัส 60 FPS (FFmpeg) เบื้องหลัง — ใช้ Smart Tiles ชั่วคราวและจะสลับเป็น 60 FPS อัตโนมัติเมื่อพร้อม"
+					} else {
+						if st.h264AutoRetries < 2 {
+							st.h264AutoRetries++
+							st.pendingH264Upgrade = true
+						}
+						reason := "encoder unavailable"
+						if err != nil {
+							reason = err.Error()
+						}
+						st.fallbackNotice = "โหมดวิดีโอ (" + encName + ") ไม่พร้อมชั่วคราว: " + reason + " — สลับเป็น Smart Tiles อัตโนมัติ"
 					}
-					reason := "encoder unavailable"
-					if err != nil {
-						reason = err.Error()
-					}
-					st.fallbackNotice = "โหมด H.264 (" + encName + ") ไม่พร้อมชั่วคราว: " + reason + " — สลับเป็น Smart Tiles อัตโนมัติ"
 				}
 			}
 			st.mu.Unlock()
@@ -436,9 +442,9 @@ func serveDirtyTileLoop(
 			return nil
 		case <-st.modeCh:
 			st.mu.Lock()
-			isH264 := st.codec == "h264"
+			isVid := st.codec == "h264" || st.codec == "hevc"
 			st.mu.Unlock()
-			if isH264 {
+			if isVid {
 				return nil
 			}
 		default:
@@ -741,7 +747,7 @@ func scaleBilinear(src *image.RGBA, maxWidth int, reuse *image.RGBA) (*image.RGB
 
 func normalizeCodec(c string) string {
 	switch c {
-	case "png", "h264", "tiles", "jpeg":
+	case "png", "h264", "hevc", "tiles", "jpeg":
 		return c
 	default:
 		return "tiles"

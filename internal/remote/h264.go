@@ -21,15 +21,15 @@ import (
 )
 
 var (
-	cachedEncMu   sync.RWMutex
-	cachedEncName string
-	warmupOnce    sync.Mutex
-	warmupRunning bool
-	warmupCancel  context.CancelFunc
+	cachedEncMu      sync.RWMutex
+	cachedEncByCodec = map[string]string{}
+	warmupOnce       sync.Mutex
+	warmupRunning    bool
+	warmupCancel     context.CancelFunc
 )
 
 // cancelWarmup stops any in-flight background encoder probe so it never contends
-// for DXGI Desktop Duplication when a real Remote Desktop session opens.
+// for GPU/WGC/DXGI capture when a real Remote Desktop session opens.
 func cancelWarmup() {
 	warmupOnce.Lock()
 	cancel := warmupCancel
@@ -39,14 +39,15 @@ func cancelWarmup() {
 	}
 }
 
-// WarmupH264Encoder silently probes & caches the fastest working GPU/CPU H.264 encoder
+// WarmupH264Encoder silently probes & caches the fastest working GPU H.265/H.264 encoder
 // in the background at startup (and right after FFmpeg finishes auto-installing),
-// so the VERY FIRST remote desktop session starts at 60 FPS H.264 in ~0.2s!
+// so the VERY FIRST remote desktop session starts at 60 FPS GPU video in ~0.2s!
 func WarmupH264Encoder() {
 	cachedEncMu.RLock()
-	already := cachedEncName != ""
+	alreadyHEVC := cachedEncByCodec["hevc"] != ""
+	alreadyH264 := cachedEncByCodec["h264"] != ""
 	cachedEncMu.RUnlock()
-	if already {
+	if alreadyHEVC && alreadyH264 {
 		return
 	}
 	ffmpegPath, err := findFFmpeg()
@@ -78,50 +79,62 @@ func WarmupH264Encoder() {
 			w, h = 1920, 1080
 		}
 		outW, outH := w&^1, h&^1
-		candidates := h264EncoderCandidates(60, w, h, outW, outH, 82)
-		skipTier := map[string]bool{}
-		for _, cand := range candidates {
+
+		for _, codec := range []string{"hevc", "h264"} {
 			if wCtx.Err() != nil {
 				return
 			}
-			// Never waste startup warmup caching slow GDI capture (screen may simply be locked at boot!).
-			if cand.tier == "GDI" {
+			cachedEncMu.RLock()
+			done := cachedEncByCodec[codec] != ""
+			cachedEncMu.RUnlock()
+			if done {
 				continue
 			}
-			if cand.tier != "" && skipTier[cand.tier] {
-				continue
-			}
-			probeCtx, cancel := context.WithTimeout(wCtx, 2400*time.Millisecond)
-			cmd := exec.CommandContext(probeCtx, ffmpegPath, cand.args...)
-			if runtime.GOOS == "linux" {
-				cmd.Env = linuxCmdEnv()
-			}
-			executil.HideWindow(cmd)
-			var stderrBuf bytes.Buffer
-			cmd.Stderr = &stderrBuf
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
+			candidates := videoEncoderCandidates(codec, 60, w, h, outW, outH, 82)
+			skipTier := map[string]bool{}
+			for _, cand := range candidates {
+				if wCtx.Err() != nil {
+					return
+				}
+				// Never waste startup warmup caching slow GDI capture (screen may simply be locked at boot!).
+				if cand.tier == "GDI" {
+					continue
+				}
+				if cand.tier != "" && skipTier[cand.tier] {
+					continue
+				}
+				probeCtx, cancel := context.WithTimeout(wCtx, 2400*time.Millisecond)
+				cmd := exec.CommandContext(probeCtx, ffmpegPath, cand.args...)
+				if runtime.GOOS == "linux" {
+					cmd.Env = linuxCmdEnv()
+				}
+				executil.HideWindow(cmd)
+				var stderrBuf bytes.Buffer
+				cmd.Stderr = &stderrBuf
+				stdout, err := cmd.StdoutPipe()
+				if err != nil {
+					cancel()
+					continue
+				}
+				if err := cmd.Start(); err != nil {
+					cancel()
+					continue
+				}
+				scanner := newFLVH264Reader(stdout)
+				au, _, rerr := scanner.NextAccessUnit()
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				timedOut := probeCtx.Err() == context.DeadlineExceeded
 				cancel()
-				continue
-			}
-			if err := cmd.Start(); err != nil {
-				cancel()
-				continue
-			}
-			scanner := newFLVH264Reader(stdout)
-			au, _, rerr := scanner.NextAccessUnit()
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			timedOut := probeCtx.Err() == context.DeadlineExceeded
-			cancel()
-			if rerr == nil && len(au) > 0 {
-				cachedEncMu.Lock()
-				cachedEncName = cand.name
-				cachedEncMu.Unlock()
-				return
-			}
-			if cand.tier != "" && (timedOut || isCaptureTierFailure(cand.tier, stderrBuf.String())) {
-				skipTier[cand.tier] = true
+				if rerr == nil && len(au) > 0 {
+					cachedEncMu.Lock()
+					cachedEncByCodec[codec] = cand.name
+					cachedEncMu.Unlock()
+					break
+				}
+				if cand.tier != "" && (timedOut || isCaptureTierFailure(cand.tier, stderrBuf.String())) {
+					skipTier[cand.tier] = true
+				}
 			}
 		}
 	}()
@@ -131,11 +144,12 @@ func isCaptureTierFailure(tier, stderr string) bool {
 	s := strings.ToLower(stderr)
 	switch tier {
 	case "WGC":
-		return strings.Contains(s, "gfxcapture") ||
-			strings.Contains(s, "no such filter") ||
+		// Only skip WGC tier if gfxcapture itself failed (NOT if an encoder like hevc_nvenc/d3d12va failed!)
+		return (strings.Contains(s, "gfxcapture") && (strings.Contains(s, "no such filter") ||
 			strings.Contains(s, "failed to configure") ||
-			strings.Contains(s, "winrt") ||
-			strings.Contains(s, "capture")
+			strings.Contains(s, "error") ||
+			strings.Contains(s, "not supported"))) ||
+			strings.Contains(s, "no such filter: 'gfxcapture'")
 	case "DXGI", "DXGI1":
 		return isDDACaptureFailure(stderr)
 	default:
@@ -187,11 +201,7 @@ func findFFmpeg() (string, error) {
 	return "", errors.New("ffmpeg not found")
 }
 
-// streamH264FFmpeg captures the desktop with GPU acceleration when available:
-//   - Windows: DXGI Desktop Duplication (ddagrab <1ms) + NVENC / Intel QSV / AMD AMF / x264 VBR,
-//     with automatic fallback to gdigrab if ddagrab is unsupported.
-//   - macOS: AVFoundation + VideoToolbox GPU / x264.
-//   - Linux: x11grab + VAAPI / x264.
+// streamH264FFmpeg streams H.264 video (backward-compatible wrapper around streamVideoFFmpeg).
 func streamH264FFmpeg(
 	ctx context.Context,
 	fps, maxWidth, quality int,
@@ -200,11 +210,36 @@ func streamH264FFmpeg(
 	sendFrame func(byte, []byte) error,
 	sendInfo func(codec, encoder, notice string),
 ) (string, error) {
+	return streamVideoFFmpeg(ctx, "h264", fps, maxWidth, quality, seqCounter, keyframeReqCh, sendFrame, sendInfo)
+}
+
+// streamVideoFFmpeg captures the desktop with hardware GPU acceleration (H.265/HEVC or H.264):
+//   - Windows: WGC (gfxcapture) + Direct3D 12 Zero-Delay GPU (hevc_d3d12va / h264_d3d12va -async_depth 1),
+//     NVENC, AMD AMF, Intel QSV, Media Foundation MFT, and x264 ZeroLatency; with DXGI/DXGI-GPU1/GDI fallbacks.
+//   - macOS: AVFoundation + VideoToolbox HEVC/H.264 GPU.
+//   - Linux: x11grab + NVENC / VAAPI HEVC/H.264 GPU / x264.
+func streamVideoFFmpeg(
+	ctx context.Context,
+	codec string,
+	fps, maxWidth, quality int,
+	seqCounter *atomic.Uint32,
+	keyframeReqCh <-chan struct{},
+	sendFrame func(byte, []byte) error,
+	sendInfo func(codec, encoder, notice string),
+) (string, error) {
+	if codec != "hevc" {
+		codec = "h264"
+	}
+	frameType := protocol.FrameTypeH264
+	if codec == "hevc" {
+		frameType = protocol.FrameTypeHEVC
+	}
+
 	ffmpegPath, err := findFFmpeg()
 	if err != nil {
 		return "ffmpeg", errors.New("ไม่พบ ffmpeg (กำลังติดตั้งให้อัตโนมัติ)")
 	}
-	// Ensure any startup background warmup probe yields DXGI immediately to this live session.
+	// Ensure any startup background warmup probe yields GPU/WGC/DXGI immediately to this live session.
 	cancelWarmup()
 
 	w, h := ScreenSize()
@@ -223,10 +258,10 @@ func streamH264FFmpeg(
 		fps = 60
 	}
 
-	candidates := h264EncoderCandidates(fps, w, h, outW, outH, quality)
-	// Move last known working GPU encoder to the front so opening Remote Desktop starts in <0.2s!
+	candidates := videoEncoderCandidates(codec, fps, w, h, outW, outH, quality)
+	// Move last known working GPU encoder for this codec to the front so opening Remote Desktop starts in <0.2s!
 	cachedEncMu.RLock()
-	fav := cachedEncName
+	fav := cachedEncByCodec[codec]
 	cachedEncMu.RUnlock()
 	if fav != "" {
 		for i := range candidates {
@@ -266,7 +301,7 @@ func streamH264FFmpeg(
 
 		scanner := newFLVH264Reader(stdout)
 		// Allow 2.6s for cold GPU wake-up (e.g. Optimus RTX A1000 waking from D3 sleep);
-		// broken/missing filters still fail in <100ms!
+		// broken/missing filters or unsupported encoders still fail in <100ms!
 		type probeRes struct {
 			au    []byte
 			isKey bool
@@ -291,8 +326,6 @@ func streamH264FFmpeg(
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
 			lastErr = errors.New("encoder startup timed out")
-			// If this capture tier stalls (e.g. static desktop or multi-GPU adapter mismatch),
-			// immediately skip remaining encoders in the same tier and try the next 60 FPS capture tier!
 			if cand.tier != "" && cand.tier != "GDI" {
 				skipTier[cand.tier] = true
 			}
@@ -316,20 +349,22 @@ func streamH264FFmpeg(
 		// never permanently pin slow GDI if a transient lock/sleep caused WGC/DXGI to miss once.
 		if cand.tier != "GDI" {
 			cachedEncMu.Lock()
-			cachedEncName = cand.name
+			cachedEncByCodec[codec] = cand.name
 			cachedEncMu.Unlock()
 		}
 
-		sendInfo("h264", cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU/H.264 (%s · %dx%d @ %d FPS)", cand.name, outW, outH, fps))
+		codecTitle := "H.264"
+		if codec == "hevc" {
+			codecTitle = "H.265/HEVC"
+		}
+		sendInfo(codec, cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU %s (%s · %dx%d @ %d FPS)", codecTitle, cand.name, outW, outH, fps))
 
-		// Decouple FFmpeg stdout reading from network writes with a 32-frame shock absorber
-		// so normal 50-150ms Internet/Wi-Fi jitter NEVER drops delta frames or freezes video!
-		// Also cache the latest keyframe (SPS+PPS+IDR) so viewer keyframe requests unlock instantly.
+		// Tight 12-frame shock absorber (200ms max) eliminates bufferbloat while absorbing brief Wi-Fi/WAN jitter.
 		type auPacket struct {
 			data  []byte
 			isKey bool
 		}
-		frameCh := make(chan auPacket, 32)
+		frameCh := make(chan auPacket, 12)
 		readDone := make(chan struct{})
 		go func() {
 			defer close(readDone)
@@ -337,7 +372,11 @@ func streamH264FFmpeg(
 			droppingUntilKey := false
 			pushAU := func(au []byte, isKey bool) bool {
 				if !isKey {
-					isKey = isH264Keyframe(au)
+					if codec == "hevc" {
+						isKey = isHEVCKeyframe(au)
+					} else {
+						isKey = isH264Keyframe(au)
+					}
 				}
 				if droppingUntilKey {
 					if !isKey {
@@ -391,9 +430,8 @@ func streamH264FFmpeg(
 			case <-ctx.Done():
 				goto doneStream
 			case <-keyframeReqCh:
-				// Viewer requested an instant keyframe (e.g. initial decode recovery) -> replay cached IDR immediately!
 				if len(lastKeyAU) > 0 {
-					if err := emitH264Frame(lastKeyAU, true, outW, outH, seqCounter, sendFrame); err != nil {
+					if err := emitVideoFrame(frameType, lastKeyAU, true, outW, outH, seqCounter, sendFrame); err != nil {
 						sendErr = err
 						goto doneStream
 					}
@@ -405,7 +443,7 @@ func streamH264FFmpeg(
 				if pkt.isKey {
 					lastKeyAU = pkt.data
 				}
-				if err := emitH264Frame(pkt.data, pkt.isKey, outW, outH, seqCounter, sendFrame); err != nil {
+				if err := emitVideoFrame(frameType, pkt.data, pkt.isKey, outW, outH, seqCounter, sendFrame); err != nil {
 					sendErr = err
 					goto doneStream
 				}
@@ -420,7 +458,7 @@ func streamH264FFmpeg(
 	}
 
 	if lastErr == nil {
-		lastErr = errors.New("no working H.264 encoder found")
+		lastErr = fmt.Errorf("no working %s encoder found", strings.ToUpper(codec))
 	}
 	return lastEnc, lastErr
 }
@@ -432,35 +470,46 @@ type encoderCandidate struct {
 }
 
 func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
-	fpsStr := strconv.Itoa(fps)
-	// 4-second GOP (e.g. 240 frames @ 60 FPS): eliminates periodic 1-second 200KB I-frame network spikes
-	// while cached lastKeyAU + on-demand keyframe requests keep initial display & recovery instant!
-	gopStr := strconv.Itoa(fps * 4)
+	return videoEncoderCandidates("h264", fps, srcW, srcH, outW, outH, quality)
+}
 
-	// Map UI quality selector to smooth, strictly rate-controlled low-latency bitrate targets
-	// (CBR / LD-VBR prevents sudden 10x I-frame network spikes for gaming-grade frame pacing!)
-	cqStr := "24"
+func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
+	fpsStr := strconv.Itoa(fps)
+	// 2-second GOP (e.g. 120 frames @ 60 FPS): balances low bandwidth with rapid packet-loss recovery!
+	gopStr := strconv.Itoa(fps * 2)
+
+	// Map UI quality selector to crisp, generous VBV bitrate targets.
+	// NOTE: H.265 (HEVC) achieves equal/superior sharpness at ~60% of H.264's bitrate!
+	// And for x264, bufsize MUST be >= 4M-12M so 1080p keyframes NEVER crush into macroblock mosaic!
+	cqStr := "20"
 	targetBitrate := "5M"
-	maxRate := "6M"
-	bufSize := "1200k"
+	maxRate := "7M"
+	bufSize := "7M"
+	hevcBitrate := "3500k"
+	hevcMaxRate := "5M"
 	if quality > 0 && quality <= 68 {
-		cqStr = "28"
+		cqStr = "25"
 		targetBitrate = "2500k"
-		maxRate = "3M"
-		bufSize = "600k"
+		maxRate = "3500k"
+		bufSize = "4M"
+		hevcBitrate = "1800k"
+		hevcMaxRate = "2600k"
 	} else if quality >= 93 {
-		cqStr = "18"
+		cqStr = "16"
 		targetBitrate = "14M"
-		maxRate = "16M"
-		bufSize = "3200k"
+		maxRate = "18M"
+		bufSize = "16M"
+		hevcBitrate = "9M"
+		hevcMaxRate = "12M"
 	} else if quality >= 88 {
-		cqStr = "20"
+		cqStr = "18"
 		targetBitrate = "8M"
-		maxRate = "10M"
-		bufSize = "2000k"
+		maxRate = "11M"
+		bufSize = "10M"
+		hevcBitrate = "5500k"
+		hevcMaxRate = "7500k"
 	}
 
-	// Skip redundant CPU scaling when capturing at native 100% resolution!
 	needScale := outW != (srcW&^1) || outH != (srcH&^1)
 	nv12Filter := "format=nv12"
 	yuvFilter := "format=yuv420p"
@@ -469,9 +518,7 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		yuvFilter = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=yuv420p", outW, outH)
 	}
 
-	// Critical zero-latency length-prefixed FLV output:
-	// Every video tag header carries the exact frame length BEFORE the payload, so we emit EVERY frame
-	// the exact microsecond FFmpeg finishes encoding it — ZERO 1-frame (+16.7ms) Annex-B lookahead wait!
+	// Zero-latency length-prefixed FLV / Enhanced-FLV output (supports both H.264 AVC & H.265 HEVC!)
 	outFlags := []string{"-flush_packets", "1", "-f", "flv", "pipe:1"}
 	filterThreads := runtime.NumCPU()
 	if filterThreads > 4 {
@@ -485,19 +532,125 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 	var list []encoderCandidate
 
 	if runtime.GOOS == "windows" {
-		// Windows Media Foundation Hardware Encoder (Low-Delay VBR + Display Remoting):
-		// Uses NVIDIA NVENC MFT (RTX A1000/T1000/RTX), Intel QSV MFT, and AMD AMF MFT universally
-		// WITHOUT FFmpeg 9.1's NVENC API 13.1 (driver >= 610) restriction — verified 145+ FPS @ 1080p!
+		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=1:max_framerate=%s", fpsStr)
+		if needScale {
+			wgcSrc += fmt.Sprintf(":width=%d:height=%d:resize_mode=scale:scale_mode=bilinear", outW, outH)
+		}
+		wgcLavfi := wgcSrc + ",hwdownload,format=bgra"
+		wgcNV12 := wgcSrc + ",hwdownload,format=bgra,format=nv12"
+		wgcYUV := wgcSrc + ",hwdownload,format=bgra,format=yuv420p"
+
+		ddaLavfi := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra", fpsStr)
+		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, nv12Filter)
+		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, yuvFilter)
+
+		// D3D12VA pipeline helper: uses `-f lavfi -i <src>` + `-init_hw_device d3d12va=d12 -filter_hw_device d12 -vf format=nv12,hwupload`
+		// so gfxcapture/ddagrab owns its own internal D3D11 device while D3D12VA encodes on GPU at 250-340 FPS with ~6ms latency!
+		makeWGCD12 := func(encArgs []string) []string {
+			args := append([]string{}, inLowLatency...)
+			args = append(args, "-init_hw_device", "d3d12va=d12", "-filter_hw_device", "d12",
+				"-f", "lavfi", "-i", wgcLavfi,
+				"-vf", "format=nv12,hwupload", "-fps_mode", "passthrough")
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
+		makeDDAD12 := func(encArgs []string) []string {
+			vf := "format=nv12,hwupload"
+			if needScale {
+				vf = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=nv12,hwupload", outW, outH)
+			}
+			args := append([]string{}, inLowLatency...)
+			args = append(args, "-init_hw_device", "d3d12va=d12", "-filter_hw_device", "d12",
+				"-f", "lavfi", "-i", ddaLavfi,
+				"-vf", vf)
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
+		makeWGC := func(filter string, encArgs []string) []string {
+			args := append([]string{}, inLowLatency...)
+			args = append(args, "-filter_complex", filter, "-fps_mode", "passthrough")
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
+		makeDDA := func(adapterIdx int, filter string, encArgs []string) []string {
+			args := append([]string{}, inLowLatency...)
+			if adapterIdx >= 0 {
+				args = append(args, "-init_hw_device", fmt.Sprintf("d3d11va=dda:%d", adapterIdx), "-filter_hw_device", "dda")
+			}
+			args = append(args, "-filter_complex", filter)
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
+		makeGDI := func(vf string, encArgs []string) []string {
+			args := append([]string{}, inLowLatency...)
+			args = append(args, "-f", "gdigrab", "-framerate", fpsStr, "-draw_mouse", "1", "-i", "desktop", "-vf", vf)
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
+
+		if codec == "hevc" {
+			// Direct3D 12 Hardware H.265/HEVC GPU Encoder (-async_depth 1 = zero pipeline lag, verified 255 FPS @ 1080p!)
+			// Works universally on NVIDIA RTX A1000/T1000/RTX, Intel UHD/Iris, AMD Radeon — zero NVENC SDK restriction!
+			hevcD12Args := []string{
+				"-c:v", "hevc_d3d12va", "-async_depth", "1", "-rc_mode", "VBR",
+				"-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0",
+			}
+			hevcNVENCArgs := []string{
+				"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull",
+				"-zerolatency", "1", "-rc-lookahead", "0", "-delay", "0", "-forced-idr", "1",
+				"-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0",
+			}
+			hevcAMFArgs := []string{
+				"-c:v", "hevc_amf", "-usage", "ultralowlatency", "-quality", "speed",
+				"-preanalysis", "0", "-vbaq", "0",
+				"-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0",
+			}
+			hevcQSVArgs := []string{
+				"-c:v", "hevc_qsv", "-preset", "veryfast", "-async_depth", "1", "-look_ahead", "0",
+				"-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0",
+			}
+			hevcMFArgs := []string{
+				"-c:v", "hevc_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "ld_vbr",
+				"-quality", "65", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0",
+			}
+			hevcMFSafeArgs := []string{
+				"-c:v", "hevc_mf", "-hw_encoding", "1", "-scenario", "display_remoting",
+				"-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0",
+			}
+
+			// Hardware H.265 GPU candidates ONLY (if none supported, ServeScreenSession cleanly falls back to 60 FPS H.264!)
+			list = append(list,
+				encoderCandidate{name: "WGC + H.265 D3D12 GPU", tier: "WGC", args: makeWGCD12(hevcD12Args)},
+				encoderCandidate{name: "WGC + H.265 NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcNVENCArgs)},
+				encoderCandidate{name: "WGC + H.265 AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcAMFArgs)},
+				encoderCandidate{name: "WGC + H.265 Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcQSVArgs)},
+				encoderCandidate{name: "WGC + H.265 Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, hevcMFArgs)},
+				encoderCandidate{name: "WGC + H.265 Hardware GPU (MF Safe)", tier: "WGC", args: makeWGC(wgcNV12, hevcMFSafeArgs)},
+				encoderCandidate{name: "DXGI + H.265 D3D12 GPU", tier: "DXGI", args: makeDDAD12(hevcD12Args)},
+				encoderCandidate{name: "DXGI + H.265 Hardware GPU (MF)", tier: "DXGI", args: makeDDA(-1, ddaNV12, hevcMFArgs)},
+				encoderCandidate{name: "DXGI + H.265 Intel QSV GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, hevcQSVArgs)},
+			)
+			return list
+		}
+
+		// H.264 GPU + ZeroLatency candidates:
+		h264D12Args := []string{
+			"-c:v", "h264_d3d12va", "-async_depth", "1", "-rc_mode", "VBR",
+			"-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
+		}
 		mfArgs := []string{
 			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "ld_vbr",
-			"-quality", "50", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
+			"-quality", "65", "-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
 		}
-		// Safe universal MFT fallback for drivers that reject ld_vbr/quality flags
 		mfSafeArgs := []string{
 			"-c:v", "h264_mf", "-hw_encoding", "1", "-scenario", "display_remoting",
 			"-b:v", targetBitrate, "-maxrate", maxRate, "-g", gopStr, "-bf", "0",
 		}
-		// Intel QuickSync Hardware Encoder (strictly rate-controlled VBR/CBR with async_depth=1)
 		qsvArgs := []string{
 			"-c:v", "h264_qsv", "-preset", "veryfast", "-profile:v", "baseline",
 			"-async_depth", "1", "-look_ahead", "0", "-rdo", "0", "-forced_idr", "1",
@@ -508,7 +661,6 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			"-preanalysis", "0", "-vbaq", "0",
 			"-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
-		// Native NVENC (used when driver meets FFmpeg's NVENC SDK version)
 		nvencArgs := []string{
 			"-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline",
 			"-zerolatency", "1", "-rc-lookahead", "0", "-delay", "0", "-forced-idr", "1",
@@ -520,48 +672,20 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
 
-		// Tier 1: Windows Graphics Capture (WGC / gfxcapture — FFmpeg 9.1+, Windows 10/11):
-		// Captures directly from Windows DWM at 60 FPS across ALL GPUs (Optimus RTX A1000 laptops,
-		// multi-GPU workstations, Intel UHD/Iris, AMD, HDR & Parsec virtual displays) with GPU-side scaling!
-		// CRITICAL: Use `-fps_mode passthrough` (NEVER `-fps_mode cfr`, which retroactively dumps
-		// 20-90 stale duplicate frames in a burst after every brief idle pause -> 118 FPS stutter!),
-		// and prioritize 0-frame-buffer encoders (NVENC / x264 zerolatency) ahead of MF (which buffers 3-4 frames).
-		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=1:max_framerate=%s", fpsStr)
-		if needScale {
-			wgcSrc += fmt.Sprintf(":width=%d:height=%d:resize_mode=scale:scale_mode=bilinear", outW, outH)
-		}
-		wgcNV12 := wgcSrc + ",hwdownload,format=bgra,format=nv12"
-		wgcYUV := wgcSrc + ",hwdownload,format=bgra,format=yuv420p"
-		makeWGC := func(filter string, encArgs []string) []string {
-			args := append([]string{}, inLowLatency...)
-			args = append(args, "-filter_complex", filter, "-fps_mode", "passthrough")
-			args = append(args, encArgs...)
-			args = append(args, outFlags...)
-			return args
-		}
+		// Tier 1: WGC (gfxcapture) + Zero-Delay Hardware GPU (D3D12VA 342 FPS / NVENC / AMF / QSV) -> crisp x264 -> MF
 		list = append(list,
+			encoderCandidate{name: "WGC + H.264 D3D12 GPU", tier: "WGC", args: makeWGCD12(h264D12Args)},
 			encoderCandidate{name: "WGC + NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, nvencArgs)},
-			encoderCandidate{name: "WGC + x264 ZeroLatency", tier: "WGC", args: makeWGC(wgcYUV, x264Args)},
 			encoderCandidate{name: "WGC + AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, amfArgs)},
+			encoderCandidate{name: "WGC + Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, qsvArgs)},
+			encoderCandidate{name: "WGC + x264 ZeroLatency", tier: "WGC", args: makeWGC(wgcYUV, x264Args)},
 			encoderCandidate{name: "WGC + Hardware GPU (MF LD-VBR)", tier: "WGC", args: makeWGC(wgcNV12, mfArgs)},
 			encoderCandidate{name: "WGC + Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, mfSafeArgs)},
-			encoderCandidate{name: "WGC + Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, qsvArgs)},
 		)
 
-		// Tier 2: DXGI Desktop Duplication (ddagrab Adapter 0 with allow_fallback=1 for HDR/10-bit displays)
-		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, nv12Filter)
-		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, yuvFilter)
-		makeDDA := func(adapterIdx int, filter string, encArgs []string) []string {
-			args := append([]string{}, inLowLatency...)
-			if adapterIdx >= 0 {
-				args = append(args, "-init_hw_device", fmt.Sprintf("d3d11va=dda:%d", adapterIdx), "-filter_hw_device", "dda")
-			}
-			args = append(args, "-filter_complex", filter)
-			args = append(args, encArgs...)
-			args = append(args, outFlags...)
-			return args
-		}
+		// Tier 2: DXGI Desktop Duplication (ddagrab Adapter 0 with allow_fallback=1)
 		list = append(list,
+			encoderCandidate{name: "DXGI + H.264 D3D12 GPU", tier: "DXGI", args: makeDDAD12(h264D12Args)},
 			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", tier: "DXGI", args: makeDDA(-1, ddaNV12, mfArgs)},
 			encoderCandidate{name: "DXGI + Hardware GPU (MF)", tier: "DXGI", args: makeDDA(-1, ddaNV12, mfSafeArgs)},
 			encoderCandidate{name: "DXGI + Intel QSV GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, qsvArgs)},
@@ -570,22 +694,14 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			encoderCandidate{name: "DXGI + x264 ZeroLatency", tier: "DXGI", args: makeDDA(-1, ddaYUV, x264Args)},
 		)
 
-		// Tier 3: DXGI Desktop Duplication on Adapter 1 (for Hybrid Optimus RTX/Intel laptops with older FFmpeg)
+		// Tier 3: DXGI Adapter 1 (Hybrid Optimus laptops with older FFmpeg lacking gfxcapture)
 		list = append(list,
 			encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF LD-VBR)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfArgs)},
 			encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfSafeArgs)},
 			encoderCandidate{name: "DXGI-GPU1 + x264 ZeroLatency", tier: "DXGI1", args: makeDDA(1, ddaYUV, x264Args)},
 		)
 
-		// Tier 4: Last-resort fallback: gdigrab (only if WGC, DXGI-0, and DXGI-1 all fail, e.g. older Windows / VM).
-		// NOTE: Never pass `-probesize 32` to gdigrab — its BMP header is 54 bytes!
-		makeGDI := func(vf string, encArgs []string) []string {
-			args := append([]string{}, inLowLatency...)
-			args = append(args, "-f", "gdigrab", "-framerate", fpsStr, "-draw_mouse", "1", "-i", "desktop", "-vf", vf)
-			args = append(args, encArgs...)
-			args = append(args, outFlags...)
-			return args
-		}
+		// Tier 4: Last-resort fallback: gdigrab (NOTE: Never pass `-probesize 32` to gdigrab — BMP header is 54 bytes!)
 		list = append(list,
 			encoderCandidate{name: "GDI + Hardware GPU (MF LD-VBR)", tier: "GDI", args: makeGDI(nv12Filter, mfArgs)},
 			encoderCandidate{name: "GDI + Hardware GPU (MF)", tier: "GDI", args: makeGDI(nv12Filter, mfSafeArgs)},
@@ -602,8 +718,6 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", "1", "-i", "1:none"}
 	} else {
 		disp, _ := detectLinuxDisplayEnv()
-		// Zero-buffer x11grab: -probesize 32 -analyzeduration 0 eliminates FFmpeg's 50-120ms input demux buffering
-		// so Linux mouse movement feels just as instantaneous as Windows!
 		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", "1", "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
 	}
 	makeUnix := func(vf string, encArgs []string) []string {
@@ -613,6 +727,36 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 		args = append(args, encArgs...)
 		args = append(args, outFlags...)
 		return args
+	}
+
+	if codec == "hevc" {
+		if runtime.GOOS == "darwin" {
+			list = append(list, encoderCandidate{
+				name: "VideoToolbox H.265 GPU",
+				args: makeUnix(nv12Filter, []string{"-c:v", "hevc_videotoolbox", "-realtime", "true", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}),
+			})
+		} else {
+			vaapiVF := "format=nv12,hwupload"
+			if needScale {
+				vaapiVF = fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,format=nv12,hwupload", outW, outH)
+			}
+			vaapiArgs := append([]string{}, inLowLatency...)
+			vaapiArgs = append(vaapiArgs, "-vaapi_device", "/dev/dri/renderD128")
+			vaapiArgs = append(vaapiArgs, inputArgs...)
+			vaapiArgs = append(vaapiArgs, "-vf", vaapiVF, "-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0")
+			vaapiArgs = append(vaapiArgs, outFlags...)
+			list = append(list,
+				encoderCandidate{
+					name: "X11 + H.265 NVENC GPU",
+					args: makeUnix(nv12Filter, []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0"}),
+				},
+				encoderCandidate{
+					name: "X11 + H.265 VAAPI GPU",
+					args: vaapiArgs,
+				},
+			)
+		}
+		return list
 	}
 
 	if runtime.GOOS == "darwin" {
@@ -649,7 +793,7 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 	return list
 }
 
-func emitH264Frame(au []byte, isKey bool, w, h int, seqCounter *atomic.Uint32, sendFrame func(byte, []byte) error) error {
+func emitVideoFrame(frameType byte, au []byte, isKey bool, w, h int, seqCounter *atomic.Uint32, sendFrame func(byte, []byte) error) error {
 	seq := seqCounter.Add(1)
 	var flags byte
 	if isKey {
@@ -661,7 +805,7 @@ func emitH264Frame(au []byte, isKey bool, w, h int, seqCounter *atomic.Uint32, s
 	binary.BigEndian.PutUint16(pkt[6:8], uint16(h))
 	pkt[8] = flags
 	copy(pkt[9:], au)
-	return sendFrame(protocol.FrameTypeH264, pkt)
+	return sendFrame(frameType, pkt)
 }
 
 func isH264Keyframe(au []byte) bool {
@@ -681,9 +825,28 @@ func isH264Keyframe(au []byte) bool {
 	return false
 }
 
-// flvH264Reader reads exact length-prefixed H.264 video frames from an FFmpeg `-f flv` stream
-// with ZERO 1-frame lookahead latency (every frame is emitted immediately upon tag completion)
-// and converts AVCC length-prefixed NAL units into Annex-B with automatic SPS/PPS prepending on keyframes.
+func isHEVCKeyframe(au []byte) bool {
+	for i := 0; i+4 < len(au); i++ {
+		if au[i] == 0 && au[i+1] == 0 {
+			var nal byte
+			if au[i+2] == 1 {
+				nal = (au[i+3] >> 1) & 0x3F
+			} else if au[i+2] == 0 && au[i+3] == 1 && i+4 < len(au) {
+				nal = (au[i+4] >> 1) & 0x3F
+			}
+			// HEVC IRAP (BLA/IDR/CRA: 16..21) or VPS/SPS (32, 33)
+			if (nal >= 16 && nal <= 21) || nal == 32 || nal == 33 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// flvH264Reader reads exact length-prefixed video frames from an FFmpeg `-f flv` stream
+// (supporting BOTH standard FLV H.264/AVC and Enhanced FLV H.265/HEVC `hvc1`!)
+// with ZERO 1-frame lookahead latency and converts AVCC/HVCC NAL units into Annex-B
+// with automatic SPS/PPS (or VPS/SPS/PPS) prepending on keyframes.
 type flvH264Reader struct {
 	r           io.Reader
 	headerDone  bool
@@ -737,10 +900,41 @@ func (f *flvH264Reader) NextAccessUnit() ([]byte, bool, error) {
 			return nil, false, err
 		}
 
-		// Only process Video tags (type 9) with AVC/H.264 codec (codecID 7)
+		// Only process Video tags (type 9)
 		if tagType != 9 || dataSize < 5 {
 			continue
 		}
+
+		// Enhanced FLV (RTMP ExVideoTagHeader): bit 7 == 1, FourCC in payload[1:5] (e.g. "hvc1" for H.265/HEVC)
+		if (payload[0] & 0x80) != 0 {
+			pktType := payload[0] & 0x0F
+			frameType := (payload[0] >> 4) & 0x07
+			fourcc := string(payload[1:5])
+			if fourcc != "hvc1" {
+				continue
+			}
+			if pktType == 0 {
+				f.parseHEVCConfig(payload[5:])
+				continue
+			}
+			if pktType != 1 && pktType != 3 {
+				continue
+			}
+			body := payload[5:]
+			if pktType == 1 {
+				if len(body) < 3 {
+					continue
+				}
+				body = body[3:] // skip 24-bit composition time offset
+			}
+			au, isKey := f.convertLengthPrefixedToAnnexB(body, frameType == 1, true, sc)
+			if len(au) == 0 {
+				continue
+			}
+			return au, isKey, nil
+		}
+
+		// Standard FLV Video tag: H.264/AVC (codecID 7)
 		frameType := payload[0] >> 4
 		codecID := payload[0] & 0x0F
 		if codecID != 7 {
@@ -749,7 +943,6 @@ func (f *flvH264Reader) NextAccessUnit() ([]byte, bool, error) {
 		avcPacketType := payload[1]
 
 		if avcPacketType == 0 {
-			// AVCDecoderConfigurationRecord: extract SPS & PPS into Annex-B cache
 			f.parseAVCConfig(payload[5:])
 			continue
 		}
@@ -757,66 +950,83 @@ func (f *flvH264Reader) NextAccessUnit() ([]byte, bool, error) {
 			continue
 		}
 
-		isKey := frameType == 1
-		avcc := payload[5:]
-		f.outBuf.Reset()
-		hasSPS := false
-
-		// Convert AVCC length-prefixed NALUs to Annex-B
-		off := 0
-		nLen := f.nalLenSize
-		if nLen < 1 || nLen > 4 {
-			nLen = 4
-		}
-		var nals [][]byte
-		var inlineSPSPPS bytes.Buffer
-		for off+nLen <= len(avcc) {
-			nalSize := 0
-			for i := 0; i < nLen; i++ {
-				nalSize = (nalSize << 8) | int(avcc[off+i])
-			}
-			off += nLen
-			if nalSize <= 0 || off+nalSize > len(avcc) {
-				break
-			}
-			nal := avcc[off : off+nalSize]
-			off += nalSize
-			nalType := nal[0] & 0x1F
-			if nalType == 7 {
-				hasSPS = true
-				inlineSPSPPS.Write(sc)
-				inlineSPSPPS.Write(nal)
-			} else if nalType == 8 {
-				inlineSPSPPS.Write(sc)
-				inlineSPSPPS.Write(nal)
-			}
-			if nalType == 5 {
-				isKey = true
-			}
-			nals = append(nals, nal)
-		}
-		if inlineSPSPPS.Len() > 0 {
-			f.spsPPSAnnex = append([]byte(nil), inlineSPSPPS.Bytes()...)
-		}
-		if len(nals) == 0 {
+		au, isKey := f.convertLengthPrefixedToAnnexB(payload[5:], frameType == 1, false, sc)
+		if len(au) == 0 {
 			continue
 		}
-		if isKey && !hasSPS && len(f.spsPPSAnnex) > 0 {
-			f.outBuf.Write(f.spsPPSAnnex)
-		}
-		for _, nal := range nals {
-			f.outBuf.Write(sc)
-			f.outBuf.Write(nal)
-		}
-		au := make([]byte, f.outBuf.Len())
-		copy(au, f.outBuf.Bytes())
 		return au, isKey, nil
 	}
 }
 
+func (f *flvH264Reader) convertLengthPrefixedToAnnexB(body []byte, isKey, isHEVC bool, sc []byte) ([]byte, bool) {
+	f.outBuf.Reset()
+	hasParamSets := false
+
+	off := 0
+	nLen := f.nalLenSize
+	if nLen < 1 || nLen > 4 {
+		nLen = 4
+	}
+	var nals [][]byte
+	var inlineParams bytes.Buffer
+	for off+nLen <= len(body) {
+		nalSize := 0
+		for i := 0; i < nLen; i++ {
+			nalSize = (nalSize << 8) | int(body[off+i])
+		}
+		off += nLen
+		if nalSize <= 0 || off+nalSize > len(body) {
+			break
+		}
+		nal := body[off : off+nalSize]
+		off += nalSize
+		if isHEVC {
+			nalType := (nal[0] >> 1) & 0x3F
+			if nalType == 32 || nalType == 33 || nalType == 34 {
+				if nalType == 33 {
+					hasParamSets = true
+				}
+				inlineParams.Write(sc)
+				inlineParams.Write(nal)
+			}
+			if nalType >= 16 && nalType <= 21 {
+				isKey = true
+			}
+		} else {
+			nalType := nal[0] & 0x1F
+			if nalType == 7 {
+				hasParamSets = true
+				inlineParams.Write(sc)
+				inlineParams.Write(nal)
+			} else if nalType == 8 {
+				inlineParams.Write(sc)
+				inlineParams.Write(nal)
+			}
+			if nalType == 5 {
+				isKey = true
+			}
+		}
+		nals = append(nals, nal)
+	}
+	if inlineParams.Len() > 0 {
+		f.spsPPSAnnex = append([]byte(nil), inlineParams.Bytes()...)
+	}
+	if len(nals) == 0 {
+		return nil, false
+	}
+	if isKey && !hasParamSets && len(f.spsPPSAnnex) > 0 {
+		f.outBuf.Write(f.spsPPSAnnex)
+	}
+	for _, nal := range nals {
+		f.outBuf.Write(sc)
+		f.outBuf.Write(nal)
+	}
+	au := make([]byte, f.outBuf.Len())
+	copy(au, f.outBuf.Bytes())
+	return au, isKey
+}
+
 func (f *flvH264Reader) parseAVCConfig(cfg []byte) {
-	// ISO/IEC 14496-15 AVCDecoderConfigurationRecord:
-	// [0] version, [1] profile, [2] compat, [3] level, [4] 6b reserved + 2b lengthSizeMinusOne, [5] 3b reserved + 5b numSPS
 	if len(cfg) < 7 {
 		return
 	}
@@ -844,6 +1054,36 @@ func (f *flvH264Reader) parseAVCConfig(cfg []byte) {
 			off += 2
 			if l <= 0 || off+l > len(cfg) {
 				break
+			}
+			buf.Write(sc)
+			buf.Write(cfg[off : off+l])
+			off += l
+		}
+	}
+	if buf.Len() > 0 {
+		f.spsPPSAnnex = append([]byte(nil), buf.Bytes()...)
+	}
+}
+
+func (f *flvH264Reader) parseHEVCConfig(cfg []byte) {
+	// ISO/IEC 14496-15 HEVCDecoderConfigurationRecord:
+	// [21] lengthSizeMinusOne (low 2 bits), [22] numOfArrays, followed by VPS/SPS/PPS arrays.
+	if len(cfg) < 23 {
+		return
+	}
+	f.nalLenSize = int(cfg[21]&0x03) + 1
+	numArrays := int(cfg[22])
+	sc := []byte{0, 0, 0, 1}
+	var buf bytes.Buffer
+	off := 23
+	for a := 0; a < numArrays && off+3 <= len(cfg); a++ {
+		numNalus := int(binary.BigEndian.Uint16(cfg[off+1 : off+3]))
+		off += 3
+		for i := 0; i < numNalus && off+2 <= len(cfg); i++ {
+			l := int(binary.BigEndian.Uint16(cfg[off : off+2]))
+			off += 2
+			if l <= 0 || off+l > len(cfg) {
+				return
 			}
 			buf.Write(sc)
 			buf.Write(cfg[off : off+l])

@@ -1298,6 +1298,7 @@
       <div style="display:grid;gap:8px">
         <label style="font-size:0.78rem;color:#94a3b8">โหมดภาพ
           <select id="selCodec" onchange="sendScreenConfig()">
+            <option value="hevc">🚀 วิดีโอ 60 FPS (H.265/HEVC GPU · ประหยัดเน็ต 50%)</option>
             <option value="h264">🎬 วิดีโอ 60 FPS (H.264 GPU)</option>
             <option value="tiles" selected>⚡ ลื่น + คมชัด (Smart JPEG)</option>
             <option value="png">💎 ตัวหนังสือคมกริบ (Hybrid PNG)</option>
@@ -2271,10 +2272,40 @@
     let lastMoveSent = 0;
     let h264Decoder = null;
     let h264Configured = false;
+    let h264DecoderKind = '';
     let h264WaitingKey = true;
     let h264Errors = 0;
     let h264HwAccel = 'prefer-hardware';
     let h264PtsUs = 0;
+    let webCodecsHEVCSupported = false;
+    if ('VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function') {
+      VideoDecoder.isConfigSupported({
+        codec: 'hvc1.1.6.L120.90',
+        codedWidth: 1920,
+        codedHeight: 1080,
+        optimizeForLatency: true
+      }).then(r => { webCodecsHEVCSupported = !!(r && r.supported); }).catch(() => {});
+    }
+
+    function versionAtLeast(ver, minVer) {
+      if (!ver) return false;
+      const pa = String(ver).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+      const pb = String(minVer).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const a = pa[i] || 0, b = pb[i] || 0;
+        if (a !== b) return a > b;
+      }
+      return true;
+    }
+
+    function peerSupportsHEVC(agentId) {
+      if (!webCodecsHEVCSupported) return false;
+      if (lastMode !== 'peer') return true;
+      const cp = (lastPeerData?.connected_peers || []).find(p => p.id === agentId || p.device_id === agentId);
+      const sp = (lastPeerData?.saved_peers || []).find(s => s.device_id === agentId || s.name === cp?.name);
+      const ver = cp?.version || sp?.version || '';
+      return versionAtLeast(ver, '1.2.16');
+    }
     const videoFrameQueue = [];
     let videoRAF = 0;
     const canvas = document.getElementById('remoteCanvas');
@@ -2489,6 +2520,7 @@
         h264Decoder = null;
       }
       h264Configured = false;
+      h264DecoderKind = '';
       h264WaitingKey = true;
       h264PtsUs = 0;
     }
@@ -2508,11 +2540,11 @@
       return 'avc1.42E033'; // Constrained Baseline Level 5.1 (supports 1080p60 & 4K)
     }
 
-    function ensureH264Decoder(nal, w, h) {
+    function ensureH264Decoder(nal, w, h, kind = 'h264') {
       if (!('VideoDecoder' in window)) return false;
-      if (h264Decoder && h264Configured) return true;
+      if (h264Decoder && h264Configured && h264DecoderKind === kind) return true;
       resetH264Decoder();
-      const codecStr = extractAVC1Codec(nal);
+      const codecStr = kind === 'hevc' ? 'hvc1.1.6.L120.90' : extractAVC1Codec(nal);
       try {
         h264Decoder = new VideoDecoder({
           output: (frame) => {
@@ -2528,7 +2560,6 @@
             h264Errors++;
             resetH264Decoder();
             if (h264Errors === 1 && h264HwAccel === 'prefer-hardware') {
-              // If the viewer GPU driver rejects prefer-hardware, fall back to Chromium's universal 60 FPS software/hybrid H.264 decoder!
               h264HwAccel = 'no-preference';
               sendInput({ type: 'keyframe' });
             } else if (h264Errors === 2 && h264HwAccel !== 'prefer-software') {
@@ -2536,11 +2567,22 @@
               sendInput({ type: 'keyframe' });
             } else if (h264Errors >= 4) {
               const notice = document.getElementById('screenNotice');
-              notice.textContent = `WebCodecs H.264 (${codecStr}) ไม่รองรับบนเบราว์เซอร์นี้ — สลับกลับ Smart JPEG อัตโนมัติ`;
-              notice.style.display = 'block';
-              document.getElementById('selCodec').value = 'tiles';
-              document.getElementById('selFPS').value = '24';
-              sendScreenConfig();
+              if (kind === 'hevc') {
+                // Step down from H.265 to H.264 60 FPS before ever falling back to Smart Tiles!
+                h264Errors = 0;
+                h264HwAccel = 'prefer-hardware';
+                notice.textContent = `WebCodecs H.265 (${codecStr}) ไม่รองรับบนเครื่องนี้ — สลับเป็น H.264 60 FPS อัตโนมัติ`;
+                notice.style.display = 'block';
+                document.getElementById('selCodec').value = 'h264';
+                document.getElementById('selFPS').value = '60';
+                sendScreenConfig();
+              } else {
+                notice.textContent = `WebCodecs H.264 (${codecStr}) ไม่รองรับบนเบราว์เซอร์นี้ — สลับกลับ Smart JPEG อัตโนมัติ`;
+                notice.style.display = 'block';
+                document.getElementById('selCodec').value = 'tiles';
+                document.getElementById('selFPS').value = '24';
+                sendScreenConfig();
+              }
             } else {
               // Immediately request a fresh keyframe on decoder glitch so it recovers in <100ms!
               sendInput({ type: 'keyframe' });
@@ -2555,6 +2597,7 @@
           optimizeForLatency: true
         });
         h264Configured = true;
+        h264DecoderKind = kind;
         startVideoRenderLoop();
         return true;
       } catch {
@@ -2597,12 +2640,11 @@
       document.getElementById('screenMeta').textContent = isReconnect ? 'กำลังเชื่อมใหม่...' : 'กำลังเชื่อมต่อ...';
       modal.classList.add('open');
 
-      // Always prefer 60 FPS GPU H.264 when the browser supports WebCodecs!
-      // (Do NOT rely on stale peer handshake has_ffmpeg — a freshly installed PC may have just finished
-      // auto-downloading FFmpeg; the host checks live and hot-upgrades to 60 FPS H.264 automatically!)
+      // Prefer 60 FPS GPU H.265/HEVC (40-50% less bandwidth & sharper!) when both viewer & peer (>= v1.2.16) support it;
+      // otherwise seamlessly use 60 FPS GPU H.264 for full backward compatibility with older versions!
       if (!isReconnect) {
         if ('VideoDecoder' in window) {
-          document.getElementById('selCodec').value = 'h264';
+          document.getElementById('selCodec').value = peerSupportsHEVC(agentId) ? 'hevc' : 'h264';
           document.getElementById('selFPS').value = '60';
         } else {
           document.getElementById('selCodec').value = 'tiles';
@@ -2638,13 +2680,22 @@
         }
       }, 3500);
       screenFallbackTimer = setTimeout(() => {
+        const curC = document.getElementById('selCodec').value;
         if (screenTotalFrames === 0 && screenWS === ws && ws.readyState === WebSocket.OPEN &&
-            document.getElementById('selCodec').value === 'h264') {
-          notice.textContent = 'ยังไม่ได้รับภาพ H.264 ภายใน 12 วินาที — สลับเป็น Smart Tiles อัตโนมัติเพื่อให้ภาพขึ้นทันที...';
-          notice.style.display = 'block';
-          document.getElementById('selCodec').value = 'tiles';
-          document.getElementById('selFPS').value = '24';
-          sendScreenConfig();
+            (curC === 'h264' || curC === 'hevc')) {
+          if (curC === 'hevc') {
+            notice.textContent = 'ยังไม่ได้รับภาพ H.265 ภายใน 12 วินาที — สลับเป็น H.264 60 FPS อัตโนมัติ...';
+            notice.style.display = 'block';
+            document.getElementById('selCodec').value = 'h264';
+            document.getElementById('selFPS').value = '60';
+            sendScreenConfig();
+          } else {
+            notice.textContent = 'ยังไม่ได้รับภาพ H.264 ภายใน 12 วินาที — สลับเป็น Smart Tiles อัตโนมัติเพื่อให้ภาพขึ้นทันที...';
+            notice.style.display = 'block';
+            document.getElementById('selCodec').value = 'tiles';
+            document.getElementById('selFPS').value = '24';
+            sendScreenConfig();
+          }
         }
       }, 12000);
 
@@ -2678,12 +2729,12 @@
             if (msg.encoder) screenEncoderLabel = msg.encoder;
             if (msg.codec && document.getElementById('selCodec').value !== msg.codec) {
               document.getElementById('selCodec').value = msg.codec;
-              if (msg.codec === 'h264') {
+              if (msg.codec === 'h264' || msg.codec === 'hevc') {
                 document.getElementById('selFPS').value = '60';
               }
             }
-            // Only show the notice banner for warnings/fallbacks; normal GPU H.264 info is shown cleanly in the top badge.
-            if (msg.notice && msg.codec !== 'h264') {
+            // Only show the notice banner for warnings/fallbacks; normal GPU H.265/H.264 info is shown cleanly in the top badge.
+            if (msg.notice && msg.codec !== 'h264' && msg.codec !== 'hevc') {
               notice.textContent = msg.notice;
               notice.style.display = 'block';
             } else {
@@ -2746,15 +2797,24 @@
               screenWS.send(JSON.stringify({ type: 'ack', seq }));
             }
           });
-        } else if (fType === 0x05) {
+        } else if (fType === 0x05 || fType === 0x08) {
           if (buf.length < 10) return;
+          const kind = fType === 0x08 ? 'hevc' : 'h264';
           const seq = dv.getUint32(0);
           const sw = dv.getUint16(4);
           const sh = dv.getUint16(6);
           const isKey = (buf[8] & 1) === 1;
           const nal = buf.subarray(9);
           if (h264WaitingKey && !isKey) return;
-          if (!ensureH264Decoder(nal, sw, sh)) {
+          if (!ensureH264Decoder(nal, sw, sh, kind)) {
+            if (kind === 'hevc') {
+              notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.265 — สลับเป็น H.264 60 FPS อัตโนมัติ';
+              notice.style.display = 'block';
+              document.getElementById('selCodec').value = 'h264';
+              document.getElementById('selFPS').value = '60';
+              sendScreenConfig();
+              return;
+            }
             notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.264 — สลับกลับ Smart Tiles อัตโนมัติ';
             notice.style.display = 'block';
             document.getElementById('selCodec').value = 'tiles';
@@ -2762,8 +2822,6 @@
             return;
           }
           h264WaitingKey = false;
-          // Only recover decoder on genuine severe stall (>24 queued frames = 400ms), NOT normal TCP micro-bursts!
-          // (Previous >5 threshold killed the decoder on normal 6-frame WSS TCP bursts, dropping FPS to ~25!)
           if (h264Decoder.decodeQueueSize > 24 && !isKey) {
             resetH264Decoder();
             sendInput({ type: 'keyframe' });

@@ -1263,7 +1263,7 @@ func bridgeScreenWS(w http.ResponseWriter, r *http.Request, opener streamOpener)
 			return
 		}
 		switch fType {
-		case protocol.FrameTypeJPEG, protocol.FrameTypeTileBatch, protocol.FrameTypeH264:
+		case protocol.FrameTypeJPEG, protocol.FrameTypeTileBatch, protocol.FrameTypeH264, protocol.FrameTypeHEVC:
 			tagged := make([]byte, 1+len(payload))
 			tagged[0] = fType
 			copy(tagged[1:], payload)

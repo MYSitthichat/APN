@@ -120,4 +120,79 @@ func TestH264CandidatesSanity(t *testing.T) {
 	if !isCaptureTierFailure("WGC", "No such filter: 'gfxcapture'") {
 		t.Errorf("expected missing gfxcapture filter to trigger WGC skip")
 	}
+	// Ensure an encoder error (like NVENC API version mismatch) does NOT wrongly skip the WGC capture tier!
+	if isCaptureTierFailure("WGC", "[hevc_nvenc] Driver does not support the required nvenc API version") {
+		t.Errorf("encoder failure must not skip WGC capture tier")
+	}
+	hevcCands := videoEncoderCandidates("hevc", 60, 1920, 1080, 1920, 1080, 82)
+	if len(hevcCands) == 0 {
+		t.Fatalf("expected non-empty HEVC GPU encoder candidates")
+	}
+}
+
+func TestEnhancedFLVHEVCReader(t *testing.T) {
+	var flv bytes.Buffer
+	flv.Write([]byte{'F', 'L', 'V', 0x01, 0x01, 0, 0, 0, 9, 0, 0, 0, 0})
+
+	// Enhanced FLV SequenceStart (ExHeader=1, FrameType=1, PacketType=0, FourCC="hvc1")
+	vps := []byte{0x40, 0x01, 0x0C, 0x01}
+	sps := []byte{0x42, 0x01, 0x01, 0x01}
+	pps := []byte{0x44, 0x01, 0xC0, 0xF7}
+	var cfg bytes.Buffer
+	cfg.WriteByte(0x90) // 1001_0000 (ExHeader=1, Keyframe=1, SeqStart=0)
+	cfg.WriteString("hvc1")
+	cfg.Write(make([]byte, 21)) // HEVCDecoderConfigurationRecord header bytes 0..20
+	cfg.WriteByte(0xFF)         // lengthSizeMinusOne = 3 (4-byte NAL length)
+	cfg.WriteByte(3)            // numOfArrays = 3 (VPS, SPS, PPS)
+	for _, entry := range []struct {
+		t byte
+		b []byte
+	}{{32, vps}, {33, sps}, {34, pps}} {
+		cfg.WriteByte(entry.t)
+		binary.Write(&cfg, binary.BigEndian, uint16(1))
+		binary.Write(&cfg, binary.BigEndian, uint16(len(entry.b)))
+		cfg.Write(entry.b)
+	}
+	flv.Write(buildFLVTag(9, cfg.Bytes()))
+
+	// Enhanced FLV CodedFramesX keyframe (ExHeader=1, FrameType=1, PacketType=3, FourCC="hvc1")
+	idr := []byte{0x26, 0x01, 0xAF, 0x09} // NAL type 19 (IDR_W_RADL)
+	var kf bytes.Buffer
+	kf.WriteByte(0x93)
+	kf.WriteString("hvc1")
+	binary.Write(&kf, binary.BigEndian, uint32(len(idr)))
+	kf.Write(idr)
+	flv.Write(buildFLVTag(9, kf.Bytes()))
+
+	// Enhanced FLV CodedFramesX inter-frame (ExHeader=1, FrameType=2, PacketType=3, FourCC="hvc1")
+	trail := []byte{0x02, 0x01, 0x11, 0x22} // NAL type 1 (TRAIL_R)
+	var pf bytes.Buffer
+	pf.WriteByte(0xA3)
+	pf.WriteString("hvc1")
+	binary.Write(&pf, binary.BigEndian, uint32(len(trail)))
+	pf.Write(trail)
+	flv.Write(buildFLVTag(9, pf.Bytes()))
+
+	r := newFLVH264Reader(&flv)
+	au1, isKey1, err := r.NextAccessUnit()
+	if err != nil || !isKey1 {
+		t.Fatalf("read HEVC keyframe: key=%v err=%v", isKey1, err)
+	}
+	want1 := []byte{
+		0, 0, 0, 1, 0x40, 0x01, 0x0C, 0x01,
+		0, 0, 0, 1, 0x42, 0x01, 0x01, 0x01,
+		0, 0, 0, 1, 0x44, 0x01, 0xC0, 0xF7,
+		0, 0, 0, 1, 0x26, 0x01, 0xAF, 0x09,
+	}
+	if !bytes.Equal(au1, want1) {
+		t.Fatalf("HEVC keyframe mismatch: got %x want %x", au1, want1)
+	}
+	au2, isKey2, err := r.NextAccessUnit()
+	if err != nil || isKey2 {
+		t.Fatalf("read HEVC delta: key=%v err=%v", isKey2, err)
+	}
+	want2 := []byte{0, 0, 0, 1, 0x02, 0x01, 0x11, 0x22}
+	if !bytes.Equal(au2, want2) {
+		t.Fatalf("HEVC delta mismatch: got %x want %x", au2, want2)
+	}
 }
