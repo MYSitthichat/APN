@@ -138,6 +138,16 @@ fi
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
 fi
+# If APN System Service (apn.service) is installed, sync the upgraded binary & restart it automatically
+if [ -f /etc/systemd/system/apn.service ] && [ -x /usr/lib/apn/apn ]; then
+  if cp -f /usr/lib/apn/apn /usr/local/bin/apn.new 2>/dev/null; then
+    chmod 0755 /usr/local/bin/apn.new || true
+    mv -f /usr/local/bin/apn.new /usr/local/bin/apn || true
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart apn.service >/dev/null 2>&1 || true
+  fi
+fi
 exit 0
 `
 

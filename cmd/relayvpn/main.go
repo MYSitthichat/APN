@@ -73,6 +73,8 @@ func main() {
 		err = runPeer(args, logger)
 	case "service":
 		err = runService(args)
+	case "set-password":
+		err = runSetPassword(args)
 	case "install":
 		st, ierr := installer.Install()
 		if ierr != nil {
@@ -338,6 +340,14 @@ func runPeer(args []string, logger *slog.Logger) error {
 	// Single-instance check: verify whether an ACTUAL APN instance (not HiveMQ/Tomcat/other web app
 	// sharing port 8080!) is already running on cfg.UIAddr or APN's fallback port range.
 	if cfg.UIAddr != "" {
+		// When starting as the authoritative OS System Service right after install/upgrade,
+		// give a retiring user-mode instance up to 3.5s to hand off the local UI port cleanly.
+		if *serviceWorker {
+			handoffDeadline := time.Now().Add(3500 * time.Millisecond)
+			for time.Now().Before(handoffDeadline) && findRunningAPNAddr(cfg.UIAddr) != "" {
+				time.Sleep(150 * time.Millisecond)
+			}
+		}
 		if existingAddr := findRunningAPNAddr(cfg.UIAddr); existingAddr != "" {
 			if *openBrowser {
 				tray.OpenAppWindow("http://" + existingAddr)
@@ -618,16 +628,72 @@ func runService(args []string) error {
 	}
 }
 
+func runSetPassword(args []string) error {
+	defaultCfg := installer.DefaultConfigPath()
+	if service.IsElevated() {
+		if sysCfg := service.SystemConfigPath(); sysCfg != "" {
+			if _, err := os.Stat(sysCfg); err == nil {
+				defaultCfg = sysCfg
+			}
+		}
+	}
+	fs := flag.NewFlagSet("set-password", flag.ExitOnError)
+	cfgPath := fs.String("config", defaultCfg, "Path to peer.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return errors.New("usage: apn set-password [-config /etc/apn/peer.json] <new-password>")
+	}
+	raw := strings.TrimSpace(fs.Arg(0))
+	if len(raw) < 4 {
+		return errors.New("รหัสผ่านถาวรต้องมีอย่างน้อย 4 ตัวอักษร")
+	}
+
+	var cfg *config.PeerConfig
+	var err error
+	if _, serr := os.Stat(*cfgPath); errors.Is(serr, os.ErrNotExist) {
+		cfg, err = config.DefaultPeerConfig(filepath.Dir(*cfgPath))
+		if err != nil {
+			return err
+		}
+	} else {
+		cfg, err = config.LoadJSON[config.PeerConfig](*cfgPath)
+		if err != nil {
+			return err
+		}
+	}
+	hashed, err := security.HashPassword(raw)
+	if err != nil {
+		return err
+	}
+	cfg.PermanentPasswordHash = hashed
+	if err := config.SaveJSON(*cfgPath, cfg, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("Updated permanent password for Device ID %s (%s)\n", p2p.FormatDeviceID(cfg.DeviceID), *cfgPath)
+
+	if runtime.GOOS == "linux" && service.IsElevated() && filepath.Clean(*cfgPath) == filepath.Clean(service.SystemConfigPath()) {
+		if info := service.GetInfo(); info.Installed && info.Running {
+			if err := exec.Command("systemctl", "restart", info.ServiceName).Run(); err == nil {
+				fmt.Printf("Restarted %s to apply the new password.\n", info.ServiceName)
+			}
+		}
+	}
+	return nil
+}
+
 func printUsage() {
 	fmt.Println(`APN — Cross-Platform 60 FPS P2P Remote Desktop & Encrypted L3 VPN
 
 Usage:
-  APN peer      [-open] [-tray] [-tray-icon] [-ui 127.0.0.1:18480]
-  APN service   <install|uninstall|run|status>  Install/manage OS System Service (runs before login)
-  APN install   Install APN with Desktop/Start Menu shortcuts & Login Auto-Start
-  APN uninstall Remove APN installation, shortcuts, and Auto-Start
-  APN server    -config ./config/server.json
-  APN agent     -config ./config/agent.json
-  APN client    -config ./config/client.json
+  APN peer         [-open] [-tray] [-tray-icon] [-ui 127.0.0.1:18480]
+  APN service      <install|uninstall|run|status>  Install/manage OS System Service (runs before login)
+  APN set-password <new-password>                  Set permanent password for this device (and restart service)
+  APN install      Install APN with Desktop/Start Menu shortcuts & Login Auto-Start
+  APN uninstall    Remove APN installation, shortcuts, and Auto-Start
+  APN server       -config ./config/server.json
+  APN agent        -config ./config/agent.json
+  APN client       -config ./config/client.json
   APN version`)
 }

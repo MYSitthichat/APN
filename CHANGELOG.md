@@ -4,6 +4,12 @@
 
 ---
 
+## v1.3.3 (2026-11-24)
+- **แก้ปัญหาระบบอัปเดต `.deb` + `apn.service` และไฟล์ตั้งค่า (`peer.json`) แยกกันบน Linux:**
+  - **ซิงค์ไบนารี `.deb` เข้า `apn.service` อัตโนมัติ (`scripts/mkdeb/main.go`, `internal/updater/updater.go`):** เมื่อติดตั้ง/อัปเกรดไฟล์ `.deb` บนเครื่องที่มี `apn.service` ระบบจะคัดลอกไบนารีใหม่ไปยัง `/usr/local/bin/apn` และสั่ง `systemctl restart apn.service` ให้ทันที (และฝั่ง Auto-Update จาก Service จะซิงค์ `/usr/lib/apn/apn` กลับให้ตรงกันด้วย)
+  - **ย้ายและรวมรหัสผ่านถาวรจากผู้ใช้จริงอัตโนมัติ (`service_linux.go`, `service.go`):** แก้บั๊ก `sudo apn service install` ที่เดิมไปหา config ใน `/root/` ให้ตรวจหา `~/.config/APN/peer.json` ของ `$SUDO_USER` อัตโนมัติ พร้อมรวม `permanent_password_hash` และประวัติเครื่องเข้าสู่ `/etc/apn/peer.json` โดยไม่ทำรหัสผ่านหาย
+  - **รับช่วงพอร์ต Service ไร้รอยต่อ + คำสั่ง `apn set-password` (`cmd/relayvpn/main.go`):** ให้ `-service-worker` รอรับช่วงพอร์ตจากโปรเซส User เดิมนานสูงสุด 3.5 วินาที และเพิ่มคำสั่ง `sudo apn set-password <รหัสใหม่>` สำหรับตั้ง/รีเซ็ตรหัสผ่านถาวรและรีสตาร์ท Service ในคำสั่งเดียว
+
 ## v1.3.2 (2026-11-24)
 - **แก้ปัญหาจับภาพหน้าจอ Linux ไม่ได้ (`exit status 1`) เมื่อรันเป็น System Service (`apn.service`) หรือบนเครื่องที่มีหลาย Display (`:0` / `:1`):**
   - **ระบบค้นหา Graphical Session อัตโนมัติเต็มรูปแบบบน Linux (`internal/remote/x11_linux.go`):** สแกนหา `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` และ `UID/GID` จาก `/proc/*/environ`, อาร์กิวเมนต์ `-auth` ของ `Xorg` (`/proc/*/cmdline`), และไฟล์ Xauthority ทุก Display Manager (`GDM3`, `LightDM`, `SDDM`, `.mutter-Xwaylandauth.*`, `/home/*/.Xauthority`)

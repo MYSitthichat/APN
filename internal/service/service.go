@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -55,8 +56,9 @@ func copyFileAtomic(src, dst string, perm os.FileMode) error {
 	return nil
 }
 
-// migrateFilesIfMissing copies user peer config & helper binaries into system-wide service directories
-// without overwriting an already-migrated system config.
+// migrateConfigDir copies user peer config & TLS certs into system-wide service directories.
+// If dst peer.json already exists with the same device_id (or no permanent password yet),
+// it merges permanent_password_hash & known_peers from src so upgrading/reinstalling never loses passwords!
 func migrateConfigDir(srcCfgPath, dstCfgDir string) {
 	if srcCfgPath == "" {
 		return
@@ -66,12 +68,55 @@ func migrateConfigDir(srcCfgPath, dstCfgDir string) {
 	for _, name := range []string{"peer.json", "peer.crt", "peer.key"} {
 		src := filepath.Join(srcDir, name)
 		dst := filepath.Join(dstCfgDir, name)
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
 		if _, err := os.Stat(dst); err == nil {
-			continue // keep existing system config if already present
+			if name == "peer.json" {
+				mergePeerPasswordIfMissing(src, dst)
+			}
+			continue
 		}
-		if _, err := os.Stat(src); err == nil {
-			_ = copyFileAtomic(src, dst, 0o600)
+		_ = copyFileAtomic(src, dst, 0o600)
+	}
+}
+
+func mergePeerPasswordIfMissing(srcPath, dstPath string) {
+	srcBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		return
+	}
+	dstBytes, err := os.ReadFile(dstPath)
+	if err != nil {
+		return
+	}
+	var srcMap, dstMap map[string]any
+	if json.Unmarshal(srcBytes, &srcMap) != nil || json.Unmarshal(dstBytes, &dstMap) != nil {
+		return
+	}
+	srcHash, _ := srcMap["permanent_password_hash"].(string)
+	dstHash, _ := dstMap["permanent_password_hash"].(string)
+	changed := false
+	if dstHash == "" && srcHash != "" {
+		dstMap["permanent_password_hash"] = srcHash
+		changed = true
+	}
+	if _, hasKnown := dstMap["known_peers"]; !hasKnown {
+		if srcKnown, ok := srcMap["known_peers"]; ok {
+			dstMap["known_peers"] = srcKnown
+			changed = true
 		}
+	}
+	if !changed {
+		return
+	}
+	out, err := json.MarshalIndent(dstMap, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := dstPath + ".tmp"
+	if os.WriteFile(tmp, out, 0o600) == nil {
+		_ = os.Rename(tmp, dstPath)
 	}
 }
 

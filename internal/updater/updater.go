@@ -315,6 +315,18 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	if runtime.GOOS == "linux" && filepath.Clean(targetPath) != filepath.Clean(exePath) {
 		syncLinuxUserDesktopOverride(targetPath)
 	}
+	// If Linux System Service (root, /usr/local/bin/apn) self-updated and a .deb binary also exists at /usr/lib/apn/apn,
+	// keep /usr/lib/apn/apn in sync so desktop launcher and apn.service always run the exact same version!
+	if runtime.GOOS == "linux" && os.Geteuid() == 0 && filepath.Clean(targetPath) == "/usr/local/bin/apn" {
+		if _, err := os.Stat("/usr/lib/apn/apn"); err == nil {
+			if data, rerr := os.ReadFile(targetPath); rerr == nil {
+				tmpDeb := "/usr/lib/apn/apn.new"
+				if os.WriteFile(tmpDeb, data, 0o755) == nil {
+					_ = os.Rename(tmpDeb, "/usr/lib/apn/apn")
+				}
+			}
+		}
+	}
 
 	m.mu.Lock()
 	m.status.Progress = 100

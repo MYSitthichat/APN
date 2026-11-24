@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
@@ -75,6 +76,7 @@ func InstallSystemService(migrateCfg, migrateBin string) (Info, error) {
 		}
 	}
 
+	migrateCfg, migrateBin = resolveLinuxSudoMigratePaths(migrateCfg, migrateBin)
 	migrateConfigDir(migrateCfg, SystemDataDir())
 	migrateBinDir(migrateBin, SystemBinDir())
 
@@ -128,4 +130,57 @@ func UninstallSystemService() error {
 
 func RunSystemService() error {
 	return errors.New("on Linux, systemd starts 'apn peer -service-worker' directly")
+}
+
+// resolveLinuxSudoMigratePaths fixes `sudo apn service install` where $HOME=/root would miss
+// the real desktop user's ~/.config/APN/peer.json (keeping their 9-digit ID & permanent password!).
+func resolveLinuxSudoMigratePaths(cfgPath, binDir string) (string, string) {
+	cfgMissing := cfgPath == "" || strings.HasPrefix(cfgPath, "/root/")
+	if !cfgMissing {
+		if _, err := os.Stat(cfgPath); err != nil {
+			cfgMissing = true
+		}
+	}
+	binMissing := binDir == "" || strings.HasPrefix(binDir, "/root/")
+	if !binMissing {
+		if _, err := os.Stat(binDir); err != nil {
+			binMissing = true
+		}
+	}
+
+	var homes []string
+	if sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER")); sudoUser != "" && sudoUser != "root" {
+		if u, err := user.Lookup(sudoUser); err == nil && u.HomeDir != "" {
+			homes = append(homes, u.HomeDir)
+		} else {
+			homes = append(homes, filepath.Join("/home", sudoUser))
+		}
+	}
+	if matches, err := filepath.Glob("/home/*"); err == nil {
+		homes = append(homes, matches...)
+	}
+
+	for _, h := range homes {
+		if cfgMissing {
+			for _, sub := range []string{".config/APN/peer.json", ".config/apn/peer.json"} {
+				cand := filepath.Join(h, sub)
+				if _, err := os.Stat(cand); err == nil {
+					cfgPath = cand
+					cfgMissing = false
+					break
+				}
+			}
+		}
+		if binMissing {
+			for _, sub := range []string{".config/APN/bin", ".local/share/APN/bin", ".config/apn/bin"} {
+				cand := filepath.Join(h, sub)
+				if st, err := os.Stat(cand); err == nil && st.IsDir() {
+					binDir = cand
+					binMissing = false
+					break
+				}
+			}
+		}
+	}
+	return cfgPath, binDir
 }
