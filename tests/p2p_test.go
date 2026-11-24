@@ -320,6 +320,15 @@ func TestEasyPINPermanentPasswordAndApproval(t *testing.T) {
 	}
 	hostNode.SetConfigPath(filepath.Join(dirHost, "peer.json"))
 	hostNode.SetRendezvousHTTPClient(rdvHTTP)
+	// Cleanups run last-in-first-out, so this runs before t.TempDir removes dirHost. Stopping the
+	// nodes is not enough: background goroutines (rendezvous sync, peer disconnect bookkeeping)
+	// can still save peer.json while RemoveAll runs, which failed CI with "directory not empty".
+	// SetConfigPath takes the node lock that every save holds, so clearing the path waits for an
+	// in-flight save and turns later saves into no-ops.
+	t.Cleanup(func() {
+		cancel()
+		hostNode.SetConfigPath("")
+	})
 
 	callerNode, err := p2p.NewNode(callerCfg, logger)
 	if err != nil {
