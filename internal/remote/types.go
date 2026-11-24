@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -294,7 +295,13 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 						st.pendingH264Upgrade = true
 						st.fallbackNotice = "กำลังติดตั้งตัวเข้ารหัส 60 FPS (FFmpeg) เบื้องหลัง — ใช้ Smart Tiles ชั่วคราวและจะสลับเป็น 60 FPS อัตโนมัติเมื่อพร้อม"
 					} else {
-						if st.h264AutoRetries < 2 {
+						maxRetries := 2
+						if os.Getenv("APN_SERVICE_WORKER") == "1" {
+							// On a System Service PC sitting at the Windows Lock/Login Screen (Winlogon),
+							// keep retrying GPU video capture so it upgrades to 60 FPS the instant the user logs in!
+							maxRetries = 120
+						}
+						if st.h264AutoRetries < maxRetries {
 							st.h264AutoRetries++
 							st.pendingH264Upgrade = true
 						}
@@ -476,7 +483,11 @@ func serveDirtyTileLoop(
 		pendingUp := st.pendingH264Upgrade
 		retryWait := 3 * time.Second
 		if st.h264AutoRetries > 0 {
-			retryWait = 12 * time.Second
+			if os.Getenv("APN_SERVICE_WORKER") == "1" {
+				retryWait = 6 * time.Second
+			} else {
+				retryWait = 12 * time.Second
+			}
 		}
 		if pendingUp && time.Since(lastFFCheckAt) >= retryWait {
 			lastFFCheckAt = time.Now()

@@ -1,0 +1,131 @@
+//go:build linux
+
+package service
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+const (
+	LinuxServiceName = "apn.service"
+	LinuxUnitPath    = "/etc/systemd/system/apn.service"
+)
+
+func SystemBinaryPath() string { return "/usr/local/bin/apn" }
+func SystemDataDir() string    { return "/etc/apn" }
+func SystemConfigPath() string { return "/etc/apn/peer.json" }
+func SystemBinDir() string     { return "/var/lib/apn/bin" }
+
+func IsElevated() bool {
+	return os.Geteuid() == 0
+}
+
+func GetInfo() Info {
+	info := Info{
+		Supported:        true,
+		RunningAsService: os.Getenv("APN_SYSTEMD_SERVICE") == "1" && os.Geteuid() == 0,
+		ServiceName:      LinuxServiceName,
+		BinaryPath:       SystemBinaryPath(),
+		ConfigPath:       SystemConfigPath(),
+	}
+	if _, err := os.Stat(LinuxUnitPath); err == nil {
+		info.Installed = true
+	}
+	if out, err := exec.Command("systemctl", "is-active", LinuxServiceName).Output(); err == nil {
+		info.Running = strings.TrimSpace(string(out)) == "active"
+	}
+	return info
+}
+
+func InstallSystemService(migrateCfg, migrateBin string) (Info, error) {
+	if !IsElevated() {
+		exe, err := os.Executable()
+		if err != nil {
+			return GetInfo(), err
+		}
+		if pkexec, err := exec.LookPath("pkexec"); err == nil {
+			args := []string{exe, "service", "install"}
+			if migrateCfg != "" {
+				args = append(args, "-migrate-cfg", migrateCfg)
+			}
+			if migrateBin != "" {
+				args = append(args, "-migrate-bin", migrateBin)
+			}
+			if out, rerr := exec.Command(pkexec, args...).CombinedOutput(); rerr != nil {
+				return GetInfo(), fmt.Errorf("ติดตั้ง System Service ไม่สำเร็จ (pkexec): %s", strings.TrimSpace(string(out)))
+			}
+			return GetInfo(), nil
+		}
+		return GetInfo(), errors.New("กรุณารันด้วยสิทธิ์ root: sudo apn service install")
+	}
+
+	curExe, err := os.Executable()
+	if err != nil {
+		return GetInfo(), err
+	}
+	dstExe := SystemBinaryPath()
+	if filepath.Clean(curExe) != filepath.Clean(dstExe) {
+		if err := copyFileAtomic(curExe, dstExe, 0o755); err != nil {
+			return GetInfo(), err
+		}
+	}
+
+	migrateConfigDir(migrateCfg, SystemDataDir())
+	migrateBinDir(migrateBin, SystemBinDir())
+
+	unit := fmt.Sprintf(`[Unit]
+Description=APN Remote Desktop & Built-in L3 VPN (System Service)
+After=network-online.target display-manager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=APN_SYSTEMD_SERVICE=1
+Environment=APN_SERVICE_WORKER=1
+Environment=APN_BIN_DIR=%s
+ExecStart=%s peer -config %s -service-worker -tray
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+`, SystemBinDir(), dstExe, SystemConfigPath())
+
+	if err := os.WriteFile(LinuxUnitPath, []byte(unit), 0o644); err != nil {
+		return GetInfo(), err
+	}
+	_ = exec.Command("systemctl", "daemon-reload").Run()
+	if out, err := exec.Command("systemctl", "enable", "--now", LinuxServiceName).CombinedOutput(); err != nil {
+		return GetInfo(), fmt.Errorf("เปิดใช้งาน apn.service ไม่สำเร็จ: %s", strings.TrimSpace(string(out)))
+	}
+	return GetInfo(), nil
+}
+
+func UninstallSystemService() error {
+	if !IsElevated() {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if pkexec, err := exec.LookPath("pkexec"); err == nil {
+			if out, rerr := exec.Command(pkexec, exe, "service", "uninstall").CombinedOutput(); rerr != nil {
+				return fmt.Errorf("ถอนการติดตั้ง System Service ไม่สำเร็จ: %s", strings.TrimSpace(string(out)))
+			}
+			return nil
+		}
+		return errors.New("กรุณารันด้วยสิทธิ์ root: sudo apn service uninstall")
+	}
+	_ = exec.Command("systemctl", "disable", "--now", LinuxServiceName).Run()
+	_ = os.Remove(LinuxUnitPath)
+	_ = exec.Command("systemctl", "daemon-reload").Run()
+	return nil
+}
+
+func RunSystemService() error {
+	return errors.New("on Linux, systemd starts 'apn peer -service-worker' directly")
+}

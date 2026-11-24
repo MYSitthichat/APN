@@ -1351,6 +1351,7 @@
         <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Tab')">Tab</button>
         <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Enter')">Enter</button>
         <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(30,41,59,0.85);color:#f8fafc" onclick="sendSpecialKey('Backspace')">⌫</button>
+        <button class="secondary" style="padding:5px 8px;font-size:0.76rem;background:rgba(245,158,11,0.22);border-color:rgba(245,158,11,0.45);color:#fde68a" title="ส่ง Ctrl+Alt+Del เพื่อปลดล็อกหน้าล็อกอิน Windows (ต้องติดตั้ง System Service)" onclick="sendInput({type:'cad'}); showToast('🔑 ส่ง Ctrl+Alt+Del แล้ว');">Ctrl+Alt+Del</button>
       </div>
       <div style="display:flex;gap:6px">
         <input id="txtSendText" type="text" placeholder="พิมพ์ข้อความส่งตรงเข้าปลายทาง..." onkeydown="if(event.key==='Enter'){sendQuickText();}" />
@@ -1885,6 +1886,24 @@
         </div>
 
         <div class="side-tile">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <strong style="font-size:0.88rem">🛡 System Service (รีโมตได้ก่อนล็อกอิน)</strong>
+            <span class="badge"><span class="dot ${d.install?.service?.running ? 'ok' : (d.install?.service?.installed ? 'warn' : '')}"></span>${d.install?.service?.running ? 'ทำงานอยู่ (SYSTEM)' : (d.install?.service?.installed ? 'ติดตั้งแล้ว' : 'ยังไม่ติดตั้ง')}</span>
+          </div>
+          <div class="muted" style="font-size:0.78rem;margin-bottom:10px">
+            ${d.install?.service?.running
+              ? `ทำงานเป็น System Service (<code>${esc(d.install.service.service_name || 'APNService')}</code>) ตั้งแต่เปิดเครื่องก่อนล็อกอิน + กดหน้าต่าง Admin/UAC และส่ง Ctrl+Alt+Del ได้ครบ`
+              : `ติดตั้งเป็น OS System Service เพื่อให้รีสตาร์ทเครื่องแล้วติดเองทันทีตั้งแต่หน้าล็อกอิน (ไม่ต้องมีคนล็อกอินก่อน) + กดหน้าต่าง UAC/Admin ได้`}
+          </div>
+          ${d.install?.service?.supported ? `
+          <div class="row-actions">
+            ${d.install?.service?.installed
+              ? `<button class="secondary" onclick="peerInstallService()">↻ อัปเดต / รีสตาร์ท Service</button><button class="danger" onclick="peerUninstallService()">🗑 ถอน System Service</button>`
+              : `<button class="success" onclick="peerInstallService()">🛡 ติดตั้งเป็น System Service</button>`}
+          </div>` : `<div class="muted" style="font-size:0.75rem">แพลตฟอร์มนี้ใช้ LaunchAgent Auto-Start</div>`}
+        </div>
+
+        <div class="side-tile">
           <strong style="font-size:0.88rem;display:block;margin-bottom:6px">📦 การติดตั้งบนเครื่อง &amp; System Tray</strong>
           <div class="muted" style="font-size:0.78rem;margin-bottom:10px">
             ${d.install?.installed
@@ -2167,13 +2186,17 @@
             </div>
 
             <div class="side-bottom">
-              ${d.install?.installed ? `
+              ${d.install?.service?.running ? `
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;color:var(--muted);padding:0 2px">
+                  <span><span style="color:var(--ok);font-weight:700">🛡 System Service</span> · ติดก่อนล็อกอิน</span>
+                  <button class="secondary" style="padding:3px 8px;font-size:0.71rem" onclick="toggleSettingsDrawer(true)">จัดการ</button>
+                </div>` : (d.install?.installed ? `
                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;color:var(--muted);padding:0 2px">
                   <span><span style="color:var(--ok);font-weight:700">✓ ติดตั้งแล้ว</span> · ซ่อนที่ Tray</span>
-                  <button class="secondary" style="padding:3px 8px;font-size:0.71rem" onclick="toggleSettingsDrawer(true)">จัดการ</button>
+                  <button class="secondary" style="padding:3px 8px;font-size:0.71rem" onclick="peerInstallService()" title="อัปเกรดเป็น System Service เพื่อรีโมตได้ก่อนล็อกอิน">🛡 Service</button>
                 </div>` : `
-                <button class="secondary" style="width:100%;padding:8px 10px;font-size:0.8rem;border-color:color-mix(in srgb,var(--accent) 45%,var(--border))" onclick="peerInstallApp()">📥 ติดตั้ง APN ลงเครื่องนี้ (Auto-Start + Tray)</button>
-              `}
+                <button class="secondary" style="width:100%;padding:8px 10px;font-size:0.8rem;border-color:color-mix(in srgb,var(--accent) 45%,var(--border))" onclick="peerInstallService()">🛡 ติดตั้งเป็น System Service (ก่อนล็อกอิน)</button>
+              `)}
               <div class="row-actions" style="gap:7px">
                 <button class="${d.paused ? 'success' : 'warn'}" style="flex:1;padding:7px 10px;font-size:0.8rem" onclick="peerTogglePause(${!d.paused})">${d.paused ? '▶ เปิดรับรีโมต' : '⏸ พักรับรีโมต'}</button>
                 <button class="danger" style="padding:7px 10px;font-size:0.8rem" onclick="peerKillAll()">⛔ ตัด (${sessions.length})</button>
@@ -3917,6 +3940,23 @@
         showToast('✓ เชื่อมต่อสำเร็จ!');
         poll();
       } catch (err) { errEl.textContent = err.message; }
+    };
+    window.peerInstallService = async () => {
+      if (!confirm('ติดตั้ง APN เป็น System Service ใช่ไหม?\n\n• ทำงานอัตโนมัติตั้งแต่เปิดเครื่อง (ก่อนล็อกอินเข้า Windows/Linux)\n• รีโมตเข้าไปกรอกรหัสล็อกอิน Windows + กดหน้าต่าง Admin/UAC ได้\n• ย้ายเลข ID 9 หลักและรหัสผ่านถาวรเดิมไปให้ครบอัตโนมัติ\n\n(Windows จะขึ้นหน้าต่าง UAC ขออนุญาต Administrator 1 ครั้ง)')) return;
+      showToast('🛡 กำลังติดตั้ง APN System Service...');
+      try {
+        await api('/api/peer/service/install', { method: 'POST' });
+        showToast('✓ ติดตั้งและเริ่ม APN System Service สำเร็จ! กำลังเชื่อมต่อกับ Service...');
+        setTimeout(() => { poll(); }, 1200);
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+    window.peerUninstallService = async () => {
+      if (!confirm('ต้องการถอนการติดตั้ง APN System Service ออกจากเครื่องนี้ใช่ไหม?')) return;
+      try {
+        await api('/api/peer/service/uninstall', { method: 'POST' });
+        showToast('ถอนการติดตั้ง APN System Service แล้ว');
+        poll();
+      } catch (err) { showToast('⚠ ' + err.message); }
     };
     window.peerDisconnect = async (id) => {
       await api(`/api/peer/peers/${encodeURIComponent(id)}`, { method: 'DELETE' });

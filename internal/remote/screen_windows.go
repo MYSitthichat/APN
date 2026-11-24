@@ -17,11 +17,16 @@ import (
 var (
 	user32 = syscall.NewLazyDLL("user32.dll")
 	gdi32  = syscall.NewLazyDLL("gdi32.dll")
+	sasDLL = syscall.NewLazyDLL("sas.dll")
 
 	procSetProcessDPIAware = user32.NewProc("SetProcessDPIAware")
 	procGetSystemMetrics   = user32.NewProc("GetSystemMetrics")
 	procGetDC              = user32.NewProc("GetDC")
 	procReleaseDC          = user32.NewProc("ReleaseDC")
+	procOpenInputDesktop   = user32.NewProc("OpenInputDesktop")
+	procSetThreadDesktop   = user32.NewProc("SetThreadDesktop")
+	procCloseDesktop       = user32.NewProc("CloseDesktop")
+	procSendSAS            = sasDLL.NewProc("SendSAS")
 	procSetCursorPos       = user32.NewProc("SetCursorPos")
 	procMouseEvent         = user32.NewProc("mouse_event")
 	procKeybdEvent         = user32.NewProc("keybd_event")
@@ -124,6 +129,19 @@ func ensureDPIAware() {
 	dpiOnce.Do(func() {
 		_, _, _ = procSetProcessDPIAware.Call()
 	})
+}
+
+// attachToInputDesktop switches the current OS thread onto whichever Windows desktop
+// is currently receiving user input (Normal "Default" desktop, Lock/Login Screen "Winlogon",
+// or UAC Secure Desktop). Requires LocalSystem privileges for Winlogon/UAC; safely no-ops otherwise.
+func attachToInputDesktop() {
+	const maximumAllowed = 0x02000000
+	hDesk, _, _ := procOpenInputDesktop.Call(0, 0, maximumAllowed)
+	if hDesk == 0 {
+		return
+	}
+	_, _, _ = procSetThreadDesktop.Call(hDesk)
+	_, _, _ = procCloseDesktop.Call(hDesk)
 }
 
 // ScreenSize returns the primary display width and height in physical pixels.
@@ -241,6 +259,9 @@ func (c *winCapturer) gdiWorker() {
 		case <-c.closeCh:
 			return
 		case replyCh := <-c.reqCh:
+			// Follow transitions between Default desktop, Winlogon Lock/Login Screen, and UAC prompts!
+			attachToInputDesktop()
+
 			w, h := ScreenSize()
 			if w <= 0 || h <= 0 {
 				replyCh <- captureReply{err: fmt.Errorf("invalid screen dimensions %dx%d", w, h)}
@@ -371,8 +392,21 @@ func CaptureScreen() (*image.RGBA, error) {
 	return out, nil
 }
 
-// ApplyInputEvent injects mouse and keyboard events on Windows using standard user32 APIs.
+// ApplyInputEvent injects mouse and keyboard events on Windows using standard user32 APIs,
+// automatically attaching to the active input desktop (Default / Winlogon Lock Screen / UAC).
 func ApplyInputEvent(ev InputEvent) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attachToInputDesktop()
+
+	if ev.Type == "cad" {
+		// Trigger Windows Secure Attention Sequence (Ctrl+Alt+Del) via sas.dll (requires LocalSystem service + SoftwareSASGeneration)
+		if procSendSAS.Find() == nil {
+			_, _, _ = procSendSAS.Call(0) // FALSE = called from service/system process
+		}
+		return nil
+	}
+
 	w, h := ScreenSize()
 	if w <= 0 || h <= 0 {
 		return nil

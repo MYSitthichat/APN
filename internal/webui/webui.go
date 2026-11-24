@@ -19,6 +19,7 @@ import (
 	"github.com/coder/websocket"
 
 	"relayvpn/internal/agent"
+	"relayvpn/internal/bootstrap"
 	"relayvpn/internal/client"
 	"relayvpn/internal/config"
 	"relayvpn/internal/installer"
@@ -27,6 +28,7 @@ import (
 	"relayvpn/internal/remote"
 	"relayvpn/internal/security"
 	"relayvpn/internal/server"
+	"relayvpn/internal/service"
 	"relayvpn/internal/version"
 )
 
@@ -356,6 +358,31 @@ func Start(ctx context.Context, opts Options) error {
 
 		mux.HandleFunc("POST /api/peer/uninstall", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
 			if err := installer.Uninstall(); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "snapshot": opts.Peer.Snapshot()})
+		}))
+
+		mux.HandleFunc("POST /api/peer/service/install", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			info, err := service.InstallSystemService(installer.DefaultConfigPath(), bootstrap.BinDir())
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error(), "service": info})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": info, "snapshot": opts.Peer.Snapshot()})
+			// If we were running as a user-mode process and the new System Service is now running,
+			// cleanly exit user-mode so the System Service owns the persistent port & connections!
+			if info.Running && os.Getenv("APN_SERVICE_WORKER") != "1" {
+				go func() {
+					time.Sleep(450 * time.Millisecond)
+					opts.Peer.RequestQuit()
+				}()
+			}
+		}))
+
+		mux.HandleFunc("POST /api/peer/service/uninstall", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			if err := service.UninstallSystemService(); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}

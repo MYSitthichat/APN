@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"relayvpn/internal/service"
 )
 
 // InstallPath returns the per-user installation path on macOS/other Unix systems.
@@ -29,6 +31,7 @@ func GetStatus() Status {
 		InstallPath:      dst,
 		ConfigPath:       DefaultConfigPath(),
 		Platform:         currentPlatform(),
+		Service:          service.GetInfo(),
 	}
 }
 

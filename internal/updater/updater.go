@@ -321,9 +321,10 @@ func (m *Manager) doApply(ctx context.Context, asset Asset, onRestart func()) er
 	m.status.Stage = "อัปเดตสำเร็จ! กำลังเปิดเวอร์ชันใหม่..."
 	m.mu.Unlock()
 
-	// Only defer restart to systemd if explicitly running inside our own apn.service unit
-	// (NOT GNOME desktop app scopes, which also set INVOCATION_ID without Restart=always!).
-	if runtime.GOOS == "linux" && os.Getenv("APN_SYSTEMD_SERVICE") == "1" {
+	// Only defer restart to supervisor if explicitly running inside our System Service
+	// (Windows APNService supervisor or Linux systemd apn.service — NEVER GNOME desktop scopes!).
+	if (runtime.GOOS == "linux" && os.Getenv("APN_SYSTEMD_SERVICE") == "1") ||
+		(runtime.GOOS == "windows" && os.Getenv("APN_SERVICE_WORKER") == "1") {
 		time.Sleep(150 * time.Millisecond)
 		if onRestart != nil {
 			onRestart()

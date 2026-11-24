@@ -4,6 +4,13 @@
 
 ---
 
+## v1.3.0 (2026-11-24)
+- **ระบบ OS System Service เต็มรูปแบบ (รีสตาร์ทแล้วติดเองก่อนล็อกอิน + รีโมตเข้าหน้าล็อกจอ + กดหน้าต่าง Admin/UAC ได้):**
+  - **Windows System Service (`APNService` · Pure Go SCM, `CGO_ENABLED=0`):** ลงทะเบียนเป็น Windows Service (`LocalSystem`, Start Automatic, Auto-Restart on Failure) พร้อม Supervisor เปิด Worker สิทธิ์ `SYSTEM` เข้า Active Console Session (`WTSGetActiveConsoleSessionId` + `CreateProcessAsUserW`) ทำงานทันทีตั้งแต่เปิดเครื่องก่อนมีใครล็อกอิน ย้ายไฟล์ `peer.json` (ID 9 หลัก, รหัสผ่านถาวร, ประวัติเครื่อง) และ `ffmpeg`/`cloudflared` ไปยัง `C:\ProgramData\APN` ให้อัตโนมัติ
+  - **จับภาพและควบคุมหน้าล็อกอิน Windows (`Winlogon`) & UAC Secure Desktop + ปุ่ม `Ctrl+Alt+Del`:** เพิ่ม `OpenInputDesktop` + `SetThreadDesktop` ในตัวจับภาพและรับเมาส์/คีย์บอร์ด + รองรับ `SendSAS` (`SoftwareSASGeneration=3`) ให้กด `Ctrl+Alt+Del` และพิมพ์รหัสล็อกอิน Windows จากระยะไกลได้ทันที พร้อมสลับขึ้น H.265/H.264 60 FPS อัตโนมัติเมื่อเข้าหน้า Desktop
+  - **Linux System Service (`/etc/systemd/system/apn.service`, `WantedBy=multi-user.target`):** ติดตั้งได้คลิกเดียวผ่าน `pkexec` หรือ `sudo apn service install` ทำงานตั้งแต่บูตเครื่องก่อนล็อกอิน และรีสตาร์ทเองอัตโนมัติหลังอัปเดตเวอร์ชัน
+  - **ปุ่มจัดการคลิกเดียวในหน้าแอป + CLI:** เพิ่มปุ่ม **`🛡 ติดตั้งเป็น System Service`** ในหน้าตั้งค่า/แถบซ้าย, ปุ่ม **`Ctrl+Alt+Del`** ในหน้าต่างรีโมต และคำสั่ง `APN service <install|uninstall|run|status>`
+
 ## v1.2.17 (2026-11-24)
 - **แก้บั๊กเปิด APN บนเครื่องที่มีโปรแกรมอื่นใช้พอร์ต `8080` (เช่น HiveMQ Control Center, Tomcat, Jenkins, SCADA Web) แล้วเด้งไปเปิดเว็บโปรแกรมอื่นแทน:**
   - **ตรวจยืนยันตัวตน APN จริงใน `isAlreadyRunning()` (`cmd/relayvpn/main.go`):** ตรวจ JSON (`mode == "peer"`, `version`, `device_id`) แทนการเช็กแค่ HTTP 200 ทำให้เว็บ SPA อย่าง HiveMQ ที่คืนหน้า HTML 200 ทุกเส้นทางไม่สามารถหลอก APN ได้อีกต่อไป

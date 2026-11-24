@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"relayvpn/internal/service"
 	"relayvpn/internal/version"
 )
 
@@ -46,6 +47,16 @@ func GetStatus() Status {
 		}
 	}
 
+	svcInfo := service.GetInfo()
+	if svcInfo.Installed {
+		installed = true
+		autoStart = true
+		if svcInfo.RunningAsService {
+			runningInstalled = true
+			dst = svcInfo.BinaryPath
+		}
+	}
+
 	return Status{
 		Installed:        installed,
 		RunningInstalled: runningInstalled,
@@ -53,6 +64,7 @@ func GetStatus() Status {
 		InstallPath:      dst,
 		ConfigPath:       DefaultConfigPath(),
 		Platform:         currentPlatform(),
+		Service:          svcInfo,
 	}
 }
 

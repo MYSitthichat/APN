@@ -5,21 +5,30 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"relayvpn/internal/service"
 )
 
-// Status describes whether APN is installed into the OS with shortcuts and auto-start.
+// Status describes whether APN is installed into the OS with shortcuts, auto-start, and System Service.
 type Status struct {
-	Installed        bool   `json:"installed"`
-	RunningInstalled bool   `json:"running_installed"`
-	AutoStart        bool   `json:"auto_start"`
-	InstallPath      string `json:"install_path"`
-	ConfigPath       string `json:"config_path"`
-	Platform         string `json:"platform"`
+	Installed        bool         `json:"installed"`
+	RunningInstalled bool         `json:"running_installed"`
+	AutoStart        bool         `json:"auto_start"`
+	InstallPath      string       `json:"install_path"`
+	ConfigPath       string       `json:"config_path"`
+	Platform         string       `json:"platform"`
+	Service          service.Info `json:"service"`
 }
 
-// DefaultConfigPath returns the persistent per-user config path for APN
-// (migrating an existing local ./peer-config/peer.json automatically so Device ID & Saved Peers are preserved).
+// DefaultConfigPath returns the persistent config path for APN
+// (uses system-wide C:\ProgramData\APN\peer.json or /etc/apn/peer.json when running as System Service,
+// otherwise per-user config dir with automatic migration from ./peer-config/peer.json).
 func DefaultConfigPath() string {
+	if os.Getenv("APN_SERVICE_WORKER") == "1" {
+		if sysCfg := service.SystemConfigPath(); sysCfg != "" {
+			return sysCfg
+		}
+	}
 	cfgDir, err := os.UserConfigDir()
 	if err != nil || cfgDir == "" {
 		return "./peer-config/peer.json"

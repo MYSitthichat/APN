@@ -47,6 +47,9 @@ type Status struct {
 // BinDir returns the persistent user-level RelayVPN helper binary directory so updates
 // to RelayVPN.exe reuse already-installed ffmpeg.exe and wintun.dll without re-downloading.
 func BinDir() string {
+	if custom := strings.TrimSpace(os.Getenv("APN_BIN_DIR")); custom != "" {
+		return custom
+	}
 	if runtime.GOOS == "windows" {
 		if base := os.Getenv("LOCALAPPDATA"); base != "" {
 			return filepath.Join(base, "RelayVPN", "bin")

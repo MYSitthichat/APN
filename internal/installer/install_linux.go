@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"relayvpn/internal/service"
 )
 
 // InstallPath returns the standard per-user installation path for APN on Linux.
@@ -41,13 +43,23 @@ func GetStatus() Status {
 		effectivePath = "/usr/bin/apn"
 	}
 
+	svcInfo := service.GetInfo()
+	if svcInfo.Installed {
+		installed = true
+		if svcInfo.RunningAsService {
+			runningInstalled = true
+			effectivePath = svcInfo.BinaryPath
+		}
+	}
+
 	return Status{
 		Installed:        installed,
 		RunningInstalled: runningInstalled,
-		AutoStart:        svcErr == nil || xdgAutoErr == nil || userAutoErr == nil,
+		AutoStart:        svcErr == nil || xdgAutoErr == nil || userAutoErr == nil || svcInfo.Installed,
 		InstallPath:      effectivePath,
 		ConfigPath:       DefaultConfigPath(),
 		Platform:         currentPlatform(),
+		Service:          svcInfo,
 	}
 }
 

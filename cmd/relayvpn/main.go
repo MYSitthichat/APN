@@ -29,6 +29,7 @@ import (
 	"relayvpn/internal/p2p"
 	"relayvpn/internal/security"
 	"relayvpn/internal/server"
+	"relayvpn/internal/service"
 	"relayvpn/internal/tray"
 	"relayvpn/internal/updater"
 	"relayvpn/internal/version"
@@ -70,6 +71,8 @@ func main() {
 		err = runClient(args, logger)
 	case "peer":
 		err = runPeer(args, logger)
+	case "service":
+		err = runService(args)
 	case "install":
 		st, ierr := installer.Install()
 		if ierr != nil {
@@ -253,6 +256,7 @@ func runPeer(args []string, logger *slog.Logger) error {
 	openBrowser := fs.Bool("open", false, "Automatically open APN App Window")
 	trayOnly := fs.Bool("tray", false, "Start silently in the System Tray (used for login auto-start)")
 	trayIcon := fs.Bool("tray-icon", false, "Show APN System Tray icon (double-click to open, right-click to quit)")
+	serviceWorker := fs.Bool("service-worker", false, "Run headless as elevated System Service console worker")
 	waitOld := fs.Bool("wait-old", false, "Wait for previous APN instance to release UI port during self-update")
 	waitPID := fs.Int("wait-pid", 0, "Previous APN PID to wait for (and terminate if stuck) during self-update")
 	noAutoDeps := fs.Bool("no-auto-deps", false, "Disable automatic background install of FFmpeg/Wintun")
@@ -261,7 +265,16 @@ func runPeer(args []string, logger *slog.Logger) error {
 		return err
 	}
 
-	if *trayOnly {
+	if *serviceWorker {
+		_ = os.Setenv("APN_SERVICE_WORKER", "1")
+		if binDir := service.SystemBinDir(); binDir != "" {
+			_ = os.Setenv("APN_BIN_DIR", binDir)
+		}
+		*trayIcon = false
+		*openBrowser = false
+	}
+
+	if *trayOnly || *serviceWorker {
 		tray.HideConsoleWindow()
 	}
 
@@ -280,14 +293,14 @@ func runPeer(args []string, logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		// Keep cert/key anchored inside the persistent config folder after migration
+		// Keep cert/key anchored inside the persistent config folder after migration (and always in service mode)
 		cfgDir := filepath.Dir(*cfgPath)
-		if cfg.CertFile == "" {
+		if *serviceWorker || cfg.CertFile == "" {
 			cfg.CertFile = filepath.Join(cfgDir, "peer.crt")
 		} else if _, serr := os.Stat(cfg.CertFile); serr != nil {
 			cfg.CertFile = filepath.Join(cfgDir, "peer.crt")
 		}
-		if cfg.KeyFile == "" {
+		if *serviceWorker || cfg.KeyFile == "" {
 			cfg.KeyFile = filepath.Join(cfgDir, "peer.key")
 		} else if _, serr := os.Stat(cfg.KeyFile); serr != nil {
 			cfg.KeyFile = filepath.Join(cfgDir, "peer.key")
@@ -385,7 +398,7 @@ func runPeer(args []string, logger *slog.Logger) error {
 	}
 
 	var stopTray func()
-	if *trayIcon || *trayOnly {
+	if (*trayIcon || *trayOnly) && !*serviceWorker {
 		uiURL := "http://" + cfg.UIAddr
 		devID := snap.DeviceID
 		devLabel := p2p.FormatDeviceID(devID)
@@ -567,11 +580,50 @@ func runToken() error {
 	return nil
 }
 
+func runService(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: APN service <install|uninstall|run|status>")
+	}
+	sub := strings.ToLower(args[0])
+	rest := args[1:]
+	switch sub {
+	case "run":
+		return service.RunSystemService()
+	case "install":
+		fs := flag.NewFlagSet("service install", flag.ExitOnError)
+		migrateCfg := fs.String("migrate-cfg", installer.DefaultConfigPath(), "Existing peer.json to migrate into system config")
+		migrateBin := fs.String("migrate-bin", bootstrap.BinDir(), "Existing helper bin dir to migrate")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		info, err := service.InstallSystemService(*migrateCfg, *migrateBin)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Installed APN System Service (%s) -> installed=%v running=%v\n", info.ServiceName, info.Installed, info.Running)
+		return nil
+	case "uninstall":
+		if err := service.UninstallSystemService(); err != nil {
+			return err
+		}
+		fmt.Println("Uninstalled APN System Service successfully.")
+		return nil
+	case "status":
+		info := service.GetInfo()
+		fmt.Printf("Service: %s | Supported: %v | Installed: %v | Running: %v | Binary: %s | Config: %s\n",
+			info.ServiceName, info.Supported, info.Installed, info.Running, info.BinaryPath, info.ConfigPath)
+		return nil
+	default:
+		return fmt.Errorf("unknown service command: %s (expected install, uninstall, run, status)", sub)
+	}
+}
+
 func printUsage() {
 	fmt.Println(`APN — Cross-Platform 60 FPS P2P Remote Desktop & Encrypted L3 VPN
 
 Usage:
-  APN peer      [-open] [-tray] [-tray-icon] [-ui 127.0.0.1:8080]
+  APN peer      [-open] [-tray] [-tray-icon] [-ui 127.0.0.1:18480]
+  APN service   <install|uninstall|run|status>  Install/manage OS System Service (runs before login)
   APN install   Install APN with Desktop/Start Menu shortcuts & Login Auto-Start
   APN uninstall Remove APN installation, shortcuts, and Auto-Start
   APN server    -config ./config/server.json
