@@ -9,8 +9,9 @@
  */
 
 const memStore = new Map();
-const TTL_SECONDS = 600;        // 10 minutes TTL
-const KV_REFRESH_MS = 300_000;  // Skip redundant KV writes when endpoints haven't changed within 5 minutes
+const TTL_SECONDS = 300;        // 5 minutes TTL (peers heartbeat every ~45s)
+const PRESENCE_CACHE_MS = 15_000;
+const KV_REFRESH_MS = 180_000;  // Skip redundant KV writes when endpoints haven't changed within 3 minutes
 const GITHUB_REPO = 'MYSitthichat/APN';
 const RELEASE_CACHE_MS = 20_000; // Short 20s cache; ?refresh=1 always bypasses immediately!
 
@@ -144,23 +145,25 @@ function endpointsEqual(a, b) {
 }
 
 async function putEntry(env, id, data) {
-  memStore.set(id, { data, expires: Date.now() + TTL_SECONDS * 1000 });
+  memStore.set(id, { data, expires: Date.now() + PRESENCE_CACHE_MS });
   if (env && env.PEERS) {
     await env.PEERS.put('p:' + id, JSON.stringify(data), { expirationTtl: TTL_SECONDS });
   }
 }
 
-async function getEntry(env, id) {
-  const cached = memStore.get(id);
-  if (cached && Date.now() < cached.expires) {
-    return cached.data;
+async function getEntry(env, id, bypassMemCache = false) {
+  if (!bypassMemCache) {
+    const cached = memStore.get(id);
+    if (cached && Date.now() < cached.expires) {
+      return cached.data;
+    }
   }
   memStore.delete(id);
   if (env && env.PEERS) {
     const raw = await env.PEERS.get('p:' + id);
     if (raw) {
       const parsed = JSON.parse(raw);
-      memStore.set(id, { data: parsed, expires: Date.now() + 60_000 });
+      memStore.set(id, { data: parsed, expires: Date.now() + PRESENCE_CACHE_MS });
       return parsed;
     }
   }
@@ -238,7 +241,8 @@ export default {
         return Response.json({ ok: false, error: 'invalid device_id' }, { status: 400 });
       }
 
-      const existing = await getEntry(env, id);
+      // Always read fresh from KV on register/lookup so Worker isolates NEVER serve stale dead trycloudflare URLs (HTTP 530)!
+      const existing = await getEntry(env, id, true);
       const pendingPunches = existing?.punches || [];
       const nowMs = Date.now();
       const nextEntry = {
@@ -265,7 +269,7 @@ export default {
         await putEntry(env, id, nextEntry);
       } else {
         nextEntry.kv_written_at = existing.kv_written_at;
-        memStore.set(id, { data: nextEntry, expires: nowMs + TTL_SECONDS * 1000 });
+        memStore.set(id, { data: nextEntry, expires: nowMs + PRESENCE_CACHE_MS });
       }
 
       return Response.json({ ok: true, punch_requests: pendingPunches });
@@ -273,7 +277,8 @@ export default {
 
     if (path.startsWith('/api/rendezvous/lookup/')) {
       const id = normalizeID(path.slice('/api/rendezvous/lookup/'.length));
-      const entry = await getEntry(env, id);
+      // Bypass per-isolate memStore on lookup so callers ALWAYS get the freshest live trycloudflare.com URL from KV!
+      const entry = await getEntry(env, id, true);
       if (!entry) {
         return Response.json(
           { ok: false, error: 'ไม่พบเครื่องหมายเลขนี้ในระบบ Rendezvous (อาจออฟไลน์อยู่)' },

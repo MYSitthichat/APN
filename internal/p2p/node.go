@@ -1278,7 +1278,43 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 			if err == nil {
 				return info, nil
 			}
-			errs = append(errs, fmt.Sprintf("ws(%s): %v", lookup.Entry.WSURL, err))
+			// If a quick tunnel returned HTTP 530/502/503/504 (stale/restarting tunnel),
+			// wait briefly and re-query Rendezvous ONCE in case the host just rotated to a fresh 443 tunnel!
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(strings.ToLower(lookup.Entry.WSURL), ".trycloudflare.com") &&
+				(strings.Contains(errLower, "530") || strings.Contains(errLower, "502") || strings.Contains(errLower, "503") || strings.Contains(errLower, "504")) {
+				select {
+				case <-ctx.Done():
+				case <-time.After(2200 * time.Millisecond):
+					if freshReq, ferr := http.NewRequestWithContext(ctx, http.MethodPost, rdvURL+"/api/rendezvous/lookup/"+devID, bytes.NewReader(callerBody)); ferr == nil {
+						freshReq.Header.Set("Content-Type", "application/json")
+						if freshResp, fdoErr := hc.Do(freshReq); fdoErr == nil {
+							var freshLookup struct {
+								OK    bool `json:"ok"`
+								Entry struct {
+									WSURL string `json:"ws_url"`
+								} `json:"entry"`
+							}
+							_ = json.NewDecoder(freshResp.Body).Decode(&freshLookup)
+							_ = freshResp.Body.Close()
+							if freshLookup.OK && freshLookup.Entry.WSURL != "" {
+								if info2, err2 := n.dialWSPeer(ctx, freshLookup.Entry.WSURL, password, true); err2 == nil {
+									return info2, nil
+								} else {
+									err = err2
+									lookup.Entry.WSURL = freshLookup.Entry.WSURL
+									errLower = strings.ToLower(err2.Error())
+								}
+							}
+						}
+					}
+				}
+			}
+			if strings.Contains(errLower, "530") {
+				errs = append(errs, "ท่อเชื่อมข้ามเน็ต 443 ของเครื่องปลายทางหลุดชั่วคราว (HTTP 530 — อาจเพิ่งรีสตาร์ทหรือปิดเครื่องอยู่) กรุณารอ 5–10 วินาทีแล้วลองใหม่")
+			} else {
+				errs = append(errs, fmt.Sprintf("ws(%s): %v", lookup.Entry.WSURL, err))
+			}
 		}
 		return PeerInfo{}, fmt.Errorf("พบเครื่อง %s แต่เชื่อมต่อไม่สำเร็จ: %s", FormatDeviceID(devID), strings.Join(errs, "; "))
 	}

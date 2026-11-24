@@ -4,6 +4,12 @@
 
 ---
 
+## v1.3.4 (2026-11-24)
+- **แก้ปัญหา `HTTP 530` บนท่อข้ามเน็ต 443 (`trycloudflare.com`) ให้ซ่อมตัวเองอัตโนมัติ (Self-Healing Bridge):**
+  - **ยกเลิกแคชค้าง 10 นาทีใน Cloudflare Worker (`rendezvous-worker.js`):** ให้ `/api/rendezvous/lookup/` และ `/register` อ่านข้อมูลสดจาก Cloudflare KV ทุกครั้ง (ลด TTL จาก 10 นาทีเหลือ 5 นาที) ไม่ให้ Worker Isolate อื่นส่ง URL `trycloudflare.com` เก่าที่ตายไปแล้วกลับมาเป็น `HTTP 530`
+  - **Self-Healing 443 Tunnel Watchdog (`internal/p2p/bridge.go`, `node.go`):** เพิ่ม `/healthz` บน local WS listener และตรวจสุขภาพท่อ `trycloudflare.com` จากปลายทางทุก 35 วินาที หาก Cloudflare Quick Tunnel หลุดค้างเป็น `HTTP 530/502/503/504` ระบบจะปิด `cloudflared` ตัวเดิมและสร้างท่อใหม่สดทันทีภายใน ~4 วินาที พร้อมรอให้ท่อ `Registered` เสร็จก่อนประกาศ URL
+  - **ลองรีเฟรชท่อใหม่อัตโนมัติฝั่งผู้เชื่อมต่อ (`internal/p2p/node.go`):** หากกดเชื่อมต่อแล้วชน `HTTP 530` ระบบจะรอ 2.2 วินาทีแล้วดึง URL สดจาก Rendezvous ลองซ้ำให้อัตโนมัติ 1 รอบ พร้อมข้อความภาษาไทยที่ชัดเจน
+
 ## v1.3.3 (2026-11-24)
 - **แก้ปัญหาระบบอัปเดต `.deb` + `apn.service` และไฟล์ตั้งค่า (`peer.json`) แยกกันบน Linux:**
   - **ซิงค์ไบนารี `.deb` เข้า `apn.service` อัตโนมัติ (`scripts/mkdeb/main.go`, `internal/updater/updater.go`):** เมื่อติดตั้ง/อัปเกรดไฟล์ `.deb` บนเครื่องที่มี `apn.service` ระบบจะคัดลอกไบนารีใหม่ไปยัง `/usr/local/bin/apn` และสั่ง `systemctl restart apn.service` ให้ทันที (และฝั่ง Auto-Update จาก Service จะซิงค์ `/usr/lib/apn/apn` กลับให้ตรงกันด้วย)
