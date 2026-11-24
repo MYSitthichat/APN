@@ -99,6 +99,9 @@ type PeerInfo struct {
 	ActiveConns  int64                      `json:"active_conns"`
 }
 
+// ApprovalTimeout is how long an incoming request waits for the owner before it is refused.
+const ApprovalTimeout = 35 * time.Second
+
 // PendingApproval represents an incoming connection waiting for the host owner to Accept or Reject.
 type PendingApproval struct {
 	ID          string    `json:"id"`
@@ -108,6 +111,7 @@ type PendingApproval struct {
 	OS          string    `json:"os"`
 	RemoteAddr  string    `json:"remote_addr"`
 	RequestedAt time.Time `json:"requested_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type approvalWaiter struct {
@@ -248,6 +252,7 @@ type Node struct {
 
 	mu               sync.RWMutex
 	onQuit           func()
+	onApproval       func(PendingApproval)
 	tempPIN          string
 	vpnIP            string
 	packetSink       func([]byte)
@@ -386,6 +391,26 @@ func (n *Node) SetOnQuit(fn func()) {
 	n.mu.Lock()
 	n.onQuit = fn
 	n.mu.Unlock()
+}
+
+// SetOnApprovalRequest registers a callback run (in its own goroutine) whenever a device asks for
+// the owner's approval, e.g. to pop the APN window to the front like AnyDesk.
+func (n *Node) SetOnApprovalRequest(fn func(PendingApproval)) {
+	n.mu.Lock()
+	n.onApproval = fn
+	n.mu.Unlock()
+}
+
+// PendingApprovals lists the connection requests waiting for the owner, oldest first.
+func (n *Node) PendingApprovals() []PendingApproval {
+	n.mu.RLock()
+	out := make([]PendingApproval, 0, len(n.approvals))
+	for _, w := range n.approvals {
+		out = append(out, w.info)
+	}
+	n.mu.RUnlock()
+	slices.SortFunc(out, func(a, b PendingApproval) int { return a.RequestedAt.Compare(b.RequestedAt) })
+	return out
 }
 
 // RequestQuit triggers a graceful shutdown of the APN process.
@@ -1859,6 +1884,7 @@ func (n *Node) requestOwnerApproval(hello peerHello, remoteAddr string) bool {
 			OS:          hello.OS,
 			RemoteAddr:  remoteAddr,
 			RequestedAt: time.Now().UTC(),
+			ExpiresAt:   time.Now().UTC().Add(ApprovalTimeout),
 		},
 		ch: make(chan bool, 1),
 	}
@@ -1870,7 +1896,11 @@ func (n *Node) requestOwnerApproval(hello peerHello, remoteAddr string) bool {
 		return false
 	}
 	n.approvals[reqID] = w
+	notify := n.onApproval
 	n.mu.Unlock()
+	if notify != nil {
+		go notify(w.info)
+	}
 
 	defer func() {
 		n.mu.Lock()
@@ -1878,7 +1908,7 @@ func (n *Node) requestOwnerApproval(hello peerHello, remoteAddr string) bool {
 		n.mu.Unlock()
 	}()
 
-	timer := time.NewTimer(35 * time.Second)
+	timer := time.NewTimer(ApprovalTimeout)
 	defer timer.Stop()
 
 	select {

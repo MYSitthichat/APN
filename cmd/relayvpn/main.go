@@ -452,6 +452,14 @@ func runPeer(args []string, logger *slog.Logger) error {
 		defer stopTray()
 	}
 
+	if cfg.UIAddr != "" {
+		popupURL := "http://" + cfg.UIAddr
+		node.SetOnApprovalRequest(func(p2p.PendingApproval) {
+			// Raise the open APN window (like AnyDesk); open one only if no page is showing.
+			tray.PopupAppWindow(popupURL, !webui.ApprovalPageActive(4*time.Second))
+		})
+	}
+
 	var webDone chan struct{}
 	if cfg.UIAddr != "" {
 		webDone = make(chan struct{})

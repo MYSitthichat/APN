@@ -1592,7 +1592,226 @@
       border-radius: 10px;
       min-width: 86px;
     }
+    /* Incoming connection request (AnyDesk-style centered pop-up) */
+    .apr-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 3000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 22%, rgba(2, 6, 23, 0.55)), rgba(2, 6, 23, 0.72));
+      backdrop-filter: blur(9px);
+      -webkit-backdrop-filter: blur(9px);
+    }
+    .apr-backdrop.open { display: flex; }
+    @keyframes aprIn {
+      0%   { opacity: 0; transform: translateY(18px) scale(0.9); }
+      60%  { opacity: 1; transform: translateY(-3px) scale(1.015); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes aprPulse {
+      0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+      70%  { box-shadow: 0 0 0 18px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    @keyframes aprBlink { 50% { opacity: 0.35; } }
+    .apr-card {
+      position: relative;
+      width: min(400px, 94vw);
+      overflow: hidden;
+      background: var(--surface-solid);
+      color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+      border-radius: 22px;
+      padding: 18px 22px 16px;
+      text-align: center;
+      box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.6), 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+      animation: aprIn 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .apr-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 120px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 20%, transparent), transparent);
+      pointer-events: none;
+    }
+    .apr-top {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .apr-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .apr-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: aprBlink 1s ease-in-out infinite;
+    }
+    .apr-queue {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-soft);
+    }
+    .apr-ring-wrap {
+      position: relative;
+      width: 116px;
+      height: 116px;
+      margin: 4px auto 10px;
+    }
+    .apr-ring {
+      position: absolute;
+      inset: 0;
+      transform: rotate(-90deg);
+    }
+    .apr-ring circle {
+      fill: none;
+      stroke-width: 6;
+    }
+    .apr-ring-bg { stroke: color-mix(in srgb, var(--text) 10%, transparent); }
+    .apr-ring-fg {
+      stroke: var(--accent);
+      stroke-linecap: round;
+      stroke-dasharray: 339.3;
+      transition: stroke-dashoffset 0.25s linear, stroke 0.3s;
+    }
+    .apr-ring-fg.warn { stroke: var(--warn); }
+    .apr-ring-fg.danger { stroke: var(--danger); }
+    .apr-avatar {
+      position: absolute;
+      inset: 14px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.1rem;
+      font-weight: 900;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+      animation: aprPulse 1.8s ease-out infinite;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+    .apr-os {
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      background: var(--surface-solid);
+      border: 2px solid color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+    }
+    .apr-name {
+      font-size: 1.22rem;
+      font-weight: 900;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .apr-id {
+      margin-top: 4px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.98rem;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: var(--accent);
+    }
+    .apr-chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      margin: 10px 0 2px;
+    }
+    .apr-chip {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      color: var(--text-soft);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+    .apr-chip.known {
+      color: var(--ok);
+      background: color-mix(in srgb, var(--ok) 12%, var(--surface-2));
+      border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+    }
+    .apr-question {
+      margin: 12px 0 0;
+      font-size: 0.88rem;
+      line-height: 1.5;
+      color: var(--text-soft);
+    }
+    .apr-question b { color: var(--text); }
+    .apr-warn {
+      margin-top: 10px;
+      padding: 8px 11px;
+      border-radius: 11px;
+      font-size: 0.76rem;
+      line-height: 1.45;
+      text-align: left;
+      color: var(--text);
+      background: color-mix(in srgb, var(--warn) 13%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+    }
+    .apr-actions {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .apr-btn {
+      padding: 12px 10px;
+      border-radius: 13px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      justify-content: center;
+      white-space: nowrap;
+      transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+    }
+    .apr-btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.06); }
+    .apr-btn:disabled { opacity: 0.6; cursor: wait; }
+    .apr-reject {
+      color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 10%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+    }
+    .apr-accept {
+      color: #fff;
+      border: none;
+      background: linear-gradient(135deg, var(--ok), color-mix(in srgb, var(--ok) 70%, #0ea5e9));
+      box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--ok) 80%, transparent);
+    }
+    .apr-foot {
+      margin-top: 11px;
+      font-size: 0.74rem;
+      color: var(--text-soft);
+    }
+    .apr-foot b { color: var(--text); font-variant-numeric: tabular-nums; }
   </style>
+
 </head>
 <body>
   <header>
@@ -1680,6 +1899,33 @@
         <button id="apnDialogCancel" type="button" class="secondary" onclick="resolveApnDialog(null)">ยกเลิก</button>
         <button id="apnDialogOk" type="button" onclick="confirmApnDialog()">ตกลง</button>
       </div>
+    </div>
+  </div>
+  <!-- Incoming connection request pop-up (AnyDesk-style) -->
+  <div id="aprBackdrop" class="apr-backdrop">
+    <div class="apr-card" role="alertdialog" aria-modal="true" aria-labelledby="aprName" aria-describedby="aprQuestion">
+      <div class="apr-top">
+        <span class="apr-pill"><span class="apr-dot"></span>มีคำขอเชื่อมต่อเข้ามา</span>
+        <span id="aprQueue" class="apr-queue"></span>
+      </div>
+      <div class="apr-ring-wrap">
+        <svg class="apr-ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="apr-ring-bg" cx="60" cy="60" r="54"></circle>
+          <circle id="aprRing" class="apr-ring-fg" cx="60" cy="60" r="54"></circle>
+        </svg>
+        <div id="aprAvatar" class="apr-avatar">?</div>
+        <div id="aprOS" class="apr-os"></div>
+      </div>
+      <div id="aprName" class="apr-name"></div>
+      <div id="aprID" class="apr-id"></div>
+      <div id="aprChips" class="apr-chips"></div>
+      <div id="aprQuestion" class="apr-question">ต้องการ<b>เข้าควบคุมเครื่องนี้</b><br>(ดูหน้าจอ · ใช้เมาส์และคีย์บอร์ด · Terminal · ไฟล์)</div>
+      <div id="aprWarn" class="apr-warn" style="display:none">⚠ เครื่องนี้<b>ไม่เคยเชื่อมต่อมาก่อน</b> — อนุญาตเฉพาะคนที่คุณรู้จักและกำลังรอให้เข้ามาช่วยเท่านั้น</div>
+      <div class="apr-actions">
+        <button id="aprReject" type="button" class="apr-btn apr-reject" onclick="aprResolve(false)">✕ ปฏิเสธ</button>
+        <button id="aprAccept" type="button" class="apr-btn apr-accept" onclick="aprResolve(true)">✓ อนุญาต</button>
+      </div>
+      <div class="apr-foot">ปฏิเสธอัตโนมัติใน <b id="aprCount">35</b> วินาที</div>
     </div>
   </div>
   <div id="updateOverlay" style="display:none;position:fixed;inset:0;z-index:2000;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);align-items:center;justify-content:center;padding:20px">
@@ -2782,14 +3028,7 @@
                   ${d.update.last_error ? `<div class="err" style="margin:0">${esc(d.update.last_error)}</div>` : ''}
                 </div>` : ''}
 
-              ${approvals.map(a => `
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 13px;border-radius:10px;border:2px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,var(--surface))">
-                  <div style="font-size:0.86rem"><strong>🔔 มีคำขอรีโมตเข้าเครื่องนี้:</strong> ${esc(a.name || a.peer_id)} (<code>${esc(fmtDevID(a.device_id))}</code>)</div>
-                  <div class="row-actions">
-                    <button class="success" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove(${jsArg(a.id)}, true)">✓ อนุญาต</button>
-                    <button class="danger" style="padding:6px 13px;font-size:0.82rem" onclick="peerApprove(${jsArg(a.id)}, false)">✕ ปฏิเสธ</button>
-                  </div>
-                </div>`).join('')}
+              ${approvals.length ? `<div class="muted" style="font-size:0.8rem;cursor:pointer" onclick="aprPoll()">🔔 มีคำขอเชื่อมต่อรอการอนุญาต ${approvals.length} รายการ</div>` : ''}
 
               <form class="connect-form" onsubmit="peerEasyConnect(event, true)">
                 <input id="pRemoteID" type="text" required placeholder="🚀 รหัสเครื่องปลายทาง (ID 9 หลัก)" value="${esc(prevRemoteID)}" style="font-weight:700;letter-spacing:0.6px" />
@@ -4901,6 +5140,173 @@
         }
       }
     }
+
+    // ---------- Incoming connection request pop-up (AnyDesk-style) ----------
+    // Polled on its own (every second) so it also appears while typing, or while the remote
+    // screen / Terminal / file windows are open, which pause the main dashboard refresh.
+    const APR_TITLE = document.title;
+    let aprList = [];
+    let aprShownID = '';
+    let aprBusy = false;
+    let aprSkew = 0;
+    let aprStopped = false;
+    let aprChimeAt = 0;
+    let aprTick = null;
+
+    function aprOSIcon(os) {
+      const s = String(os || '').toLowerCase();
+      if (s.startsWith('windows')) return '🪟';
+      if (s.startsWith('linux')) return '🐧';
+      if (s.startsWith('darwin') || s.startsWith('mac')) return '🍎';
+      if (s.startsWith('android')) return '🤖';
+      return '💻';
+    }
+    function aprOSName(os) {
+      const s = String(os || '').split('/')[0].toLowerCase();
+      return ({ windows: 'Windows', linux: 'Linux', darwin: 'macOS', android: 'Android', ios: 'iOS' })[s] || (os || 'ไม่ทราบ OS');
+    }
+    function aprInitial(name) {
+      const ch = Array.from(String(name || '').trim())[0] || '?';
+      return ch.toUpperCase();
+    }
+    function aprHost(addr) {
+      const a = String(addr || '');
+      const host = a.startsWith('[') ? a.slice(1, a.indexOf(']')) : a.replace(/:\d+$/, '');
+      if (!host || host === '::1' || host.startsWith('127.')) return 'ผ่าน Cloud Relay (443)';
+      return host;
+    }
+    function aprChime() {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = aprChime.ctx || (aprChime.ctx = new AC());
+        if (ctx.state === 'suspended') ctx.resume();
+        const t0 = ctx.currentTime + 0.02;
+        [[880, 0], [1320, 0.16], [1760, 0.32]].forEach(([f, d]) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, t0 + d);
+          g.gain.exponentialRampToValueAtTime(0.18, t0 + d + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.32);
+          o.connect(g).connect(ctx.destination);
+          o.start(t0 + d);
+          o.stop(t0 + d + 0.36);
+        });
+      } catch (_) {}
+    }
+    function aprNotify(a, name) {
+      if (!document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        const n = new Notification('🔔 คำขอเชื่อมต่อ APN', {
+          body: `${name} (${fmtDevID(a.device_id)}) ต้องการเข้าควบคุมเครื่องนี้`,
+          tag: 'apn-approval-' + a.id,
+          requireInteraction: true,
+          icon: '/logo-192.png',
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      } catch (_) {}
+    }
+    // Ask for desktop-notification permission on the first click, only when approval mode is on.
+    document.addEventListener('click', () => {
+      if ('Notification' in window && Notification.permission === 'default' && lastPeerData?.require_approval) {
+        try { Notification.requestPermission(); } catch (_) {}
+      }
+    }, { once: true, capture: true });
+
+    function aprRemaining(a) {
+      const exp = Date.parse(a.expires_at || '') || (Date.parse(a.requested_at || '') + 35000);
+      return Math.max(0, Math.ceil((exp - (Date.now() + aprSkew)) / 1000));
+    }
+    function aprRender() {
+      const back = document.getElementById('aprBackdrop');
+      const a = aprList[0];
+      if (!a) {
+        back.classList.remove('open');
+        aprShownID = '';
+        if (document.title.startsWith('APN — 🔔')) document.title = APR_TITLE;
+        if (aprTick) { clearInterval(aprTick); aprTick = null; }
+        return;
+      }
+      const total = Math.round(((Date.parse(a.expires_at || '') || 0) - (Date.parse(a.requested_at || '') || 0)) / 1000) || 35;
+      if (a.id !== aprShownID) {
+        aprShownID = a.id;
+        aprBusy = false;
+        const saved = (lastPeerData?.saved_peers || []).find(p => p.device_id && p.device_id === a.device_id);
+        const name = (saved && saved.name) || a.name || a.peer_id || 'อุปกรณ์ไม่ทราบชื่อ';
+        document.getElementById('aprName').textContent = name;
+        document.getElementById('aprID').textContent = fmtDevID(a.device_id);
+        document.getElementById('aprAvatar').textContent = aprInitial(name);
+        document.getElementById('aprOS').textContent = aprOSIcon(a.os);
+        const chips = document.getElementById('aprChips');
+        chips.innerHTML = '';
+        const addChip = (text, cls) => {
+          const c = document.createElement('span');
+          c.className = 'apr-chip' + (cls ? ' ' + cls : '');
+          c.textContent = text;
+          chips.appendChild(c);
+        };
+        addChip(aprOSIcon(a.os) + ' ' + aprOSName(a.os));
+        addChip('🌐 ' + aprHost(a.remote_addr));
+        if (saved) addChip('✓ เคยเชื่อมต่อแล้ว', 'known');
+        if (saved && a.name && saved.name !== a.name) addChip('ชื่อในเครื่องนั้น: ' + a.name);
+        document.getElementById('aprWarn').style.display = saved ? 'none' : 'block';
+        document.getElementById('aprAccept').disabled = false;
+        document.getElementById('aprReject').disabled = false;
+        back.classList.add('open');
+        document.title = 'APN — 🔔 คำขอเชื่อมต่อจาก ' + name;
+        aprChime();
+        aprChimeAt = Date.now();
+        aprNotify(a, name);
+      }
+      document.getElementById('aprQueue').textContent = aprList.length > 1 ? `+${aprList.length - 1} คำขอรออยู่` : '';
+      const left = aprRemaining(a);
+      document.getElementById('aprCount').textContent = left;
+      const ring = document.getElementById('aprRing');
+      ring.style.strokeDashoffset = String(339.3 * (1 - Math.min(1, left / total)));
+      ring.classList.toggle('warn', left <= 15 && left > 7);
+      ring.classList.toggle('danger', left <= 7);
+      if (left > 0 && Date.now() - aprChimeAt > 9000) { aprChime(); aprChimeAt = Date.now(); }
+      if (left <= 0) {
+        aprList.shift();
+        aprRender();
+        return;
+      }
+      if (!aprTick) aprTick = setInterval(aprRender, 250);
+    }
+    window.aprResolve = async (allow) => {
+      const a = aprList[0];
+      if (!a || aprBusy) return;
+      aprBusy = true;
+      document.getElementById('aprAccept').disabled = true;
+      document.getElementById('aprReject').disabled = true;
+      try {
+        await api(`/api/peer/approvals/${encodeURIComponent(a.id)}`, { method: 'POST', body: JSON.stringify({ allow }) });
+        showToast(allow ? '✓ อนุญาตการเชื่อมต่อแล้ว' : '✕ ปฏิเสธการเชื่อมต่อแล้ว');
+      } catch (err) {
+        showToast('⚠ ' + (err.message || 'คำขอหมดเวลาแล้ว'));
+      }
+      aprList = aprList.filter(x => x.id !== a.id);
+      aprBusy = false;
+      aprRender();
+      poll();
+    };
+    window.aprPoll = async () => {
+      if (aprStopped || (lastMode && lastMode !== 'peer')) return;
+      try {
+        const res = await fetch('/api/peer/approvals', { cache: 'no-store' });
+        if (res.status === 404) { aprStopped = true; return; }
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d.now) aprSkew = Date.parse(d.now) - Date.now();
+        // Requests answered elsewhere or expired on the device disappear from the list.
+        if (!aprBusy) aprList = d.approvals || [];
+        aprRender();
+      } catch (_) {}
+    };
+    setInterval(aprPoll, 1000);
+    aprPoll();
 
     initTheme();
     poll();

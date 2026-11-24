@@ -3,6 +3,7 @@
 package tray
 
 import (
+	"os"
 	"os/exec"
 	"runtime"
 )
@@ -35,6 +36,15 @@ func OpenAppWindow(url string) {
 		}
 	}
 	_ = exec.Command("xdg-open", url).Start()
+}
+
+// PopupAppWindow opens the APN window for an incoming connection request when none is open.
+// A root System Service never launches a browser into the user's session.
+func PopupAppWindow(url string, openIfMissing bool) {
+	if !openIfMissing || os.Geteuid() == 0 || os.Getenv("APN_SERVICE_WORKER") == "1" {
+		return
+	}
+	OpenAppWindow(url)
 }
 
 // Start is a no-op stub on non-Windows platforms (Linux/macOS run via systemd/LaunchAgent + Web UI).

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -47,6 +48,16 @@ type Options struct {
 }
 
 type streamOpener func(req protocol.StreamOpenRequest) (io.ReadWriteCloser, protocol.StreamOpenResponse, func(), error)
+
+// approvalPollAt is when an open dashboard page last polled for connection requests.
+var approvalPollAt atomic.Int64
+
+// ApprovalPageActive reports whether an open dashboard page polled for connection requests within
+// d, i.e. whether a new request will already be shown on screen without opening another window.
+func ApprovalPageActive(d time.Duration) bool {
+	at := approvalPollAt.Load()
+	return at != 0 && time.Since(time.Unix(0, at)) < d
+}
 
 // Start runs the local Web UI HTTP server until ctx is cancelled.
 func Start(ctx context.Context, opts Options) error {
@@ -294,6 +305,10 @@ func Start(ctx context.Context, opts Options) error {
 			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
 		}))
 
+		mux.HandleFunc("GET /api/peer/approvals", func(w http.ResponseWriter, r *http.Request) {
+			approvalPollAt.Store(time.Now().UnixNano())
+			writeJSON(w, http.StatusOK, map[string]any{"approvals": opts.Peer.PendingApprovals(), "now": time.Now().UTC()})
+		})
 		mux.HandleFunc("POST /api/peer/approvals/{id}", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
 			var body struct {
 				Allow bool `json:"allow"`

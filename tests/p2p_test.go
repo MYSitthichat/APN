@@ -383,6 +383,8 @@ func TestEasyPINPermanentPasswordAndApproval(t *testing.T) {
 
 	// 5. Interactive Approval Mode (Accept/Reject like AnyDesk) with empty password!
 	hostNode.SetRequireApproval(true)
+	hookCh := make(chan p2p.PendingApproval, 1)
+	hostNode.SetOnApprovalRequest(func(a p2p.PendingApproval) { hookCh <- a })
 	errCh := make(chan error, 1)
 	go func() {
 		_, err := callerNode.ConnectSmart(ctx, "482 917 305", "")
@@ -393,6 +395,17 @@ func TestEasyPINPermanentPasswordAndApproval(t *testing.T) {
 		return len(hostNode.Snapshot().PendingApprovals) == 1
 	})
 	reqID := hostNode.Snapshot().PendingApprovals[0].ID
+	select {
+	case a := <-hookCh:
+		if a.ID != reqID || a.DeviceID != "901234567" || a.ExpiresAt.Sub(a.RequestedAt) != p2p.ApprovalTimeout {
+			t.Fatalf("approval hook got %+v", a)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("approval hook was not called")
+	}
+	if list := hostNode.PendingApprovals(); len(list) != 1 || list[0].ID != reqID {
+		t.Fatalf("PendingApprovals = %+v", list)
+	}
 	if err := hostNode.ResolveApproval(reqID, true); err != nil {
 		t.Fatalf("ResolveApproval: %v", err)
 	}

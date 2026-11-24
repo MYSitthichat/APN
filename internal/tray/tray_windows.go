@@ -5,9 +5,7 @@ package tray
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -156,25 +154,7 @@ func HideConsoleWindow() {
 // focusExistingAppWindow brings an already-open APN window to the foreground instead of
 // spawning a second duplicate window on top of it!
 func focusExistingAppWindow() bool {
-	var found uintptr
-	cb := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		vis, _, _ := procIsWindowVisible.Call(hwnd)
-		if vis == 0 {
-			return 1
-		}
-		var buf [256]uint16
-		n, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-		if n == 0 {
-			return 1
-		}
-		title := syscall.UTF16ToString(buf[:n])
-		if strings.HasPrefix(title, "APN —") || strings.HasPrefix(title, "APN -") || title == "APN" {
-			found = hwnd
-			return 0 // stop enumeration
-		}
-		return 1
-	})
-	_, _, _ = procEnumWindows.Call(cb, 0)
+	found := findAppWindow()
 	if found == 0 {
 		return false
 	}
@@ -191,17 +171,10 @@ func OpenAppWindow(url string) {
 	if focusExistingAppWindow() {
 		return
 	}
-	candidates := []string{
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "Application", "chrome.exe"),
-	}
-	for _, bin := range candidates {
+	for _, bin := range browserCandidates(os.Getenv) {
 		if bin != "" {
 			if _, err := os.Stat(bin); err == nil {
-				cmd := exec.Command(bin, "--app="+url, "--window-size=1280,800")
+				cmd := exec.Command(bin, appWindowArgs(url)...)
 				if err := cmd.Start(); err == nil {
 					return
 				}
