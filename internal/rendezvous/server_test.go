@@ -88,8 +88,18 @@ func TestRendezvousLifecyclePunchAndSnapshot(t *testing.T) {
 		t.Fatalf("reloaded server OnlineCount = %d, want 1", got)
 	}
 
-	// 6. Unregister removes peer immediately
+	// 6. An anonymous unregister (ID only) must not take the device offline
 	resp, err = http.Post(ts.URL+"/api/rendezvous/unregister", "application/json", bytes.NewBufferString(`{"device_id":"595514895"}`))
+	if err != nil {
+		t.Fatalf("unregister failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden || srv.OnlineCount() != 1 {
+		t.Fatalf("anonymous unregister: status %d, OnlineCount %d; want 403 and 1", resp.StatusCode, srv.OnlineCount())
+	}
+
+	// 7. A legacy (unsigned) device unregisters with its own fingerprint
+	resp, err = http.Post(ts.URL+"/api/rendezvous/unregister", "application/json", bytes.NewBufferString(`{"device_id":"595514895","fingerprint":"fp1"}`))
 	if err != nil {
 		t.Fatalf("unregister failed: %v", err)
 	}

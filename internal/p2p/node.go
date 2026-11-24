@@ -3,7 +3,10 @@ package p2p
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +31,7 @@ import (
 	"relayvpn/internal/installer"
 	"relayvpn/internal/protocol"
 	"relayvpn/internal/remote"
+	"relayvpn/internal/rendezvous"
 	"relayvpn/internal/security"
 	"relayvpn/internal/updater"
 	"relayvpn/internal/version"
@@ -817,15 +821,20 @@ func (n *Node) registerWithRendezvous(ctx context.Context) {
 		return
 	}
 
+	udpAddrs := n.candidateUDPAddrs()
+	if len(udpAddrs) > 16 {
+		udpAddrs = udpAddrs[:16]
+	}
 	payload := map[string]any{
-		"device_id":   n.cfg.DeviceID,
+		"device_id":   NormalizeDeviceID(n.cfg.DeviceID),
 		"peer_id":     n.cfg.PeerID,
 		"name":        n.cfg.Name,
 		"os":          fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		"fingerprint": n.identity.Fingerprint,
-		"udp_addrs":   n.candidateUDPAddrs(),
+		"udp_addrs":   udpAddrs,
 		"ws_url":      pubWS,
 	}
+	n.signRendezvous("register", payload, pubWS, udpAddrs)
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rdvURL+"/api/rendezvous/register", bytes.NewReader(body))
 	if err != nil {
@@ -843,7 +852,8 @@ func (n *Node) registerWithRendezvous(ctx context.Context) {
 	defer resp.Body.Close()
 
 	var result struct {
-		OK            bool `json:"ok"`
+		OK            bool   `json:"ok"`
+		Error         string `json:"error"`
 		PunchRequests []struct {
 			FromDeviceID string   `json:"from_device_id"`
 			UDPAddrs     []string `json:"udp_addrs"`
@@ -854,6 +864,8 @@ func (n *Node) registerWithRendezvous(ctx context.Context) {
 	n.mu.Lock()
 	if resp.StatusCode == http.StatusOK && result.OK {
 		n.rendezvousStatus = "online"
+	} else if result.Error != "" {
+		n.rendezvousStatus = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, result.Error)
 	} else {
 		n.rendezvousStatus = fmt.Sprintf("HTTP %d", resp.StatusCode)
 	}
@@ -869,6 +881,28 @@ func (n *Node) registerWithRendezvous(ctx context.Context) {
 	}
 }
 
+// signRendezvous adds ts, cert and sig to a register/unregister payload, proving that this
+// device holds the key of the certificate behind its fingerprint (see rendezvous.SignedMessage).
+// Directories bind the device ID to that key, so nobody else can redirect the ID.
+func (n *Node) signRendezvous(action string, payload map[string]any, wsURL string, udpAddrs []string) {
+	if n.identity == nil || len(n.identity.Cert.Certificate) == 0 {
+		return
+	}
+	key, ok := n.identity.Cert.PrivateKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return
+	}
+	ts := time.Now().UnixMilli()
+	msg := rendezvous.SignedMessage(action, NormalizeDeviceID(n.cfg.DeviceID), n.identity.Fingerprint, ts, wsURL, udpAddrs)
+	sig, err := rendezvous.SignMessage(key, msg, rand.Reader)
+	if err != nil {
+		return
+	}
+	payload["ts"] = ts
+	payload["cert"] = base64.StdEncoding.EncodeToString(n.identity.Cert.Certificate[0])
+	payload["sig"] = sig
+}
+
 func (n *Node) unregisterFromRendezvous() {
 	n.mu.RLock()
 	rdvURL := n.rendezvousURL
@@ -879,7 +913,12 @@ func (n *Node) unregisterFromRendezvous() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	body, _ := json.Marshal(map[string]string{"device_id": n.cfg.DeviceID})
+	payload := map[string]any{
+		"device_id":   NormalizeDeviceID(n.cfg.DeviceID),
+		"fingerprint": n.identity.Fingerprint,
+	}
+	n.signRendezvous("unregister", payload, "", nil)
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rdvURL+"/api/rendezvous/unregister", bytes.NewReader(body))
 	if err != nil {
 		return
@@ -1237,7 +1276,7 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 	// 1. Check LAN Auto-Discovery (instant, zero-server!)
 	if n.lanDisc != nil {
 		if dp, ok := n.lanDisc.findByDeviceID(devID); ok && dp.QUICAddr != "" {
-			info, err := n.dialQUICPeerTimeout(ctx, dp.QUICAddr, dp.Fingerprint, password, lanDialTimeout)
+			info, err := n.dialQUICPeerTimeout(ctx, dp.QUICAddr, n.pinnedFingerprint(devID, dp.Fingerprint), password, lanDialTimeout)
 			if err == nil {
 				return info, nil
 			}
@@ -1300,6 +1339,25 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 	return PeerInfo{}, fmt.Errorf("ไม่พบเครื่อง %s ในวง LAN เดียวกัน — หากอยู่คนละเครือข่าย ให้กรอก IP:4433 (เช่น 26.x.x.x:4433), ตั้งค่า Rendezvous URL หรือวาง Peer Ticket ในส่วน 'ตั้งค่าขั้นสูง'", FormatDeviceID(devID))
 }
 
+// pinnedFingerprint returns the certificate fingerprint to pin when dialing devID: the one
+// remembered from an earlier successful connection (trust on first use) when there is one,
+// otherwise the advertised one. A directory entry or LAN beacon that claims the device with
+// another certificate then fails the TLS handshake instead of receiving the password.
+func (n *Node) pinnedFingerprint(devID, advertised string) string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	for _, kp := range n.cfg.KnownPeers {
+		if NormalizeDeviceID(kp.DeviceID) == devID && kp.Fingerprint != "" {
+			if !strings.EqualFold(kp.Fingerprint, advertised) {
+				n.logger.Warn("advertised fingerprint differs from the remembered device; pinning the remembered one",
+					"device_id", devID, "remembered", kp.Fingerprint, "advertised", advertised)
+			}
+			return kp.Fingerprint
+		}
+	}
+	return advertised
+}
+
 // lanDialTimeout bounds a QUIC dial to a LAN-discovered peer; a LAN handshake normally takes milliseconds.
 const lanDialTimeout = 2500 * time.Millisecond
 
@@ -1351,8 +1409,12 @@ func (n *Node) connectViaRendezvous(ctx context.Context, rdvURL string, hc *http
 		}
 
 		var errs []string
+		pinnedFP := n.pinnedFingerprint(devID, lookup.Entry.Fingerprint)
+		if !strings.EqualFold(pinnedFP, lookup.Entry.Fingerprint) {
+			errs = append(errs, "ลายนิ้วมือ (fingerprint) ของเครื่องปลายทางไม่ตรงกับที่เคยเชื่อมต่อ — ถ้าเครื่องนั้นเพิ่งติดตั้งใหม่ ให้ลบออกจากประวัติแล้วเชื่อมต่อใหม่")
+		}
 		if len(lookup.Entry.UDPAddrs) > 0 {
-			if info, err := n.raceQUICAddrs(ctx, lookup.Entry.UDPAddrs, lookup.Entry.Fingerprint, password); err == nil {
+			if info, err := n.raceQUICAddrs(ctx, lookup.Entry.UDPAddrs, pinnedFP, password); err == nil {
 				return info, nil
 			} else if isPeerRejected(err) {
 				return PeerInfo{}, err

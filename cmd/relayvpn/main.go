@@ -743,6 +743,9 @@ func runRdvServer(args []string, logger *slog.Logger) error {
 	snapshot := fs.String("snapshot", defaultSnap, "Path to periodic disk snapshot JSON (empty disables)")
 	ttl := fs.Duration("ttl", 5*time.Minute, "Peer online entry TTL before expiry")
 	repo := fs.String("repo", "MYSitthichat/APN", "GitHub repo for /api/releases/latest")
+	ratePerMin := fs.Int("rate-per-min", 600, "Requests per minute allowed per client IP (negative disables the limit)")
+	rateBurst := fs.Int("rate-burst", 300, "Per-IP burst size")
+	maxEntries := fs.Int("max-entries", 2_000_000, "Maximum online devices kept in RAM")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -756,6 +759,9 @@ func runRdvServer(args []string, logger *slog.Logger) error {
 		TTL:          *ttl,
 		GitHubRepo:   *repo,
 		Logger:       logger,
+		RatePerMin:   *ratePerMin,
+		RateBurst:    *rateBurst,
+		MaxEntries:   *maxEntries,
 	})
 	return srv.Run(ctx)
 }

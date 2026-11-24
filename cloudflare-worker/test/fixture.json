@@ -1,0 +1,41 @@
+{
+  "attacker_register": {
+    "cert": "MIIBKDCB0KADAgECAggY6ukA6MNbYDAKBggqhkjOPQQDAjAbMRkwFwYDVQQDExBmaXh0dXJlLWF0dGFja2VyMB4XDTI2MTEyNDA1NTk1MVoXDTI2MTEyNTA2NTk1MVowGzEZMBcGA1UEAxMQZml4dHVyZS1hdHRhY2tlcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABK7eeTFahxKdFyQuInUMtUdEuRzuiTKNaDvcUT8x+9k33Le7sW9VdlhtRtDEKCViyowReTuNIjteQ+1ZWYcFGLgwCgYIKoZIzj0EAwIDRwAwRAIgWFBMP8/0Afl8dtZFuqFW0+Adyp/kYdaKzhgN5kZMm7kCIFWVJqp1l109nNQw2m9lth1D56yuQyhPqv3GNGKoPy4K",
+    "device_id": "482917305",
+    "fingerprint": "sha256:d00bb0ce75a9bff5738ea64171e274e2fcdad0be4851fd16494f3cbe14cf1869",
+    "name": "dev",
+    "os": "linux/amd64",
+    "sig": "DS213W5dZXyExJFSQrChgzxecDaSUnzpr/R7HB6qLhU5VbX5XZ02Fqzbq/7C00T9QwsikSzUZlCNVXP1pT67tA==",
+    "ts": 1795503591574,
+    "udp_addrs": null,
+    "ws_url": "wss://evil.example/ws"
+  },
+  "attacker_unregister": {
+    "cert": "MIIBKDCB0KADAgECAggY6ukA6MNbYDAKBggqhkjOPQQDAjAbMRkwFwYDVQQDExBmaXh0dXJlLWF0dGFja2VyMB4XDTI2MTEyNDA1NTk1MVoXDTI2MTEyNTA2NTk1MVowGzEZMBcGA1UEAxMQZml4dHVyZS1hdHRhY2tlcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABK7eeTFahxKdFyQuInUMtUdEuRzuiTKNaDvcUT8x+9k33Le7sW9VdlhtRtDEKCViyowReTuNIjteQ+1ZWYcFGLgwCgYIKoZIzj0EAwIDRwAwRAIgWFBMP8/0Afl8dtZFuqFW0+Adyp/kYdaKzhgN5kZMm7kCIFWVJqp1l109nNQw2m9lth1D56yuQyhPqv3GNGKoPy4K",
+    "device_id": "482917305",
+    "fingerprint": "sha256:d00bb0ce75a9bff5738ea64171e274e2fcdad0be4851fd16494f3cbe14cf1869",
+    "sig": "XpfoQGbwV+6UErB5Ii8hWq9Tp7w/+QQ9/a/1s2Gl7hUHRpbpG0vZsEnTB2XzSyl2dxGxL1bybznThaTLIAYMuw==",
+    "ts": 1795503591574
+  },
+  "owner_register": {
+    "cert": "MIIBIzCByqADAgECAggY6ukA6LtX0DAKBggqhkjOPQQDAjAYMRYwFAYDVQQDEw1maXh0dXJlLW93bmVyMB4XDTI2MTEyNDA1NTk1MVoXDTI2MTEyNTA2NTk1MVowGDEWMBQGA1UEAxMNZml4dHVyZS1vd25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJ7ATRiyfCJIHZ7RJ8NHeWUZVvh8VMJAdekt9Mo0G9t8kdAUKec0X4ysUgPGTtHGp2s+ree0lBiJaWhw7JYfHvYwCgYIKoZIzj0EAwIDSAAwRQIhAJQVTjLqY6FRd1QPxyRC/wnGPPRoPcrG7oyNcDk/8fybAiBIotAzmSsK4zRMSOHWF/zmMPJ/xwmj7kLI3ToFSuCtnQ==",
+    "device_id": "482917305",
+    "fingerprint": "sha256:3879cda7dd6137c357735d9e1affdefe3725c3241aeeaaf746a8e30d58d580f7",
+    "name": "dev",
+    "os": "linux/amd64",
+    "sig": "+0pcKcWQ/mu+v8hId8hAcHsNTWM0yChyAu2BZMbN/0et3OwHPUy1uFvymfOkg/MknmSFPcJSyPL2l1zcWyWDoQ==",
+    "ts": 1795503591574,
+    "udp_addrs": [
+      "1.2.3.4:4433"
+    ],
+    "ws_url": "wss://owner.example/ws"
+  },
+  "owner_unregister": {
+    "cert": "MIIBIzCByqADAgECAggY6ukA6LtX0DAKBggqhkjOPQQDAjAYMRYwFAYDVQQDEw1maXh0dXJlLW93bmVyMB4XDTI2MTEyNDA1NTk1MVoXDTI2MTEyNTA2NTk1MVowGDEWMBQGA1UEAxMNZml4dHVyZS1vd25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJ7ATRiyfCJIHZ7RJ8NHeWUZVvh8VMJAdekt9Mo0G9t8kdAUKec0X4ysUgPGTtHGp2s+ree0lBiJaWhw7JYfHvYwCgYIKoZIzj0EAwIDSAAwRQIhAJQVTjLqY6FRd1QPxyRC/wnGPPRoPcrG7oyNcDk/8fybAiBIotAzmSsK4zRMSOHWF/zmMPJ/xwmj7kLI3ToFSuCtnQ==",
+    "device_id": "482917305",
+    "fingerprint": "sha256:3879cda7dd6137c357735d9e1affdefe3725c3241aeeaaf746a8e30d58d580f7",
+    "sig": "2wH33SaPdL9WyD5vC/QSpsssmvfwyI8NOLYA4zrTFOj9YJmP0Mr7GQcOupRfxKcJrqshQY4QRz0mOCCQa3N3aA==",
+    "ts": 1795503591574
+  },
+  "ts": 1795503591574
+}

@@ -26,6 +26,9 @@ jobs:
           go vet ./...
           go test -v ./...
 
+      - name: Test Cloudflare Worker
+        run: node cloudflare-worker/test/worker.test.mjs
+
       - name: Build all 7 cross-platform APN binaries
         env:
           CGO_ENABLED: "0"
