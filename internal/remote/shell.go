@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ServeShellSession runs an interactive local shell and pipes stdin/stdout/stderr over stream.
@@ -30,16 +32,28 @@ func ServeShellSession(ctx context.Context, stream io.ReadWriteCloser, bytesSent
 	if err != nil {
 		return fmt.Errorf("shell stdin pipe: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
+	// Own pipes instead of StdoutPipe/StderrPipe: cmd.Wait closes those as soon as the shell
+	// exits, which could drop the last output (e.g. "echo done; exit") before it was read.
+	stdout, stdoutW, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("shell stdout pipe: %w", err)
 	}
-	stderr, err := cmd.StderrPipe()
+	stderr, stderrW, err := os.Pipe()
 	if err != nil {
+		_ = stdout.Close()
+		_ = stdoutW.Close()
 		return fmt.Errorf("shell stderr pipe: %w", err)
 	}
+	defer stdout.Close()
+	defer stderr.Close()
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	// The shell holds its own copies of the write ends; ours must close so reads reach EOF.
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
+	if err != nil {
 		return fmt.Errorf("start shell: %w", err)
 	}
 
@@ -100,7 +114,20 @@ func ServeShellSession(ctx context.Context, stream io.ReadWriteCloser, bytesSent
 	}()
 
 	err = cmd.Wait()
-	wg.Wait()
+	// Send everything the shell printed before it exited. A background job that inherited the
+	// output pipes could keep them open forever, so stop waiting after a short grace period.
+	drained := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-time.After(2 * time.Second):
+		_ = stdout.Close()
+		_ = stderr.Close()
+		<-drained
+	}
 	_ = stream.Close()
 	return err
 }
