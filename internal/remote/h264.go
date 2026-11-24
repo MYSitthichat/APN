@@ -79,15 +79,19 @@ func WarmupH264Encoder() {
 		}
 		outW, outH := w&^1, h&^1
 		candidates := h264EncoderCandidates(60, w, h, outW, outH, 82)
-		skipDDA := false
+		skipTier := map[string]bool{}
 		for _, cand := range candidates {
 			if wCtx.Err() != nil {
 				return
 			}
-			if skipDDA && strings.HasPrefix(cand.name, "DXGI") {
+			// Never waste startup warmup caching slow GDI capture (screen may simply be locked at boot!).
+			if cand.tier == "GDI" {
 				continue
 			}
-			probeCtx, cancel := context.WithTimeout(wCtx, 1800*time.Millisecond)
+			if cand.tier != "" && skipTier[cand.tier] {
+				continue
+			}
+			probeCtx, cancel := context.WithTimeout(wCtx, 2400*time.Millisecond)
 			cmd := exec.CommandContext(probeCtx, ffmpegPath, cand.args...)
 			if runtime.GOOS == "linux" {
 				cmd.Env = linuxCmdEnv()
@@ -116,17 +120,35 @@ func WarmupH264Encoder() {
 				cachedEncMu.Unlock()
 				return
 			}
-			if strings.HasPrefix(cand.name, "DXGI") && (timedOut || isDDACaptureFailure(stderrBuf.String())) {
-				skipDDA = true
+			if cand.tier != "" && (timedOut || isCaptureTierFailure(cand.tier, stderrBuf.String())) {
+				skipTier[cand.tier] = true
 			}
 		}
 	}()
+}
+
+func isCaptureTierFailure(tier, stderr string) bool {
+	s := strings.ToLower(stderr)
+	switch tier {
+	case "WGC":
+		return strings.Contains(s, "gfxcapture") ||
+			strings.Contains(s, "no such filter") ||
+			strings.Contains(s, "failed to configure") ||
+			strings.Contains(s, "winrt") ||
+			strings.Contains(s, "capture")
+	case "DXGI", "DXGI1":
+		return isDDACaptureFailure(stderr)
+	default:
+		return false
+	}
 }
 
 func isDDACaptureFailure(stderr string) bool {
 	s := strings.ToLower(stderr)
 	return strings.Contains(s, "desktop duplication") ||
 		strings.Contains(s, "failed to duplicate") ||
+		strings.Contains(s, "failed to enumerate dxgi output") ||
+		strings.Contains(s, "failed to create d3d11") ||
 		(strings.Contains(s, "ddagrab") && (strings.Contains(s, "access denied") ||
 			strings.Contains(s, "operation not permitted") ||
 			strings.Contains(s, "failed to configure") ||
@@ -218,10 +240,10 @@ func streamH264FFmpeg(
 	}
 	var lastErr error
 	var lastEnc string
-	skipDDA := false
+	skipTier := map[string]bool{}
 
 	for _, cand := range candidates {
-		if skipDDA && strings.HasPrefix(cand.name, "DXGI") {
+		if cand.tier != "" && skipTier[cand.tier] {
 			continue
 		}
 		lastEnc = cand.name
@@ -243,7 +265,8 @@ func streamH264FFmpeg(
 		}
 
 		scanner := newFLVH264Reader(stdout)
-		// Guard first-frame probe with a crisp 1.8s timeout (working GPU/x264 encoders emit Frame #1 in <0.5s!)
+		// Allow 2.6s for cold GPU wake-up (e.g. Optimus RTX A1000 waking from D3 sleep);
+		// broken/missing filters still fail in <100ms!
 		type probeRes struct {
 			au    []byte
 			isKey bool
@@ -257,7 +280,7 @@ func streamH264FFmpeg(
 
 		var firstAU []byte
 		var firstIsKey bool
-		probeTimer := time.NewTimer(1800 * time.Millisecond)
+		probeTimer := time.NewTimer(2600 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			probeTimer.Stop()
@@ -268,10 +291,10 @@ func streamH264FFmpeg(
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
 			lastErr = errors.New("encoder startup timed out")
-			// If DXGI Desktop Duplication stalls (e.g. static desktop, Optimus/RTX laptop, or locked screen),
-			// immediately skip remaining DXGI candidates and jump straight to fast GDI + Hardware GPU!
-			if strings.HasPrefix(cand.name, "DXGI") {
-				skipDDA = true
+			// If this capture tier stalls (e.g. static desktop or multi-GPU adapter mismatch),
+			// immediately skip remaining encoders in the same tier and try the next 60 FPS capture tier!
+			if cand.tier != "" && cand.tier != "GDI" {
+				skipTier[cand.tier] = true
 			}
 			continue
 		case pr := <-probeCh:
@@ -280,8 +303,8 @@ func streamH264FFmpeg(
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 				lastErr = summarizeFFmpegErr(stderrBuf.String(), pr.err)
-				if strings.HasPrefix(cand.name, "DXGI") && isDDACaptureFailure(stderrBuf.String()) {
-					skipDDA = true
+				if cand.tier != "" && isCaptureTierFailure(cand.tier, stderrBuf.String()) {
+					skipTier[cand.tier] = true
 				}
 				continue
 			}
@@ -289,9 +312,13 @@ func streamH264FFmpeg(
 			firstIsKey = pr.isKey
 		}
 
-		cachedEncMu.Lock()
-		cachedEncName = cand.name
-		cachedEncMu.Unlock()
+		// Cache fast hardware-capture encoders so reconnects start in <0.2s;
+		// never permanently pin slow GDI if a transient lock/sleep caused WGC/DXGI to miss once.
+		if cand.tier != "GDI" {
+			cachedEncMu.Lock()
+			cachedEncName = cand.name
+			cachedEncMu.Unlock()
+		}
 
 		sendInfo("h264", cand.name, fmt.Sprintf("สตรีมวิดีโอ GPU/H.264 (%s · %dx%d @ %d FPS)", cand.name, outW, outH, fps))
 
@@ -400,6 +427,7 @@ func streamH264FFmpeg(
 
 type encoderCandidate struct {
 	name string
+	tier string // Capture tier on Windows: "WGC", "DXGI", "DXGI1", "GDI"
 	args []string
 }
 
@@ -457,17 +485,6 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 	var list []encoderCandidate
 
 	if runtime.GOOS == "windows" {
-		// 1) Fast DXGI Desktop Duplication capture (ddagrab <1ms) with multi-threaded BGRA->NV12 conversion
-		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1,hwdownload,format=bgra,%s", fpsStr, nv12Filter)
-		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1,hwdownload,format=bgra,%s", fpsStr, yuvFilter)
-		makeDDA := func(filter string, encArgs []string) []string {
-			args := append([]string{}, inLowLatency...)
-			args = append(args, "-filter_complex", filter)
-			args = append(args, encArgs...)
-			args = append(args, outFlags...)
-			return args
-		}
-
 		// Windows Media Foundation Hardware Encoder (Low-Delay VBR + Display Remoting):
 		// Uses NVIDIA NVENC MFT (RTX A1000/T1000/RTX), Intel QSV MFT, and AMD AMF MFT universally
 		// WITHOUT FFmpeg 9.1's NVENC API 13.1 (driver >= 610) restriction — verified 145+ FPS @ 1080p!
@@ -503,16 +520,62 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
 
+		// Tier 1: Windows Graphics Capture (WGC / gfxcapture — FFmpeg 9.1+, Windows 10/11):
+		// Captures directly from Windows DWM at 60 FPS across ALL GPUs (Optimus RTX A1000 laptops,
+		// multi-GPU workstations, Intel UHD/Iris, AMD, HDR & Parsec virtual displays) with GPU-side scaling
+		// and 5x lower idle CPU than ddagrab/gdigrab!
+		wgcSrc := fmt.Sprintf("gfxcapture=monitor_idx=0:capture_cursor=1:max_framerate=%s", fpsStr)
+		if needScale {
+			wgcSrc += fmt.Sprintf(":width=%d:height=%d:resize_mode=scale:scale_mode=bilinear", outW, outH)
+		}
+		wgcNV12 := wgcSrc + ",hwdownload,format=bgra,format=nv12"
+		wgcYUV := wgcSrc + ",hwdownload,format=bgra,format=yuv420p"
+		makeWGC := func(filter string, encArgs []string) []string {
+			args := append([]string{}, inLowLatency...)
+			args = append(args, "-filter_complex", filter, "-fps_mode", "cfr", "-r", fpsStr)
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
 		list = append(list,
-			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", args: makeDDA(ddaNV12, mfArgs)},
-			encoderCandidate{name: "DXGI + Hardware GPU (MF)", args: makeDDA(ddaNV12, mfSafeArgs)},
-			encoderCandidate{name: "DXGI + Intel QSV GPU", args: makeDDA(ddaNV12, qsvArgs)},
-			encoderCandidate{name: "DXGI + AMD AMF GPU", args: makeDDA(ddaNV12, amfArgs)},
-			encoderCandidate{name: "DXGI + NVENC GPU", args: makeDDA(ddaNV12, nvencArgs)},
-			encoderCandidate{name: "DXGI + x264 ZeroLatency", args: makeDDA(ddaYUV, x264Args)},
+			encoderCandidate{name: "WGC + Hardware GPU (MF LD-VBR)", tier: "WGC", args: makeWGC(wgcNV12, mfArgs)},
+			encoderCandidate{name: "WGC + Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, mfSafeArgs)},
+			encoderCandidate{name: "WGC + Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, qsvArgs)},
+			encoderCandidate{name: "WGC + AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, amfArgs)},
+			encoderCandidate{name: "WGC + NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, nvencArgs)},
+			encoderCandidate{name: "WGC + x264 ZeroLatency", tier: "WGC", args: makeWGC(wgcYUV, x264Args)},
 		)
 
-		// 2) Instant fallback: gdigrab if ddagrab is unavailable or stalls on Optimus/RTX laptop/static screen.
+		// Tier 2: DXGI Desktop Duplication (ddagrab Adapter 0 with allow_fallback=1 for HDR/10-bit displays)
+		ddaNV12 := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, nv12Filter)
+		ddaYUV := fmt.Sprintf("ddagrab=framerate=%s:draw_mouse=1:allow_fallback=1,hwdownload,format=bgra,%s", fpsStr, yuvFilter)
+		makeDDA := func(adapterIdx int, filter string, encArgs []string) []string {
+			args := append([]string{}, inLowLatency...)
+			if adapterIdx >= 0 {
+				args = append(args, "-init_hw_device", fmt.Sprintf("d3d11va=dda:%d", adapterIdx), "-filter_hw_device", "dda")
+			}
+			args = append(args, "-filter_complex", filter)
+			args = append(args, encArgs...)
+			args = append(args, outFlags...)
+			return args
+		}
+		list = append(list,
+			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", tier: "DXGI", args: makeDDA(-1, ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF)", tier: "DXGI", args: makeDDA(-1, ddaNV12, mfSafeArgs)},
+			encoderCandidate{name: "DXGI + Intel QSV GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, qsvArgs)},
+			encoderCandidate{name: "DXGI + AMD AMF GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, amfArgs)},
+			encoderCandidate{name: "DXGI + NVENC GPU", tier: "DXGI", args: makeDDA(-1, ddaNV12, nvencArgs)},
+			encoderCandidate{name: "DXGI + x264 ZeroLatency", tier: "DXGI", args: makeDDA(-1, ddaYUV, x264Args)},
+		)
+
+		// Tier 3: DXGI Desktop Duplication on Adapter 1 (for Hybrid Optimus RTX/Intel laptops with older FFmpeg)
+		list = append(list,
+			encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF LD-VBR)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfSafeArgs)},
+			encoderCandidate{name: "DXGI-GPU1 + x264 ZeroLatency", tier: "DXGI1", args: makeDDA(1, ddaYUV, x264Args)},
+		)
+
+		// Tier 4: Last-resort fallback: gdigrab (only if WGC, DXGI-0, and DXGI-1 all fail, e.g. older Windows / VM).
 		// NOTE: Never pass `-probesize 32` to gdigrab — its BMP header is 54 bytes!
 		makeGDI := func(vf string, encArgs []string) []string {
 			args := append([]string{}, inLowLatency...)
@@ -522,12 +585,12 @@ func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCa
 			return args
 		}
 		list = append(list,
-			encoderCandidate{name: "GDI + Hardware GPU (MF LD-VBR)", args: makeGDI(nv12Filter, mfArgs)},
-			encoderCandidate{name: "GDI + Hardware GPU (MF)", args: makeGDI(nv12Filter, mfSafeArgs)},
-			encoderCandidate{name: "GDI + Intel QSV GPU", args: makeGDI(nv12Filter, qsvArgs)},
-			encoderCandidate{name: "GDI + AMD AMF GPU", args: makeGDI(nv12Filter, amfArgs)},
-			encoderCandidate{name: "GDI + NVENC GPU", args: makeGDI(nv12Filter, nvencArgs)},
-			encoderCandidate{name: "GDI + x264 ZeroLatency", args: makeGDI(yuvFilter, x264Args)},
+			encoderCandidate{name: "GDI + Hardware GPU (MF LD-VBR)", tier: "GDI", args: makeGDI(nv12Filter, mfArgs)},
+			encoderCandidate{name: "GDI + Hardware GPU (MF)", tier: "GDI", args: makeGDI(nv12Filter, mfSafeArgs)},
+			encoderCandidate{name: "GDI + Intel QSV GPU", tier: "GDI", args: makeGDI(nv12Filter, qsvArgs)},
+			encoderCandidate{name: "GDI + AMD AMF GPU", tier: "GDI", args: makeGDI(nv12Filter, amfArgs)},
+			encoderCandidate{name: "GDI + NVENC GPU", tier: "GDI", args: makeGDI(nv12Filter, nvencArgs)},
+			encoderCandidate{name: "GDI + x264 ZeroLatency", tier: "GDI", args: makeGDI(yuvFilter, x264Args)},
 		)
 		return list
 	}

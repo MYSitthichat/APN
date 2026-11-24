@@ -111,4 +111,10 @@ func TestH264CandidatesSanity(t *testing.T) {
 	if !isDDACaptureFailure("[Parsed_ddagrab_0] Failed to duplicate output") {
 		t.Errorf("expected Failed to duplicate output to trigger DDA skip")
 	}
+	if !isDDACaptureFailure("[Parsed_ddagrab_0] Failed to enumerate DXGI output 0") {
+		t.Errorf("expected Failed to enumerate DXGI output 0 to trigger DDA skip")
+	}
+	if !isCaptureTierFailure("WGC", "No such filter: 'gfxcapture'") {
+		t.Errorf("expected missing gfxcapture filter to trigger WGC skip")
+	}
 }
