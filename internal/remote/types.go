@@ -449,6 +449,15 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		_ = sendFrame(protocol.FrameTypeCursor, msg)
 	}
 
+	// Windows secure desktop (UAC prompt, lock/sign-in screen). FFmpeg capture is bound to the
+	// normal desktop and freezes on its last frame while the secure desktop is shown, so the
+	// System Service switches to Smart Tiles, whose capture thread follows the input desktop, and
+	// back to video when the normal desktop returns. A user-mode host cannot see or click the
+	// secure desktop at all; the viewer is told why instead of the picture silently freezing.
+	if runtime.GOOS == "windows" {
+		go watchSecureDesktop(ctx, st, sendFrame, secureDesktop, 400*time.Millisecond)
+	}
+
 	var seq atomic.Uint32
 	videoShortRuns := 0
 
@@ -465,6 +474,24 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 			sendCursor("")
 		}
 		cursorLocal = localCur
+
+		if curCodec == "hevc" || curCodec == "h264" {
+			if active, reachable := secureDesktop(); active && reachable {
+				st.mu.Lock()
+				st.fallbackNotice = secureDesktopTilesNotice
+				st.mu.Unlock()
+				if err := serveDirtyTileLoop(ctx, st, &seq, sendFrame, sendInfo); err != nil {
+					return err
+				}
+				st.mu.Lock()
+				if st.fallbackNotice == secureDesktopTilesNotice {
+					st.fallbackNotice = ""
+				}
+				st.forceKeyframe = true
+				st.mu.Unlock()
+				continue
+			}
+		}
 
 		if curCodec == "hevc" || curCodec == "h264" {
 			vidCtx, vidCancel := context.WithCancel(ctx)
@@ -1039,3 +1066,53 @@ func clamp(v, lo, hi int) int {
 }
 
 var errUnsupportedPlatform = errors.New("screen capture not supported on this host without helper tool")
+
+const (
+	secureDesktopTilesNotice   = "เครื่องปลายทางแสดงหน้าต่าง UAC หรือหน้าล็อกจอ — ใช้ Smart Tiles ชั่วคราวเพื่อให้เห็นและกดได้ แล้วจะกลับเป็นวิดีโอเองเมื่อหน้าต่างนี้ปิด"
+	secureDesktopBlockedNotice = "⚠ เครื่องปลายทางแสดงหน้าต่าง UAC หรือหน้าล็อกจออยู่ APN มองไม่เห็นและกดหน้าต่างนี้ไม่ได้เพราะไม่ได้ติดตั้งเป็น System Service — ให้คนที่เครื่องกด หรือติดตั้ง System Service (ปุ่ม 🛡 Service ในหน้า APN ของเครื่องปลายทาง) แล้วจะกดได้จากระยะไกล"
+)
+
+// watchSecureDesktop follows switches between the normal and the secure desktop (see
+// ServeScreenSession): it restarts the stream loop when the System Service can show the secure
+// desktop, and sends the viewer an alert when it cannot.
+func watchSecureDesktop(ctx context.Context, st *streamRuntimeState, sendFrame func(byte, []byte) error, probe func() (active, reachable bool), every time.Duration) {
+	sendAlert := func(text string) {
+		msg, _ := json.Marshal(map[string]string{"alert": text})
+		_ = sendFrame(protocol.FrameTypeInfo, msg)
+	}
+	wasActive, wasReach := probe()
+	if wasActive && !wasReach {
+		sendAlert(secureDesktopBlockedNotice)
+	}
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		active, reach := probe()
+		if active == wasActive && reach == wasReach {
+			continue
+		}
+		blocked, wasBlocked := active && !reach, wasActive && !wasReach
+		if blocked != wasBlocked {
+			if blocked {
+				sendAlert(secureDesktopBlockedNotice)
+			} else {
+				sendAlert("")
+			}
+		}
+		if (active && reach) != (wasActive && wasReach) {
+			st.mu.Lock()
+			st.forceKeyframe = true
+			st.mu.Unlock()
+			select {
+			case st.modeCh <- struct{}{}:
+			default:
+			}
+		}
+		wasActive, wasReach = active, reach
+	}
+}

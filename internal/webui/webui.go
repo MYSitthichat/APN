@@ -231,6 +231,24 @@ func Start(ctx context.Context, opts Options) error {
 			writeJSON(w, http.StatusOK, info)
 		}))
 
+		mux.HandleFunc("POST /api/peer/probe", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Target string `json:"target"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			probeCtx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+			defer cancel()
+			res, err := opts.Peer.ProbeTarget(probeCtx, body.Target)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, res)
+		}))
+
 		mux.HandleFunc("POST /api/peer/saved/refresh", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
 			pCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 			defer cancel()
@@ -267,6 +285,41 @@ func Start(ctx context.Context, opts Options) error {
 				return
 			}
 			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+
+		mux.HandleFunc("POST /api/peer/saved/{id}/group", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Group string `json:"group"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			if err := opts.Peer.SetSavedPeerGroup(r.PathValue("id"), body.Group); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+
+		mux.HandleFunc("POST /api/peer/groups/rename", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				OldName string `json:"old_name"`
+				NewName string `json:"new_name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			updated, err := opts.Peer.RenameGroup(body.OldName, body.NewName)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"updated":  updated,
+				"snapshot": opts.Peer.Snapshot(),
+			})
 		}))
 
 		mux.HandleFunc("POST /api/peer/pin/rotate", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {

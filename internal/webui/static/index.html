@@ -1030,7 +1030,7 @@
       top: calc(100% + 5px);
       right: 0;
       z-index: 60;
-      min-width: 162px;
+      min-width: 184px;
       background: var(--surface-solid);
       border: 1px solid var(--border-strong);
       border-radius: 10px;
@@ -1205,7 +1205,7 @@
     }
     .connect-form {
       display: grid;
-      grid-template-columns: minmax(170px, 1.35fr) minmax(125px, 0.95fr) auto auto auto;
+      grid-template-columns: minmax(220px, 1fr) auto auto;
       align-items: center;
       gap: 8px;
     }
@@ -1213,11 +1213,198 @@
     .connect-form input[type="password"] {
       width: 100%;
       min-width: 0;
-      padding: 9px 12px;
-      font-size: 0.92rem;
+      padding: 9px 13px;
+      font-size: 0.93rem;
     }
     .connect-form button {
       white-space: nowrap;
+    }
+
+    /* Device History Group Bar & Grouped Sections */
+    .group-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-bottom: 2px;
+    }
+    .group-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .group-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 0.77rem;
+      font-weight: 700;
+      background: var(--surface-2);
+      color: var(--text-soft);
+      border: 1px solid var(--border);
+      box-shadow: none;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .group-pill:hover {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+      color: var(--text);
+      transform: none;
+    }
+    .group-pill.active {
+      background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+      color: var(--text);
+      border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    }
+    .group-pill .gp-count {
+      font-size: 0.7rem;
+      opacity: 0.78;
+      font-variant-numeric: tabular-nums;
+    }
+    .group-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 13%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+      cursor: pointer;
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .group-tag:hover {
+      background: color-mix(in srgb, var(--accent) 22%, var(--surface-2));
+    }
+    .group-sections {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .group-section {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .group-section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 2px 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .group-section-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.84rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .group-section-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .group-chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .group-chip {
+      padding: 6px 11px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      background: var(--surface-2);
+      color: var(--text-soft);
+      border: 1px solid var(--border-strong);
+      box-shadow: none;
+    }
+    .group-chip:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+      transform: none;
+    }
+    .group-chip.selected {
+      background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    /* Centered Auth Password Dialog */
+    .auth-target-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+    .auth-pass-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .auth-pass-wrap input {
+      width: 100%;
+      padding: 11px 42px 11px 13px;
+      border-radius: 11px;
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      font-size: 0.96rem;
+      letter-spacing: 0.4px;
+    }
+    .auth-pass-wrap input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .auth-eye-btn {
+      position: absolute;
+      right: 6px;
+      padding: 5px 8px;
+      border-radius: 8px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      box-shadow: none;
+      font-size: 0.95rem;
+    }
+    .auth-eye-btn:hover {
+      background: var(--surface-2);
+      color: var(--text);
+      transform: none;
+    }
+    .auth-err {
+      display: none;
+      padding: 8px 11px;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    }
+    .auth-hint {
+      font-size: 0.75rem;
+      line-height: 1.45;
+      color: var(--muted);
     }
     .desk-tabs {
       display: flex;
@@ -1323,16 +1510,10 @@
       align-content: start;
     }
 
-    /* Medium desktop / snapped half-screen (861px - 1180px): crisp 2-row connect grid */
+    /* Medium desktop / snapped half-screen (861px - 1180px): keep single-input connect grid crisp */
     @media (max-width: 1180px) {
       .connect-form {
-        grid-template-columns: 1.3fr 1fr auto;
-      }
-      .connect-btn-primary {
-        grid-column: 1 / 3;
-      }
-      .connect-btn-secondary {
-        grid-column: 3 / 4;
+        grid-template-columns: minmax(180px, 1fr) auto auto;
       }
     }
     @media (max-width: 980px) {
@@ -1934,6 +2115,72 @@
       </div>
     </div>
   </div>
+
+  <!-- Centered Auth Password Dialog (AnyDesk/TeamViewer style) -->
+  <div id="apnAuthBackdrop" class="apn-dialog-backdrop" onclick="if(event.target===this)closeAuthDialog()">
+    <div class="apn-dialog-card" role="dialog" aria-modal="true" aria-labelledby="apnAuthTitle">
+      <div class="apn-dialog-head">
+        <div class="apn-dialog-icon">🔐</div>
+        <div style="min-width:0;flex:1">
+          <div id="apnAuthTitle" class="apn-dialog-title">ยืนยันรหัสผ่านเครื่องปลายทาง</div>
+          <div class="apn-dialog-msg" style="margin-top:3px">พบเครื่องปลายทางพร้อมเชื่อมต่อแล้ว กรุณากรอก PIN 6 หลัก หรือรหัสผ่านถาวร</div>
+        </div>
+      </div>
+      <div class="auth-target-pill">
+        <div style="min-width:0;flex:1">
+          <div id="apnAuthTargetName" style="font-weight:800;font-size:0.93rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">-</div>
+          <div id="apnAuthTargetSub" class="muted" style="font-size:0.76rem;margin-top:2px">-</div>
+        </div>
+        <span id="apnAuthTargetBadge" class="badge" style="padding:3px 9px;font-size:0.72rem;flex-shrink:0"><span class="dot ok"></span>พร้อมเชื่อมต่อ</span>
+      </div>
+      <form id="apnAuthForm" onsubmit="submitAuthDialog(event)" style="display:grid;gap:11px">
+        <div class="auth-pass-wrap">
+          <input id="apnAuthPass" type="password" placeholder="กรอก PIN 6 หลัก หรือรหัสผ่านถาวร" autocomplete="current-password" />
+          <button id="apnAuthEye" type="button" class="auth-eye-btn" onclick="toggleAuthPassVis()" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
+        </div>
+        <label style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;color:var(--text-soft)">
+          <input id="apnAuthRemember" type="checkbox" checked style="width:16px;height:16px;margin:0;cursor:pointer" />
+          <span>จำรหัสผ่านไว้สำหรับครั้งต่อไป (เข้าได้ใน 1 คลิก)</span>
+        </label>
+        <div id="apnAuthErr" class="auth-err"></div>
+        <div class="auth-hint">💡 หากเครื่องปลายทางเปิดโหมด "ขออนุมัติก่อนเข้าควบคุม" สามารถเว้นว่างแล้วกดเชื่อมต่อเพื่อส่งคำขอให้เจ้าของเครื่องกดยืนยันได้</div>
+        <div class="apn-dialog-actions">
+          <button type="button" class="secondary" onclick="closeAuthDialog()">ยกเลิก</button>
+          <button id="apnAuthSubmit" type="submit" class="success">🖥 เชื่อมต่อและเปิดหน้าจอ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Centered Device Group Picker Dialog -->
+  <div id="apnGroupBackdrop" class="apn-dialog-backdrop" onclick="if(event.target===this)closeGroupDialog()">
+    <div class="apn-dialog-card" role="dialog" aria-modal="true" aria-labelledby="apnGroupTitle">
+      <div class="apn-dialog-head">
+        <div class="apn-dialog-icon">📁</div>
+        <div style="min-width:0;flex:1">
+          <div id="apnGroupTitle" class="apn-dialog-title">จัดกลุ่มเครื่องในประวัติ</div>
+          <div id="apnGroupSub" class="apn-dialog-msg" style="margin-top:3px">-</div>
+        </div>
+      </div>
+      <div id="apnGroupExistingWrap" style="display:none;gap:6px">
+        <div class="stat-label" style="font-size:0.74rem;margin-bottom:4px">เลือกกลุ่มที่มีอยู่แล้ว (คลิกเพื่อย้ายทันที)</div>
+        <div id="apnGroupChips" class="group-chip-list"></div>
+      </div>
+      <form onsubmit="saveGroupDialog(event)" style="display:grid;gap:11px">
+        <div>
+          <div class="stat-label" style="font-size:0.74rem;margin-bottom:5px">หรือพิมพ์ชื่อกลุ่มใหม่</div>
+          <input id="apnGroupInput" class="apn-dialog-input" type="text" maxlength="48" placeholder="เช่น Server หลัก, ออฟฟิศ, เครื่องลูกค้า..." autocomplete="off" />
+        </div>
+        <div class="apn-dialog-actions" style="justify-content:space-between;flex-wrap:wrap">
+          <button id="apnGroupClearBtn" type="button" class="secondary" style="display:none;color:var(--danger)" onclick="quickAssignGroup('')">✕ นำออกจากกลุ่ม</button>
+          <div style="display:flex;gap:8px;margin-left:auto">
+            <button type="button" class="secondary" onclick="closeGroupDialog()">ยกเลิก</button>
+            <button type="submit" class="success">บันทึกกลุ่ม</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
   <!-- Incoming connection request pop-up (AnyDesk-style) -->
   <div id="aprBackdrop" class="apr-backdrop">
     <div class="apr-card" role="alertdialog" aria-modal="true" aria-labelledby="aprName" aria-describedby="aprQuestion">
@@ -2213,6 +2460,8 @@
     let hidePIN = false;
     let peerTab = 'saved';
     let peerSearch = '';
+    let peerGroupFilter = '__all__';
+    let peerGroupedView = (localStorage.getItem('apn_group_view') ?? '1') === '1';
     let lastPeerData = null;
     let toastTimer = null;
 
@@ -2295,6 +2544,22 @@
     window.apnAlert = (opts) => openApnDialog({ mode: 'alert', ...opts });
 
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const authBd = document.getElementById('apnAuthBackdrop');
+        if (authBd && authBd.classList.contains('open')) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeAuthDialog();
+          return;
+        }
+        const grpBd = document.getElementById('apnGroupBackdrop');
+        if (grpBd && grpBd.classList.contains('open')) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeGroupDialog();
+          return;
+        }
+      }
       const backdrop = document.getElementById('apnDialogBackdrop');
       if (!backdrop || !backdrop.classList.contains('open')) return;
       if (e.key === 'Escape') {
@@ -2337,6 +2602,15 @@
 
     window.setPeerTab = (tab) => {
       peerTab = tab;
+      if (lastPeerData) renderPeer(lastPeerData);
+    };
+    window.setPeerGroupFilter = (group) => {
+      peerGroupFilter = group || '__all__';
+      if (lastPeerData) renderPeer(lastPeerData);
+    };
+    window.togglePeerGroupedView = () => {
+      peerGroupedView = !peerGroupedView;
+      localStorage.setItem('apn_group_view', peerGroupedView ? '1' : '0');
       if (lastPeerData) renderPeer(lastPeerData);
     };
     window.onPeerSearch = (val) => {
@@ -2813,8 +3087,6 @@
       setHeaderBadge('p2p remote', d.paused ? 'PAUSED' : (d.bridge?.ready ? `พร้อมใช้งาน · 443 ✓` : `พร้อมใช้งาน · ${peers.length} Peer`), d.paused ? 'warn' : 'ok');
 
       const prevRemoteID = document.getElementById('pRemoteID')?.value || '';
-      const prevRemotePass = document.getElementById('pRemotePass')?.value || '';
-      const prevRemember = document.getElementById('chkRememberPass')?.checked ?? true;
       const prevErr = document.getElementById('peerErr')?.textContent || '';
 
       const connectedByDev = {};
@@ -2827,79 +3099,177 @@
         peerTab = 'saved';
       }
 
+      // Compute available groups from all saved devices
+      const groupMap = new Map();
+      let ungroupedTotal = 0, ungroupedOnline = 0;
+      saved.forEach(sp => {
+        const g = (sp.group || '').trim();
+        if (g) {
+          const cur = groupMap.get(g) || { total: 0, online: 0 };
+          cur.total++;
+          if (sp.online) cur.online++;
+          groupMap.set(g, cur);
+        } else {
+          ungroupedTotal++;
+          if (sp.online) ungroupedOnline++;
+        }
+      });
+      const groupNames = Array.from(groupMap.keys()).sort((a, b) => a.localeCompare(b, 'th'));
+      if (peerGroupFilter !== '__all__' && peerGroupFilter !== '__ungrouped__' && !groupMap.has(peerGroupFilter)) {
+        peerGroupFilter = '__all__';
+      }
+      if (peerGroupFilter === '__ungrouped__' && (groupNames.length === 0 || ungroupedTotal === 0)) {
+        peerGroupFilter = '__all__';
+      }
+
       const q = peerSearch.trim().toLowerCase();
-      const filteredSaved = q
-        ? saved.filter(s => (s.name || '').toLowerCase().includes(q) || (s.device_id || '').includes(q.replace(/\s+/g, '')))
-        : saved;
+      const qDigits = q.replace(/\s+/g, '');
+      const matchesSearch = (s) => {
+        if (!q) return true;
+        return (s.name || '').toLowerCase().includes(q) ||
+          (s.device_id || '').includes(qDigits) ||
+          (s.group || '').toLowerCase().includes(q) ||
+          (s.vpn_ip || '').toLowerCase().includes(q);
+      };
+      const matchesGroup = (s) => {
+        const g = (s.group || '').trim();
+        if (peerGroupFilter === '__all__') return true;
+        if (peerGroupFilter === '__ungrouped__') return g === '';
+        return g === peerGroupFilter;
+      };
+      const filteredSaved = saved.filter(s => matchesSearch(s) && matchesGroup(s));
+
+      const renderSavedCard = (sp) => {
+        const cp = connectedByDev[sp.device_id];
+        const statusDot = sp.connected ? 'ok' : (sp.online ? 'ok' : '');
+        const statusLabel = sp.connected
+          ? (cp?.transport?.startsWith('QUIC') ? 'เชื่อมตรง QUIC' : 'เชื่อมต่ออยู่')
+          : (sp.online ? (sp.online_via === 'lan' ? 'ออนไลน์ (LAN)' : 'ออนไลน์') : 'ออฟไลน์');
+        const grp = (sp.group || '').trim();
+        return `
+          <div class="saved-card ${sp.online ? 'is-online' : ''}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div style="min-width:0;flex:1">
+                <div style="font-weight:700;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.name)}</div>
+                <div style="margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  <code>${esc(fmtDevID(sp.device_id))}</code>
+                  ${sp.os ? `<span class="muted" style="font-size:0.74rem">${esc(sp.os)}</span>` : ''}
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+                <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ${statusDot}"></span>${statusLabel}</span>
+                <div class="card-menu-wrap">
+                  <button type="button" class="secondary icon-btn" style="padding:3px 7px;font-size:0.86rem;line-height:1" onclick="toggleCardMenu(event,${jsArg('cm-' + sp.device_id)})" title="จัดการเครื่องนี้">⋮</button>
+                  <div id="cm-${esc(sp.device_id)}" class="card-menu-pop">
+                    <button type="button" onclick="closeCardMenus(); openGroupDialog(${jsArg(sp.device_id)},${jsArg(sp.name)},${jsArg(grp)})">📁 จัดกลุ่ม / ย้ายกลุ่ม...</button>
+                    <button type="button" onclick="closeCardMenus(); peerRenameSaved(${jsArg(sp.device_id)},${jsArg(sp.name)})">✏️ เปลี่ยนชื่อเครื่อง</button>
+                    ${sp.has_saved_password ? `<button type="button" onclick="closeCardMenus(); peerClearSavedPass(${jsArg(sp.device_id)})">🔓 ลืมรหัสผ่านที่จำไว้</button>` : ''}
+                    <button type="button" class="menu-danger" onclick="closeCardMenus(); peerDeleteSaved(${jsArg(sp.device_id)})">🗑 ลบออกจากประวัติ</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem" class="muted">
+              ${grp ? `<span class="group-tag" title="คลิกเพื่อกรองเฉพาะกลุ่ม ${esc(grp)}" onclick="setPeerGroupFilter(${jsArg(grp)})">📁 ${esc(grp)}</span>` : ''}
+              ${sp.has_saved_password ? '<span class="badge" style="padding:2px 7px;font-size:0.7rem">🔑 จำรหัสแล้ว</span>' : '<span class="badge" style="padding:2px 7px;font-size:0.7rem;opacity:0.7">ยังไม่จำรหัส</span>'}
+              ${renderPeerVersionBadge(cp?.version || sp.version, !!cp)}
+              ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText(${jsArg(sp.vpn_ip)},${jsArg('คัดลอก VPN IP ' + sp.vpn_ip + ' แล้ว')})">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
+              ${sp.last_connected ? `<span>${esc(fmtTimeAgo(sp.last_connected))}</span>` : ''}
+            </div>
+            <div class="saved-card-actions">
+              ${cp ? `
+                <button class="success" style="flex:1;min-width:0;padding:7px 9px;font-size:0.81rem" onclick="openRemoteScreen(${jsArg(cp.id)},${jsArg(cp.name)},${!!cp.capabilities?.has_ffmpeg})">🖥 เปิดหน้าจอ</button>
+                <button class="secondary icon-btn" style="padding:6px 9px" title="${cp.capabilities?.allow_files ? 'โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)' : 'เครื่องปลายทางต้องอัปเดตเป็น v1.2.7 เพื่อใช้โอนไฟล์'}" onclick="openRemoteFiles(${jsArg(cp.id)},${jsArg(cp.name)},${!!cp.capabilities?.allow_files})">📁</button>
+                <button class="secondary icon-btn" style="padding:6px 9px" title="เปิด Terminal" onclick="openRemoteShell(${jsArg(cp.id)},${jsArg(cp.name)})">💻</button>
+                <button class="danger icon-btn" style="padding:6px 9px" title="ตัดการเชื่อมต่อ" onclick="peerDisconnect(${jsArg(cp.id)})">✕</button>
+              ` : (sp.has_saved_password ? `
+                <button class="${sp.online ? 'success' : 'secondary'}" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect(${jsArg(sp.device_id)},${jsArg(sp.name)},true,${jsArg(sp.os || '')})">🖥 รีโมตเลย</button>
+              ` : `
+                <button class="secondary" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect(${jsArg(sp.device_id)},${jsArg(sp.name)},false,${jsArg(sp.os || '')})">🔑 กรอกรหัสต่อ</button>
+              `)}
+            </div>
+          </div>`;
+      };
 
       // Render active workspace tab content
       let tabContentHTML = '';
       if (peerTab === 'saved') {
+        const hasGroups = groupNames.length > 0;
+        const isSpecificGroup = peerGroupFilter !== '__all__' && peerGroupFilter !== '__ungrouped__';
+        const groupBarHTML = saved.length > 0 ? `
+          <div class="group-bar">
+            <div class="group-pills">
+              <button type="button" class="group-pill ${peerGroupFilter === '__all__' ? 'active' : ''}" onclick="setPeerGroupFilter('__all__')">
+                ทั้งหมด <span class="gp-count">(${saved.filter(s => s.online).length}/${saved.length})</span>
+              </button>
+              ${groupNames.map(g => {
+                const st = groupMap.get(g);
+                return `<button type="button" class="group-pill ${peerGroupFilter === g ? 'active' : ''}" onclick="setPeerGroupFilter(${jsArg(g)})">📁 ${esc(g)} <span class="gp-count">(${st.online}/${st.total})</span></button>`;
+              }).join('')}
+              ${hasGroups && ungroupedTotal > 0 ? `
+                <button type="button" class="group-pill ${peerGroupFilter === '__ungrouped__' ? 'active' : ''}" onclick="setPeerGroupFilter('__ungrouped__')">
+                  ไม่มีกลุ่ม <span class="gp-count">(${ungroupedOnline}/${ungroupedTotal})</span>
+                </button>` : ''}
+            </div>
+            <div class="row-actions" style="gap:5px">
+              ${isSpecificGroup ? `
+                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem" onclick="peerRenameGroup(${jsArg(peerGroupFilter)})">✏️ เปลี่ยนชื่อกลุ่ม</button>
+                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem;color:var(--danger)" onclick="peerDissolveGroup(${jsArg(peerGroupFilter)})">✕ ยุบกลุ่ม</button>
+              ` : (hasGroups && peerGroupFilter === '__all__' ? `
+                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem" onclick="togglePeerGroupedView()" title="สลับมุมมองแยกหัวข้อตามกลุ่มหรือแสดงรวมทั้งหมด">${peerGroupedView ? '▦ แสดงรวม' : '🗂 แยกตามกลุ่ม'}</button>
+              ` : `<span class="muted" style="font-size:0.73rem">💡 คลิก <strong>⋮</strong> บนการ์ดเพื่อจัดกลุ่มเครื่อง</span>`)}
+            </div>
+          </div>` : '';
+
         if (filteredSaved.length === 0) {
           tabContentHTML = `
+            ${groupBarHTML}
             <div style="margin:auto;text-align:center;max-width:460px;padding:24px 12px">
               <div style="font-size:2.1rem;margin-bottom:8px">🖥️</div>
               <div style="font-weight:700;font-size:1rem;margin-bottom:6px">${q ? 'ไม่พบเครื่องที่ค้นหา' : 'ยังไม่มีประวัติเครื่องที่บันทึกไว้'}</div>
-              <div class="muted" style="font-size:0.84rem">${q ? 'ลองค้นหาด้วยชื่อหรือเลข 9 หลักอื่น' : 'กรอกเลข 9 หลัก + รหัสผ่านด้านบนเพื่อเริ่มรีโมต — เครื่องที่เชื่อมต่อแล้วจะถูกบันทึกไว้ที่นี่พร้อมสถานะออนไลน์สดและกดรีโมตคลิกเดียว'}</div>
+              <div class="muted" style="font-size:0.84rem">${q ? 'ลองค้นหาด้วยชื่อ กลุ่ม หรือเลข 9 หลักอื่น' : 'กรอกเลข 9 หลัก หรือ IP ด้านบนแล้วกดเชื่อมต่อ — ระบบจะตรวจเครื่องให้ก่อนแล้วค่อยเด้งช่องกรอกรหัสผ่าน'}</div>
               ${disc.length > 0 && !q ? `
                 <div style="margin-top:16px">
-                  <div class="stat-label" style="margin-bottom:8px">📡 พบเครื่องในวง LAN เดียวกัน (คลิกเพื่อกรอก ID)</div>
+                  <div class="stat-label" style="margin-bottom:8px">📡 พบเครื่องในวง LAN เดียวกัน (คลิกเพื่อเชื่อมต่อทันที)</div>
                   <div class="row-actions" style="justify-content:center">
-                    ${disc.map(dp => `<button type="button" class="lan-chip" onclick="fillEasyLAN(${jsArg(dp.device_id || dp.quic_addr)})"><span class="dot ok"></span><span>${esc(dp.name)}</span><code>${esc(fmtDevID(dp.device_id))}</code></button>`).join('')}
+                    ${disc.map(dp => `<button type="button" class="lan-chip" onclick="fillEasyLAN(${jsArg(dp.device_id || dp.quic_addr)},${jsArg(dp.name)},${jsArg(dp.os || '')})"><span class="dot ok"></span><span>${esc(dp.name)}</span><code>${esc(fmtDevID(dp.device_id))}</code></button>`).join('')}
                   </div>
                 </div>` : ''}
             </div>`;
+        } else if (hasGroups && peerGroupFilter === '__all__' && peerGroupedView) {
+          const buckets = [];
+          groupNames.forEach(g => {
+            const items = filteredSaved.filter(s => (s.group || '').trim() === g);
+            if (items.length > 0) buckets.push({ name: g, items, real: true });
+          });
+          const ungroupedItems = filteredSaved.filter(s => !(s.group || '').trim());
+          if (ungroupedItems.length > 0) {
+            buckets.push({ name: 'ยังไม่จัดกลุ่ม', items: ungroupedItems, real: false });
+          }
+          tabContentHTML = `
+            ${groupBarHTML}
+            <div class="group-sections">
+              ${buckets.map(b => `
+                <div class="group-section">
+                  <div class="group-section-head">
+                    <div class="group-section-title">
+                      <span>${b.real ? '📁' : '📌'} ${esc(b.name)}</span>
+                      <span class="badge" style="padding:2px 8px;font-size:0.7rem">${b.items.filter(x => x.online).length}/${b.items.length} ออนไลน์</span>
+                    </div>
+                    ${b.real ? `
+                      <div class="group-section-actions">
+                        <button type="button" class="secondary" style="padding:3px 8px;font-size:0.72rem" onclick="peerRenameGroup(${jsArg(b.name)})" title="เปลี่ยนชื่อกลุ่มนี้">✏️ เปลี่ยนชื่อ</button>
+                        <button type="button" class="secondary" style="padding:3px 8px;font-size:0.72rem;color:var(--danger)" onclick="peerDissolveGroup(${jsArg(b.name)})" title="ยุบกลุ่มนี้ (ไม่ลบเครื่อง)">✕ ยุบกลุ่ม</button>
+                      </div>` : ''}
+                  </div>
+                  <div class="saved-grid">${b.items.map(renderSavedCard).join('')}</div>
+                </div>`).join('')}
+            </div>`;
         } else {
           tabContentHTML = `
+            ${groupBarHTML}
             <div class="saved-grid">
-              ${filteredSaved.map(sp => {
-                const cp = connectedByDev[sp.device_id];
-                const statusDot = sp.connected ? 'ok' : (sp.online ? 'ok' : '');
-                const statusLabel = sp.connected
-                  ? (cp?.transport?.startsWith('QUIC') ? 'เชื่อมตรง QUIC' : 'เชื่อมต่ออยู่')
-                  : (sp.online ? (sp.online_via === 'lan' ? 'ออนไลน์ (LAN)' : 'ออนไลน์') : 'ออฟไลน์');
-                return `
-                  <div class="saved-card ${sp.online ? 'is-online' : ''}">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-                      <div style="min-width:0;flex:1">
-                        <div style="font-weight:700;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.name)}</div>
-                        <div style="margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                          <code>${esc(fmtDevID(sp.device_id))}</code>
-                          ${sp.os ? `<span class="muted" style="font-size:0.74rem">${esc(sp.os)}</span>` : ''}
-                        </div>
-                      </div>
-                      <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-                        <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ${statusDot}"></span>${statusLabel}</span>
-                        <div class="card-menu-wrap">
-                          <button type="button" class="secondary icon-btn" style="padding:3px 7px;font-size:0.86rem;line-height:1" onclick="toggleCardMenu(event,${jsArg('cm-' + sp.device_id)})" title="จัดการเครื่องนี้">⋮</button>
-                          <div id="cm-${esc(sp.device_id)}" class="card-menu-pop">
-                            <button type="button" onclick="closeCardMenus(); peerRenameSaved(${jsArg(sp.device_id)},${jsArg(sp.name)})">✏️ เปลี่ยนชื่อเครื่อง</button>
-                            ${sp.has_saved_password ? `<button type="button" onclick="closeCardMenus(); peerClearSavedPass(${jsArg(sp.device_id)})">🔓 ลืมรหัสผ่านที่จำไว้</button>` : ''}
-                            <button type="button" class="menu-danger" onclick="closeCardMenus(); peerDeleteSaved(${jsArg(sp.device_id)})">🗑 ลบออกจากประวัติ</button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem" class="muted">
-                      ${sp.has_saved_password ? '<span class="badge" style="padding:2px 7px;font-size:0.7rem">🔑 จำรหัสแล้ว</span>' : '<span class="badge" style="padding:2px 7px;font-size:0.7rem;opacity:0.7">ยังไม่จำรหัส</span>'}
-                      ${renderPeerVersionBadge(cp?.version || sp.version, !!cp)}
-                      ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText(${jsArg(sp.vpn_ip)},${jsArg('คัดลอก VPN IP ' + sp.vpn_ip + ' แล้ว')})">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
-                      ${sp.last_connected ? `<span>${esc(fmtTimeAgo(sp.last_connected))}</span>` : ''}
-                    </div>
-                    <div class="saved-card-actions">
-                      ${cp ? `
-                        <button class="success" style="flex:1;min-width:0;padding:7px 9px;font-size:0.81rem" onclick="openRemoteScreen(${jsArg(cp.id)},${jsArg(cp.name)},${!!cp.capabilities?.has_ffmpeg})">🖥 เปิดหน้าจอ</button>
-                        <button class="secondary icon-btn" style="padding:6px 9px" title="${cp.capabilities?.allow_files ? 'โอนไฟล์ข้ามเครื่อง (P2P ฟรี 100%)' : 'เครื่องปลายทางต้องอัปเดตเป็น v1.2.7 เพื่อใช้โอนไฟล์'}" onclick="openRemoteFiles(${jsArg(cp.id)},${jsArg(cp.name)},${!!cp.capabilities?.allow_files})">📁</button>
-                        <button class="secondary icon-btn" style="padding:6px 9px" title="เปิด Terminal" onclick="openRemoteShell(${jsArg(cp.id)},${jsArg(cp.name)})">💻</button>
-                        <button class="danger icon-btn" style="padding:6px 9px" title="ตัดการเชื่อมต่อ" onclick="peerDisconnect(${jsArg(cp.id)})">✕</button>
-                      ` : (sp.has_saved_password ? `
-                        <button class="${sp.online ? 'success' : 'secondary'}" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect(${jsArg(sp.device_id)},${jsArg(sp.name)},true)">🖥 รีโมตเลย</button>
-                      ` : `
-                        <button class="secondary" style="flex:1;padding:7px 10px;font-size:0.82rem" onclick="peerQuickReconnect(${jsArg(sp.device_id)},${jsArg(sp.name)},false)">🔑 กรอกรหัสต่อ</button>
-                      `)}
-                    </div>
-                  </div>`;
-              }).join('')}
+              ${filteredSaved.map(renderSavedCard).join('')}
             </div>`;
         }
       } else if (peerTab === 'connected') {
@@ -2934,7 +3304,7 @@
                     <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>LAN Direct</span>
                   </div>
                   <div><code>${esc(fmtDevID(dp.device_id))}</code> <span class="muted" style="font-size:0.75rem">${esc(dp.os)}</span></div>
-                  <button class="success" style="margin-top:auto;padding:7px 10px;font-size:0.82rem" onclick="fillEasyLAN(${jsArg(dp.device_id || dp.quic_addr)})">⚡ เลือกเครื่องนี้</button>
+                  <button class="success" style="margin-top:auto;padding:7px 10px;font-size:0.82rem" onclick="fillEasyLAN(${jsArg(dp.device_id || dp.quic_addr)},${jsArg(dp.name)},${jsArg(dp.os || '')})">⚡ เชื่อมต่อเครื่องนี้</button>
                 </div>`).join('')}
             </div>`;
       } else if (peerTab === 'incoming') {
@@ -3066,14 +3436,9 @@
               ${approvals.length ? `<div class="muted" style="font-size:0.8rem;cursor:pointer" onclick="aprPoll()">🔔 มีคำขอเชื่อมต่อรอการอนุญาต ${approvals.length} รายการ</div>` : ''}
 
               <form class="connect-form" onsubmit="peerEasyConnect(event, true)">
-                <input id="pRemoteID" type="text" required placeholder="🚀 รหัสเครื่องปลายทาง (ID 9 หลัก)" value="${esc(prevRemoteID)}" style="font-weight:700;letter-spacing:0.6px" />
-                <input id="pRemotePass" type="password" placeholder="รหัสผ่าน (PIN / ถาวร)" value="${esc(prevRemotePass)}" />
-                <label style="flex-direction:row;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:0.8rem;color:var(--text-soft)" title="จดจำรหัสผ่านไว้กดเชื่อมต่อคลิกเดียวในครั้งถัดไป">
-                  <input type="checkbox" id="chkRememberPass" ${prevRemember ? 'checked' : ''} style="width:15px;height:15px;margin:0;cursor:pointer" />
-                  <span>จำรหัส</span>
-                </label>
-                <button type="submit" class="success connect-btn-primary" style="padding:9px 15px">🖥 เชื่อมต่อและเปิดหน้าจอ</button>
-                <button type="button" class="secondary connect-btn-secondary" style="padding:9px 12px" onclick="peerEasyConnect(event, false)" title="เชื่อมต่อโดยยังไม่เปิดหน้าจอ">🔗 เชื่อมก่อน</button>
+                <input id="pRemoteID" type="text" required placeholder="🚀 รหัสเครื่อง 9 หลัก หรือ IP / Hostname (เช่น 903008956, 192.168.1.50)" value="${esc(prevRemoteID)}" style="font-weight:700;letter-spacing:0.5px" />
+                <button id="btnConnectOpen" type="submit" class="success connect-btn-primary" style="padding:9px 16px">🖥 เชื่อมต่อและเปิดหน้าจอ</button>
+                <button id="btnConnectOnly" type="button" class="secondary connect-btn-secondary" style="padding:9px 13px" onclick="peerEasyConnect(event, false)" title="เชื่อมต่อโดยยังไม่เปิดหน้าจอ">🔗 เชื่อมก่อน</button>
               </form>
               <div id="peerErr" class="err" style="margin:0;display:${prevErr ? 'block' : 'none'}">${esc(prevErr)}</div>
             </div>
@@ -3087,7 +3452,7 @@
                 ${sessions.length > 0 ? `<button type="button" class="tab-btn ${peerTab === 'incoming' ? 'active' : ''}" onclick="setPeerTab('incoming')">👁️ กำลังควบคุม (${sessions.length})</button>` : ''}
               </div>
               <div class="row-actions" style="gap:6px;flex-wrap:nowrap">
-                <input id="peerSearchBox" type="text" placeholder="🔍 ค้นหาชื่อ / ID..." value="${esc(peerSearch)}" oninput="onPeerSearch(this.value)" style="padding:6px 10px;font-size:0.79rem;width:clamp(120px,16vw,190px)" />
+                <input id="peerSearchBox" type="text" placeholder="🔍 ค้นหาชื่อ / กลุ่ม / ID..." value="${esc(peerSearch)}" oninput="onPeerSearch(this.value)" style="padding:6px 10px;font-size:0.79rem;width:clamp(130px,17vw,200px)" />
                 <button type="button" class="secondary" style="padding:6px 10px;font-size:0.78rem;white-space:nowrap" onclick="peerRefreshSaved()">↻ เช็กออนไลน์</button>
               </div>
             </div>
@@ -3899,6 +4264,11 @@
             }
           } else if (msg.type === 'cursor') {
             setRemoteCursorShape(typeof msg.shape === 'string' ? msg.shape : '');
+          } else if (msg.type === 'info' && typeof msg.alert === 'string') {
+            // Host alert that is not tied to a codec change, e.g. a UAC prompt or lock screen the
+            // host cannot show ('' clears it).
+            notice.textContent = msg.alert;
+            notice.style.display = msg.alert ? 'block' : 'none';
           } else if (msg.type === 'info') {
             if (msg.encoder) screenEncoderLabel = msg.encoder;
             if (msg.codec && document.getElementById('selCodec').value !== msg.codec) {
@@ -5216,52 +5586,256 @@
       showToast('✓ บันทึก Rendezvous URL แล้ว');
       poll();
     };
-    window.fillEasyLAN = (idOrAddr) => {
-      document.getElementById('pRemoteID').value = idOrAddr;
-      document.getElementById('pRemotePass').focus();
-      showToast('กรอก ID แล้ว ใส่ PIN เพื่อเชื่อมต่อได้เลย');
+    function isAuthMismatchError(msg) {
+      const m = String(msg || '');
+      return m.includes('ไม่ถูกต้อง') || m.includes('ไม่ตรง') || m.includes('รหัสผ่าน') || m.includes('PIN');
+    }
+
+    // ---- Centered Auth Password Dialog (Probe-First AnyDesk/TeamViewer Flow) ----
+    let authDialogState = null;
+    let isPeerConnecting = false;
+
+    function openAuthDialog(probe, openDesktopNow, initialErr = '') {
+      authDialogState = {
+        target: probe.target || probe.device_id || '',
+        openDesktopNow: !!openDesktopNow,
+        busy: false
+      };
+      const nameEl = document.getElementById('apnAuthTargetName');
+      const subEl = document.getElementById('apnAuthTargetSub');
+      const badgeEl = document.getElementById('apnAuthTargetBadge');
+      const passEl = document.getElementById('apnAuthPass');
+      const eyeEl = document.getElementById('apnAuthEye');
+      const remEl = document.getElementById('apnAuthRemember');
+      const errEl = document.getElementById('apnAuthErr');
+      const btnEl = document.getElementById('apnAuthSubmit');
+
+      const displayName = probe.name || (probe.device_id ? fmtDevID(probe.device_id) : probe.target);
+      const subParts = [];
+      if (probe.device_id) subParts.push(fmtDevID(probe.device_id));
+      else if (probe.target && probe.target !== displayName) subParts.push(probe.target);
+      if (probe.os) subParts.push(probe.os);
+      nameEl.textContent = displayName || '-';
+      subEl.textContent = subParts.join(' · ') || probe.target || '-';
+
+      const viaLabel = probe.via === 'lan'
+        ? 'ออนไลน์ (LAN)'
+        : (probe.via === 'cloud' ? 'ออนไลน์' : (probe.via === 'direct' ? 'เชื่อมตรง IP' : 'พร้อมเชื่อมต่อ'));
+      badgeEl.innerHTML = `<span class="dot ok"></span>${esc(viaLabel)}`;
+
+      passEl.type = 'password';
+      passEl.value = '';
+      if (eyeEl) eyeEl.textContent = '👁️';
+      if (remEl) remEl.checked = true;
+      errEl.textContent = initialErr || '';
+      errEl.style.display = initialErr ? 'block' : 'none';
+      btnEl.disabled = false;
+      btnEl.textContent = openDesktopNow ? '🖥 เชื่อมต่อและเปิดหน้าจอ' : '🔗 เชื่อมต่อ';
+
+      document.getElementById('apnAuthBackdrop').classList.add('open');
+      setTimeout(() => passEl.focus(), 30);
+    }
+
+    window.closeAuthDialog = () => {
+      if (authDialogState?.busy) return;
+      authDialogState = null;
+      const bd = document.getElementById('apnAuthBackdrop');
+      if (bd) bd.classList.remove('open');
     };
+
+    window.toggleAuthPassVis = () => {
+      const passEl = document.getElementById('apnAuthPass');
+      const eyeEl = document.getElementById('apnAuthEye');
+      if (!passEl) return;
+      const show = passEl.type === 'password';
+      passEl.type = show ? 'text' : 'password';
+      if (eyeEl) eyeEl.textContent = show ? '🙈' : '👁️';
+      passEl.focus();
+    };
+
+    window.submitAuthDialog = async (e) => {
+      if (e) e.preventDefault();
+      if (!authDialogState || authDialogState.busy) return;
+      const st = authDialogState;
+      const passEl = document.getElementById('apnAuthPass');
+      const remEl = document.getElementById('apnAuthRemember');
+      const errEl = document.getElementById('apnAuthErr');
+      const btnEl = document.getElementById('apnAuthSubmit');
+      const password = passEl.value;
+      const rememberPassword = remEl ? !!remEl.checked : true;
+
+      st.busy = true;
+      errEl.style.display = 'none';
+      errEl.textContent = '';
+      btnEl.disabled = true;
+      btnEl.textContent = password ? '⏳ กำลังเชื่อมต่อ...' : '⏳ กำลังรอเจ้าของเครื่องอนุมัติ...';
+
+      try {
+        const info = await api('/api/peer/connect', {
+          method: 'POST',
+          body: JSON.stringify({
+            device_id: st.target,
+            password,
+            remember_password: rememberPassword,
+            use_saved_password: false
+          })
+        });
+        st.busy = false;
+        closeAuthDialog();
+        setPeerErr('');
+        const idInput = document.getElementById('pRemoteID');
+        if (idInput) idInput.value = '';
+        showToast('✓ เชื่อมต่อสำเร็จ!');
+        await poll(true);
+        if (st.openDesktopNow && info && info.id && info.capabilities?.allow_screen) {
+          openRemoteScreen(info.id, info.name || info.device_id, !!info.capabilities?.has_ffmpeg);
+        }
+      } catch (err) {
+        st.busy = false;
+        btnEl.disabled = false;
+        btnEl.textContent = st.openDesktopNow ? '🖥 เชื่อมต่อและเปิดหน้าจอ' : '🔗 เชื่อมต่อ';
+        errEl.textContent = err.message || 'เชื่อมต่อไม่สำเร็จ';
+        errEl.style.display = 'block';
+        passEl.focus();
+        passEl.select();
+      }
+    };
+
+    window.fillEasyLAN = (idOrAddr, name = '', os = '') => {
+      const idBox = document.getElementById('pRemoteID');
+      if (idBox) idBox.value = idOrAddr;
+      peerEasyConnect(null, true);
+    };
+
     function setPeerErr(msg) {
       const el = document.getElementById('peerErr');
       if (!el) return;
       el.textContent = msg || '';
       el.style.display = msg ? 'block' : 'none';
     }
+
     window.peerEasyConnect = async (e, openDesktopNow) => {
       if (e) e.preventDefault();
-      const target = document.getElementById('pRemoteID').value.trim();
-      const password = document.getElementById('pRemotePass').value;
-      const rememberPassword = document.getElementById('chkRememberPass')?.checked ?? true;
-      if (!target) { setPeerErr('กรุณากรอกรหัสเครื่องปลายทาง'); return; }
-      setPeerErr('กำลังเชื่อมต่อ...');
-      try {
-        const info = await api('/api/peer/connect', {
-          method: 'POST',
-          body: JSON.stringify({
-            device_id: target,
-            password,
-            remember_password: rememberPassword,
-            use_saved_password: password === ''
-          })
-        });
-        setPeerErr('');
-        document.getElementById('pRemotePass').value = '';
-        showToast('✓ เชื่อมต่อสำเร็จ!');
-        await poll();
-        if (openDesktopNow && info && info.id && info.capabilities?.allow_screen) {
-          openRemoteScreen(info.id, info.name || info.device_id, !!info.capabilities?.has_ffmpeg);
-        }
-      } catch (err) { setPeerErr(err.message); }
-    };
-    window.peerQuickReconnect = async (deviceId, name, hasSavedPass) => {
       const idBox = document.getElementById('pRemoteID');
-      const passBox = document.getElementById('pRemotePass');
+      const target = (idBox?.value || '').trim();
+      if (!target) { setPeerErr('กรุณากรอกรหัสเครื่อง 9 หลัก หรือ IP ปลายทาง'); return; }
+
+      const btnOpen = document.getElementById('btnConnectOpen');
+      const btnOnly = document.getElementById('btnConnectOnly');
+      const setConnectBusy = (busy, label) => {
+        isPeerConnecting = !!busy;
+        if (btnOpen) {
+          btnOpen.disabled = busy;
+          btnOpen.textContent = busy && openDesktopNow ? label : '🖥 เชื่อมต่อและเปิดหน้าจอ';
+        }
+        if (btnOnly) {
+          btnOnly.disabled = busy;
+          btnOnly.textContent = busy && !openDesktopNow ? label : '🔗 เชื่อมก่อน';
+        }
+      };
+
+      setPeerErr('');
+      setConnectBusy(true, '⏳ กำลังตรวจสอบ...');
+      try {
+        const probe = await api('/api/peer/probe', {
+          method: 'POST',
+          body: JSON.stringify({ target })
+        });
+
+        // 1. Already connected -> open desktop immediately
+        if (probe.already_connected && probe.peer) {
+          setConnectBusy(false);
+          if (idBox) idBox.value = '';
+          showToast(`✓ เชื่อมต่อกับ ${probe.peer.name || probe.name || target} อยู่แล้ว`);
+          if (openDesktopNow && probe.peer.id && probe.peer.capabilities?.allow_screen) {
+            openRemoteScreen(probe.peer.id, probe.peer.name || probe.peer.device_id, !!probe.peer.capabilities?.has_ffmpeg);
+          }
+          return;
+        }
+
+        // 2. Offline / unreachable -> fail immediately without prompting for password
+        if (!probe.reachable) {
+          setConnectBusy(false);
+          setPeerErr(probe.message || 'ไม่พบเครื่องปลายทางออนไลน์อยู่ในขณะนี้');
+          return;
+        }
+
+        // 3. Peer Ticket or Saved Password -> 1-click auto-connect (fallback to password dialog if rejected)
+        if (probe.kind === 'ticket' || probe.has_saved_password) {
+          setConnectBusy(true, '⏳ กำลังเชื่อมต่อ...');
+          try {
+            const payload = probe.kind === 'ticket'
+              ? { ticket: target }
+              : { device_id: target, use_saved_password: true };
+            const info = await api('/api/peer/connect', {
+              method: 'POST',
+              body: JSON.stringify(payload)
+            });
+            setConnectBusy(false);
+            setPeerErr('');
+            if (idBox) idBox.value = '';
+            showToast('✓ เชื่อมต่อสำเร็จ!');
+            await poll(true);
+            if (openDesktopNow && info && info.id && info.capabilities?.allow_screen) {
+              openRemoteScreen(info.id, info.name || info.device_id, !!info.capabilities?.has_ffmpeg);
+            }
+          } catch (connErr) {
+            setConnectBusy(false);
+            if (probe.kind !== 'ticket' && isAuthMismatchError(connErr.message)) {
+              openAuthDialog(probe, openDesktopNow, connErr.message);
+            } else {
+              setPeerErr(connErr.message);
+            }
+          }
+          return;
+        }
+
+        // 4. Reachable & no saved password -> pop up sleek centered password dialog
+        setConnectBusy(false);
+        openAuthDialog(probe, openDesktopNow);
+      } catch (err) {
+        setConnectBusy(false);
+        setPeerErr(err.message);
+      }
+    };
+
+    window.peerQuickReconnect = async (deviceId, name, hasSavedPass, osInfo = '') => {
       if (!hasSavedPass) {
-        if (idBox) idBox.value = deviceId;
-        if (passBox) { passBox.value = ''; passBox.focus(); }
-        showToast(`กรอกรหัสผ่านของ ${name || fmtDevID(deviceId)} เพื่อเชื่อมต่อ`);
+        isPeerConnecting = true;
+        showToast(`⏳ กำลังตรวจสอบ ${name || fmtDevID(deviceId)}...`);
+        setPeerErr('');
+        try {
+          const probe = await api('/api/peer/probe', {
+            method: 'POST',
+            body: JSON.stringify({ target: deviceId })
+          });
+          isPeerConnecting = false;
+          if (probe.already_connected && probe.peer) {
+            showToast(`✓ เชื่อมต่อกับ ${probe.peer.name || name || fmtDevID(deviceId)} อยู่แล้ว`);
+            if (probe.peer.id && probe.peer.capabilities?.allow_screen) {
+              openRemoteScreen(probe.peer.id, probe.peer.name || probe.peer.device_id, !!probe.peer.capabilities?.has_ffmpeg);
+            }
+            return;
+          }
+          if (!probe.reachable) {
+            const msg = probe.message || 'ไม่พบเครื่องปลายทางออนไลน์อยู่ในขณะนี้';
+            setPeerErr(msg);
+            showToast('⚠ ' + msg);
+            return;
+          }
+          openAuthDialog({
+            ...probe,
+            name: probe.name || name || fmtDevID(deviceId),
+            os: probe.os || osInfo || ''
+          }, true);
+        } catch (err) {
+          isPeerConnecting = false;
+          setPeerErr(err.message);
+          showToast('⚠ ' + err.message);
+        }
         return;
       }
+      isPeerConnecting = true;
       showToast(`⏳ กำลังเชื่อมต่อ ${name || fmtDevID(deviceId)}...`);
       setPeerErr(`กำลังเชื่อมต่อ ${name || fmtDevID(deviceId)}...`);
       try {
@@ -5269,18 +5843,131 @@
           method: 'POST',
           body: JSON.stringify({ device_id: deviceId, use_saved_password: true })
         });
+        isPeerConnecting = false;
         setPeerErr('');
         showToast('✓ เชื่อมต่อสำเร็จ!');
-        await poll();
+        await poll(true);
         if (info && info.id && info.capabilities?.allow_screen) {
           openRemoteScreen(info.id, info.name || info.device_id, !!info.capabilities?.has_ffmpeg);
         }
       } catch (err) {
-        if (idBox) idBox.value = deviceId;
-        if (passBox) passBox.focus();
-        setPeerErr(err.message);
-        showToast('⚠ ' + err.message);
+        isPeerConnecting = false;
+        setPeerErr('');
+        if (isAuthMismatchError(err.message)) {
+          openAuthDialog({
+            target: deviceId,
+            device_id: deviceId,
+            name: name || fmtDevID(deviceId),
+            os: osInfo || '',
+            kind: 'id',
+            reachable: true,
+            via: 'cloud'
+          }, true, err.message);
+        } else {
+          setPeerErr(err.message);
+          showToast('⚠ ' + err.message);
+        }
       }
+    };
+
+    // ---- Device History Group Management ----
+    let groupDialogDeviceId = '';
+
+    window.openGroupDialog = (deviceId, name, currentGroup = '') => {
+      groupDialogDeviceId = deviceId;
+      const subEl = document.getElementById('apnGroupSub');
+      const inputEl = document.getElementById('apnGroupInput');
+      const clearBtn = document.getElementById('apnGroupClearBtn');
+      const wrapEl = document.getElementById('apnGroupExistingWrap');
+      const chipsEl = document.getElementById('apnGroupChips');
+
+      subEl.textContent = `${name || fmtDevID(deviceId)} (${fmtDevID(deviceId)})`;
+      inputEl.value = currentGroup || '';
+      clearBtn.style.display = currentGroup ? 'inline-flex' : 'none';
+
+      const existing = Array.from(new Set(
+        (lastPeerData?.saved_peers || []).map(s => (s.group || '').trim()).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, 'th'));
+
+      if (existing.length > 0) {
+        wrapEl.style.display = 'grid';
+        chipsEl.innerHTML = existing.map(g => `
+          <button type="button" class="group-chip ${g === currentGroup ? 'selected' : ''}" onclick="quickAssignGroup(${jsArg(g)})">📁 ${esc(g)}</button>
+        `).join('');
+      } else {
+        wrapEl.style.display = 'none';
+        chipsEl.innerHTML = '';
+      }
+
+      document.getElementById('apnGroupBackdrop').classList.add('open');
+      setTimeout(() => { inputEl.focus(); inputEl.select(); }, 30);
+    };
+
+    window.closeGroupDialog = () => {
+      groupDialogDeviceId = '';
+      document.getElementById('apnGroupBackdrop')?.classList.remove('open');
+    };
+
+    window.quickAssignGroup = async (groupName) => {
+      const id = groupDialogDeviceId;
+      if (!id) return;
+      const g = (groupName || '').trim();
+      try {
+        await api(`/api/peer/saved/${encodeURIComponent(id)}/group`, {
+          method: 'POST',
+          body: JSON.stringify({ group: g })
+        });
+        closeGroupDialog();
+        showToast(g ? `📁 ย้ายไปกลุ่ม "${g}" แล้ว` : '✓ นำออกจากกลุ่มแล้ว');
+        poll(true);
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+
+    window.saveGroupDialog = async (e) => {
+      if (e) e.preventDefault();
+      const val = (document.getElementById('apnGroupInput')?.value || '').trim();
+      await quickAssignGroup(val);
+    };
+
+    window.peerRenameGroup = async (oldName) => {
+      const next = await apnPrompt({
+        icon: '✏️',
+        title: 'เปลี่ยนชื่อกลุ่ม',
+        message: `เปลี่ยนชื่อกลุ่ม "${oldName}" สำหรับเครื่องทั้งหมดในกลุ่มนี้`,
+        defaultValue: oldName,
+        placeholder: 'ระบุชื่อกลุ่มใหม่...',
+        okText: 'บันทึกชื่อกลุ่ม'
+      });
+      if (!next || !next.trim() || next.trim() === oldName) return;
+      try {
+        await api('/api/peer/groups/rename', {
+          method: 'POST',
+          body: JSON.stringify({ old_name: oldName, new_name: next.trim() })
+        });
+        if (peerGroupFilter === oldName) peerGroupFilter = next.trim();
+        showToast(`✓ เปลี่ยนชื่อกลุ่มเป็น "${next.trim()}" แล้ว`);
+        poll(true);
+      } catch (err) { showToast('⚠ ' + err.message); }
+    };
+
+    window.peerDissolveGroup = async (oldName) => {
+      const ok = await apnConfirm({
+        icon: '📁',
+        tone: 'warn',
+        title: `ยุบกลุ่ม "${oldName}"?`,
+        message: 'เครื่องทั้งหมดในกลุ่มนี้จะถูกย้ายกลับไปเป็น "ไม่มีกลุ่ม" โดยไม่ลบประวัติเครื่องหรือรหัสผ่านที่จำไว้',
+        okText: 'ยุบกลุ่ม'
+      });
+      if (!ok) return;
+      try {
+        await api('/api/peer/groups/rename', {
+          method: 'POST',
+          body: JSON.stringify({ old_name: oldName, new_name: '' })
+        });
+        if (peerGroupFilter === oldName) peerGroupFilter = '__all__';
+        showToast(`✓ ยุบกลุ่ม "${oldName}" แล้ว`);
+        poll(true);
+      } catch (err) { showToast('⚠ ' + err.message); }
     };
     window.peerRefreshSaved = async () => {
       showToast('↻ กำลังเช็กสถานะออนไลน์...');
@@ -5440,11 +6127,21 @@
       poll();
     };
 
-    async function poll() {
-      const activeTag = document.activeElement?.tagName;
-      if ((lastMode === 'client' || lastMode === 'portal_login' || lastMode === 'peer') &&
-          (activeTag === 'INPUT' || activeTag === 'SELECT')) {
-        return;
+    async function poll(force = false) {
+      if (!force) {
+        const activeTag = document.activeElement?.tagName;
+        if ((lastMode === 'client' || lastMode === 'portal_login' || lastMode === 'peer') &&
+            (activeTag === 'INPUT' || activeTag === 'SELECT')) {
+          return;
+        }
+        if (isPeerConnecting || document.querySelector('.card-menu-pop.open')) {
+          return;
+        }
+        if (document.getElementById('apnAuthBackdrop')?.classList.contains('open') ||
+            document.getElementById('apnGroupBackdrop')?.classList.contains('open') ||
+            document.getElementById('apnDialogBackdrop')?.classList.contains('open')) {
+          return;
+        }
       }
       if (document.getElementById('screenModal').classList.contains('open') ||
           document.getElementById('shellModal').classList.contains('open') ||

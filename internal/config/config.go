@@ -123,7 +123,8 @@ type KnownPeer struct {
 	LastConnected string `json:"last_connected,omitempty"` // RFC3339 timestamp
 	// CustomName is true when the user renamed this peer; reconnects then keep Name instead of
 	// replacing it with the remote machine's hostname.
-	CustomName bool `json:"custom_name,omitempty"`
+	CustomName bool   `json:"custom_name,omitempty"`
+	Group      string `json:"group,omitempty"` // optional user-defined folder/group name in device history
 }
 
 // DefaultRendezvousURL can be embedded at build time via:

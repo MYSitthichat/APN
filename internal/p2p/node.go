@@ -174,6 +174,7 @@ type managedTunnel struct {
 type SavedPeerInfo struct {
 	DeviceID         string `json:"device_id"`
 	Name             string `json:"name"`
+	Group            string `json:"group,omitempty"`
 	OS               string `json:"os,omitempty"`
 	Version          string `json:"version,omitempty"`
 	VPNIP            string `json:"vpn_ip,omitempty"`
@@ -182,6 +183,22 @@ type SavedPeerInfo struct {
 	OnlineVia        string `json:"online_via,omitempty"` // "connected", "lan", "cloud", ""
 	HasSavedPassword bool   `json:"has_saved_password"`
 	LastConnected    string `json:"last_connected,omitempty"`
+}
+
+// ProbeResult summarizes target reachability and metadata before prompting for a password.
+// It never performs an empty-password auth handshake, so it cannot trigger host rate limits.
+type ProbeResult struct {
+	Target           string    `json:"target"`
+	Kind             string    `json:"kind"` // "id", "direct", "ticket"
+	DeviceID         string    `json:"device_id,omitempty"`
+	Name             string    `json:"name,omitempty"`
+	OS               string    `json:"os,omitempty"`
+	Reachable        bool      `json:"reachable"`
+	Via              string    `json:"via,omitempty"` // "connected", "lan", "cloud", "direct", "known", "ticket"
+	AlreadyConnected bool      `json:"already_connected"`
+	Peer             *PeerInfo `json:"peer,omitempty"`
+	HasSavedPassword bool      `json:"has_saved_password"`
+	Message          string    `json:"message,omitempty"`
 }
 
 type peerPresence struct {
@@ -1162,9 +1179,7 @@ func (n *Node) ConnectSmartWithOptions(ctx context.Context, input, password stri
 	switch {
 	case strings.HasPrefix(input, ticketPrefix):
 		info, err = n.ConnectByTicket(ctx, input)
-	case strings.HasPrefix(input, "ws://") || strings.HasPrefix(input, "wss://") ||
-		strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") ||
-		strings.Contains(input, ":"):
+	case isDirectTarget(input):
 		info, err = n.ConnectDirect(ctx, input, password, "")
 	default:
 		info, err = n.ConnectByID(ctx, input, password)
@@ -1189,18 +1204,70 @@ func (n *Node) ConnectSmartWithOptions(ctx context.Context, input, password stri
 }
 
 func (n *Node) savedPasswordFor(rawID string) string {
-	devID := NormalizeDeviceID(rawID)
-	if devID == "" {
-		return ""
+	trimmed := strings.TrimSpace(rawID)
+	bareHost := strings.Trim(trimmed, "[]")
+	if h, _, err := net.SplitHostPort(trimmed); err == nil {
+		bareHost = strings.Trim(h, "[]")
 	}
+	devID := NormalizeDeviceID(trimmed)
+
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	for _, kp := range n.cfg.KnownPeers {
-		if NormalizeDeviceID(kp.DeviceID) == devID {
+		if devID != "" && !isDirectTarget(trimmed) && NormalizeDeviceID(kp.DeviceID) == devID {
 			return kp.SavedPassword
+		}
+		if bareHost != "" {
+			if strings.EqualFold(kp.VPNIP, bareHost) {
+				return kp.SavedPassword
+			}
+			if h, _, err := net.SplitHostPort(kp.QUICAddr); err == nil && strings.EqualFold(strings.Trim(h, "[]"), bareHost) {
+				return kp.SavedPassword
+			}
 		}
 	}
 	return ""
+}
+
+// isDirectTarget reports whether input is a direct IP/host/URL (e.g. "192.168.1.50", "10.4.88.86:4433",
+// "pc01.local", "::1", "wss://...") rather than a 9-digit APN Device ID.
+func isDirectTarget(input string) bool {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return false
+	}
+	low := strings.ToLower(s)
+	if strings.HasPrefix(low, "ws://") || strings.HasPrefix(low, "wss://") ||
+		strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		return true
+	}
+	if net.ParseIP(strings.Trim(s, "[]")) != nil {
+		return true
+	}
+	if strings.Contains(s, ":") {
+		return true
+	}
+	// Dotted local/FQDN hostname (e.g. "server.local", "pc01.office.lan")
+	if strings.Contains(s, ".") && !strings.ContainsAny(s, " \t") {
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// normalizeDirectTarget resolves a direct target into a QUIC UDP host:port and optional TCP WS fallback.
+// Bare IPs/hostnames without a port (like "192.168.1.50") automatically default to QUIC :4433 with WS :8444 fallback.
+func normalizeDirectTarget(target string) (quicAddr, wsFallback string) {
+	s := strings.TrimSpace(target)
+	if _, _, err := net.SplitHostPort(s); err == nil {
+		return s, ""
+	}
+	host := strings.Trim(s, "[]")
+	return net.JoinHostPort(host, "4433"), "ws://" + net.JoinHostPort(host, "8444") + "/ws/peer"
 }
 
 func (n *Node) savePeerPassword(devID, password string) {
@@ -1275,6 +1342,319 @@ func (n *Node) RenameSavedPeer(rawID, newName string) error {
 		}
 	}
 	return errors.New("ไม่พบเครื่องนี้ในประวัติ")
+}
+
+func normalizeGroupName(raw string) string {
+	s := strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	runes := []rune(s)
+	if len(runes) > 48 {
+		s = string(runes[:48])
+	}
+	return s
+}
+
+// SetSavedPeerGroup assigns (or clears, when empty) a group/folder name for a remembered peer.
+func (n *Node) SetSavedPeerGroup(rawID, group string) error {
+	devID := NormalizeDeviceID(rawID)
+	if devID == "" {
+		return errors.New("invalid device_id")
+	}
+	group = normalizeGroupName(group)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for i := range n.cfg.KnownPeers {
+		if NormalizeDeviceID(n.cfg.KnownPeers[i].DeviceID) == devID {
+			n.cfg.KnownPeers[i].Group = group
+			n.persistConfigLocked()
+			return nil
+		}
+	}
+	return errors.New("ไม่พบเครื่องนี้ในประวัติ")
+}
+
+// RenameGroup renames all remembered peers in oldGroup to newGroup.
+// If newGroup is empty, the group is dissolved and its devices become ungrouped (never deleted).
+func (n *Node) RenameGroup(oldGroup, newGroup string) (int, error) {
+	oldGroup = normalizeGroupName(oldGroup)
+	newGroup = normalizeGroupName(newGroup)
+	if oldGroup == "" {
+		return 0, errors.New("กรุณาระบุชื่อกลุ่มเดิม")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	updated := 0
+	for i := range n.cfg.KnownPeers {
+		if normalizeGroupName(n.cfg.KnownPeers[i].Group) == oldGroup {
+			n.cfg.KnownPeers[i].Group = newGroup
+			updated++
+		}
+	}
+	if updated == 0 {
+		return 0, errors.New("ไม่พบกลุ่มนี้ในประวัติ")
+	}
+	n.persistConfigLocked()
+	return updated, nil
+}
+
+// ProbeTarget checks whether a 9-digit ID, direct IP/host, or ticket is reachable and gathers
+// display metadata (name, OS, saved password flag) before prompting the user for a password.
+func (n *Node) ProbeTarget(ctx context.Context, input string) (ProbeResult, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ProbeResult{}, errors.New("กรุณากรอกรหัสเครื่อง 9 หลัก หรือ IP ปลายทาง")
+	}
+
+	// 1. Peer Ticket (already embeds credentials)
+	if strings.HasPrefix(input, ticketPrefix) {
+		ticket, err := DecodeTicket(input)
+		if err != nil {
+			return ProbeResult{}, err
+		}
+		if ticket.PeerID == n.cfg.PeerID {
+			return ProbeResult{}, errors.New("ไม่สามารถเชื่อมต่อเข้าเครื่องตัวเองได้")
+		}
+		return ProbeResult{
+			Target:           input,
+			Kind:             "ticket",
+			Name:             ticket.Name,
+			Reachable:        true,
+			Via:              "ticket",
+			HasSavedPassword: true,
+		}, nil
+	}
+
+	// 2. Direct IP / Hostname / WS URL
+	if isDirectTarget(input) {
+		low := strings.ToLower(input)
+		isURL := strings.HasPrefix(low, "ws://") || strings.HasPrefix(low, "wss://") ||
+			strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://")
+		bareHost := ""
+		if !isURL {
+			bareHost = strings.Trim(input, "[]")
+			if h, _, err := net.SplitHostPort(input); err == nil {
+				bareHost = strings.Trim(h, "[]")
+			}
+			if bareHost != "" && n.vpnIP != "" && strings.EqualFold(bareHost, n.vpnIP) {
+				return ProbeResult{}, errors.New("ไม่สามารถเชื่อมต่อเข้าเครื่องตัวเองได้")
+			}
+		}
+		res := ProbeResult{
+			Target:    input,
+			Kind:      "direct",
+			Name:      input,
+			Reachable: true,
+			Via:       "direct",
+		}
+
+		// Check already-connected peers matching this host/VPN IP
+		n.mu.RLock()
+		for _, p := range n.peers {
+			rHost := ""
+			if h, _, err := net.SplitHostPort(p.remoteAddr); err == nil {
+				rHost = strings.Trim(h, "[]")
+			}
+			if bareHost != "" && (strings.EqualFold(p.vpnIP, bareHost) || strings.EqualFold(rHost, bareHost)) {
+				info := p.info()
+				res.AlreadyConnected = true
+				res.Via = "connected"
+				res.DeviceID = info.DeviceID
+				res.Name = info.Name
+				res.OS = info.OS
+				res.Peer = &info
+				n.mu.RUnlock()
+				return res, nil
+			}
+		}
+		// Enrich from KnownPeers (custom name, OS, saved password)
+		for _, kp := range n.cfg.KnownPeers {
+			kpHost := ""
+			if h, _, err := net.SplitHostPort(kp.QUICAddr); err == nil {
+				kpHost = strings.Trim(h, "[]")
+			}
+			if bareHost != "" && (strings.EqualFold(kp.VPNIP, bareHost) || strings.EqualFold(kpHost, bareHost)) {
+				res.DeviceID = NormalizeDeviceID(kp.DeviceID)
+				if kp.Name != "" {
+					res.Name = kp.Name
+				}
+				res.OS = kp.OS
+				res.HasSavedPassword = kp.SavedPassword != ""
+				break
+			}
+		}
+		n.mu.RUnlock()
+
+		// Enrich from LAN auto-discovery if host matches
+		if n.lanDisc != nil && bareHost != "" {
+			for _, dp := range n.lanDisc.list() {
+				if h, _, err := net.SplitHostPort(dp.QUICAddr); err == nil && strings.EqualFold(strings.Trim(h, "[]"), bareHost) {
+					if res.DeviceID == "" {
+						res.DeviceID = NormalizeDeviceID(dp.DeviceID)
+					}
+					if res.Name == input && dp.Name != "" {
+						res.Name = dp.Name
+					}
+					if res.OS == "" {
+						res.OS = dp.OS
+					}
+					res.Via = "lan"
+					break
+				}
+			}
+		}
+
+		// Fast non-intrusive /healthz ping for bare IP/host (never blocks UDP-only targets if filtered)
+		if !isURL && bareHost != "" && !strings.Contains(bareHost, "/") {
+			probeCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+			defer cancel()
+			healthURL := fmt.Sprintf("http://%s/healthz", net.JoinHostPort(bareHost, "8444"))
+			if req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, healthURL, nil); err == nil {
+				hc := &http.Client{Timeout: 1200 * time.Millisecond}
+				if resp, err := hc.Do(req); err == nil {
+					_ = resp.Body.Close()
+					if resp.StatusCode == http.StatusOK && res.Via == "direct" {
+						res.Via = "lan"
+					}
+				}
+			}
+		}
+		return res, nil
+	}
+
+	// 3. 9-digit Device ID
+	devID := NormalizeDeviceID(input)
+	if len(devID) != 9 {
+		return ProbeResult{}, errors.New("รหัสเครื่องไม่ถูกต้อง (กรุณากรอกเลข 9 หลัก หรือ IP เช่น 192.168.1.50)")
+	}
+	if devID == n.cfg.DeviceID {
+		return ProbeResult{}, errors.New("ไม่สามารถเชื่อมต่อเข้าเครื่องตัวเองได้")
+	}
+
+	res := ProbeResult{
+		Target:   devID,
+		Kind:     "id",
+		DeviceID: devID,
+		Name:     FormatDeviceID(devID),
+	}
+
+	var (
+		hasCustomName bool
+		hasKnownAddr  bool
+		rdvURL        string
+		hc            *http.Client
+	)
+	n.mu.RLock()
+	for _, p := range n.peers {
+		if NormalizeDeviceID(p.deviceID) == devID || p.id == devID {
+			info := p.info()
+			res.AlreadyConnected = true
+			res.Reachable = true
+			res.Via = "connected"
+			res.Name = info.Name
+			res.OS = info.OS
+			res.Peer = &info
+			for _, kp := range n.cfg.KnownPeers {
+				if NormalizeDeviceID(kp.DeviceID) == devID {
+					if kp.CustomName && kp.Name != "" {
+						res.Name = kp.Name
+					}
+					res.HasSavedPassword = kp.SavedPassword != ""
+					break
+				}
+			}
+			n.mu.RUnlock()
+			return res, nil
+		}
+	}
+	for _, kp := range n.cfg.KnownPeers {
+		if NormalizeDeviceID(kp.DeviceID) == devID {
+			if kp.Name != "" {
+				res.Name = kp.Name
+				hasCustomName = kp.CustomName
+			}
+			res.OS = kp.OS
+			res.HasSavedPassword = kp.SavedPassword != ""
+			hasKnownAddr = kp.QUICAddr != "" || kp.WSURL != ""
+			break
+		}
+	}
+	rdvURL = n.rendezvousURL
+	hc = n.rdvClient
+	n.mu.RUnlock()
+
+	// Check LAN auto-discovery first (instant, zero-server)
+	if n.lanDisc != nil {
+		if dp, ok := n.lanDisc.findByDeviceID(devID); ok {
+			res.Reachable = true
+			res.Via = "lan"
+			if !hasCustomName && dp.Name != "" {
+				res.Name = dp.Name
+			}
+			if res.OS == "" {
+				res.OS = dp.OS
+			}
+			return res, nil
+		}
+	}
+
+	// Read-only presence check via Rendezvous directory (0 KV writes, never triggers auth rate limit)
+	if rdvURL != "" && hc != nil {
+		reqCtx, cancel := context.WithTimeout(ctx, 4500*time.Millisecond)
+		defer cancel()
+		body, _ := json.Marshal(map[string]any{"ids": []string{devID}})
+		if req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, rdvURL+"/api/rendezvous/presence", bytes.NewReader(body)); err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := hc.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					var out struct {
+						OK    bool `json:"ok"`
+						Peers map[string]struct {
+							Online bool   `json:"online"`
+							Name   string `json:"name"`
+							OS     string `json:"os"`
+						} `json:"peers"`
+					}
+					if json.NewDecoder(resp.Body).Decode(&out) == nil && out.OK {
+						st := out.Peers[devID]
+						now := time.Now().UTC()
+						n.mu.Lock()
+						n.presence[devID] = peerPresence{
+							online:    st.Online,
+							name:      st.Name,
+							osInfo:    st.OS,
+							checkedAt: now,
+						}
+						n.mu.Unlock()
+						if st.Online {
+							res.Reachable = true
+							res.Via = "cloud"
+							if !hasCustomName && st.Name != "" {
+								res.Name = st.Name
+							}
+							if res.OS == "" && st.OS != "" {
+								res.OS = st.OS
+							}
+							return res, nil
+						}
+						res.Reachable = false
+						res.Message = fmt.Sprintf("ไม่พบเครื่อง %s ออนไลน์อยู่ในขณะนี้ (กรุณาตรวจสอบว่าเปิด APN และเชื่อมต่ออินเทอร์เน็ตที่เครื่องปลายทางแล้ว)", FormatDeviceID(devID))
+						return res, nil
+					}
+				}
+			}
+		}
+	}
+
+	// If Rendezvous is unconfigured or temporarily unreachable, still allow connecting via known peer address
+	if hasKnownAddr {
+		res.Reachable = true
+		res.Via = "known"
+		return res, nil
+	}
+	res.Reachable = false
+	res.Message = fmt.Sprintf("ไม่พบเครื่อง %s ออนไลน์อยู่ตอนนี้ (ตรวจสอบเลข 9 หลักหรือเครือข่าย)", FormatDeviceID(devID))
+	return res, nil
 }
 
 // ConnectByID resolves a 9-digit Device ID via LAN Auto-Discovery first, then Rendezvous Server.
@@ -1604,7 +1984,8 @@ func (n *Node) raceQUICAddrs(ctx context.Context, addrs []string, expectedFP, pa
 	return n.completeOutboundHandshake(ctx, winner, pairSecret, false)
 }
 
-// ConnectDirect connects to a peer via either a direct UDP host:port (QUIC) or ws:// / wss:// URL.
+// ConnectDirect connects to a peer via a bare IP/hostname (auto-using QUIC :4433 with TCP WS :8444 fallback),
+// an explicit UDP host:port (QUIC), or a ws:// / wss:// URL.
 func (n *Node) ConnectDirect(ctx context.Context, target, pairSecret, expectedFingerprint string) (PeerInfo, error) {
 	target = strings.TrimSpace(target)
 	pairSecret = strings.TrimSpace(pairSecret)
@@ -1626,7 +2007,25 @@ func (n *Node) ConnectDirect(ctx context.Context, target, pairSecret, expectedFi
 		}
 		return n.dialWSPeer(ctx, target, pairSecret, false)
 	}
-	return n.dialQUICPeer(ctx, target, expectedFingerprint, pairSecret)
+
+	quicAddr, wsFallback := normalizeDirectTarget(target)
+	dialTimeout := 6 * time.Second
+	if wsFallback != "" {
+		dialTimeout = 3500 * time.Millisecond
+	}
+	info, err := n.dialQUICPeerTimeout(ctx, quicAddr, expectedFingerprint, pairSecret, dialTimeout)
+	if err == nil || wsFallback == "" || isPeerRejected(err) || ctx.Err() != nil {
+		return info, err
+	}
+	// Bare IP/host UDP :4433 blocked by LAN firewall -> seamlessly try direct TCP WebSocket :8444!
+	infoWS, errWS := n.dialWSPeer(ctx, wsFallback, pairSecret, false)
+	if errWS == nil {
+		return infoWS, nil
+	}
+	if isPeerRejected(errWS) {
+		return PeerInfo{}, errWS
+	}
+	return PeerInfo{}, fmt.Errorf("เชื่อมต่อ IP %s ไม่สำเร็จ (UDP :4433: %v; TCP :8444: %v)", target, err, errWS)
 }
 
 func (n *Node) dialQUICPeer(ctx context.Context, addrStr, expectedFP, pairSecret string) (PeerInfo, error) {
@@ -2120,6 +2519,7 @@ func (n *Node) rememberPeerLocked(p *connectedPeer) {
 				kp.WSURL = prev.WSURL
 			}
 			kp.SavedPassword = prev.SavedPassword
+			kp.Group = prev.Group
 			n.cfg.KnownPeers[i] = kp
 			updated = true
 			break
@@ -2736,6 +3136,7 @@ func (n *Node) Snapshot() NodeSnapshot {
 		sp := SavedPeerInfo{
 			DeviceID:         id,
 			Name:             kp.Name,
+			Group:            kp.Group,
 			OS:               kp.OS,
 			VPNIP:            kp.VPNIP,
 			HasSavedPassword: kp.SavedPassword != "",
