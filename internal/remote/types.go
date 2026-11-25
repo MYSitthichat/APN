@@ -383,12 +383,18 @@ func ServeScreenSession(stream io.ReadWriteCloser, opts StreamOptions) error {
 		load := newSysLoadSampler()
 		defer load.Close()
 		last := time.Now()
+		var hints []string
+		var hintsAt time.Time
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case now := <-tick.C:
 				snap := stats.take(now.Sub(last))
+				if now.Sub(hintsAt) >= 5*time.Second {
+					hints, hintsAt = hostScreenHints(), now
+				}
+				snap.ScreenHints = hints
 				last = now
 				st.mu.Lock()
 				snap.TargetFPS = st.fps

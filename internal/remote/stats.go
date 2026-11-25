@@ -102,6 +102,8 @@ type streamStatsSnapshot struct {
 	CPU       *float64 `json:"cpu,omitempty"`
 	GPU       *float64 `json:"gpu,omitempty"`
 	GPUEngine string   `json:"gpu_engine,omitempty"` // busiest GPU engine: 3D, VideoEncode, NVENC, ...
+	// ScreenHints are host conditions that make the picture black or blank (see screenhints.go).
+	ScreenHints []string `json:"screen_hints,omitempty"`
 }
 
 // setLoad fills the host CPU/GPU load, leaving unknown (-1) values out.

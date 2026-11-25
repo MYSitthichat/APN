@@ -3143,6 +3143,8 @@
     let screenRTT = null;        // latest ping round trip in ms
     let screenRTTAvg = null;
     let remoteCursorShape = '';  // CSS cursor reported by the host ('' = cursor is in the video)
+    let screenBlackSince = 0;    // performance.now() when the shown picture became all black (0 = not black)
+    let blackSampler = null;     // small canvas used to check whether the picture is all black
     let webCodecsHEVCSupported = false;
     if ('VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function') {
       VideoDecoder.isConfigSupported({
@@ -3325,9 +3327,59 @@
       if (open && activeScreenTarget) renderScreenStats(activeScreenTarget.agentId, null, null);
     };
 
+    // pictureIsBlack reports whether the picture on screen is all black: frames arrive but show
+    // nothing, so the cause is the host's screen (Wayland, display off, ...), not speed. Sampled
+    // at a quarter-ish size so small text on a dark desktop still counts as content.
+    function pictureIsBlack() {
+      const ac = activeRemoteCanvas();
+      if (!ac || !ac.width || !ac.height) return false;
+      try {
+        if (!blackSampler) {
+          const c = document.createElement('canvas');
+          c.width = 320; c.height = 200;
+          blackSampler = c.getContext('2d', { willReadFrequently: true });
+        }
+        blackSampler.drawImage(ac, 0, 0, 320, 200);
+        const px = blackSampler.getImageData(0, 0, 320, 200).data;
+        for (let i = 0; i < px.length; i += 4) {
+          if (px[i] > 24 || px[i + 1] > 24 || px[i + 2] > 24) return false;
+        }
+        return true;
+      } catch { return false; }
+    }
+
+    const screenHintText = {
+      wayland: 'ใช้ Wayland (จับภาพด้วย X11 ไม่ได้)',
+      login_screen: 'อยู่ที่หน้า login (ยังไม่มีผู้ใช้ล็อกอิน)',
+      no_display: 'ไม่มีจอต่ออยู่',
+      display_off: 'จอดับอยู่ (ประหยัดพลังงาน/ปิดจอ)',
+      lid_closed: 'พับฝาโน้ตบุ๊กอยู่',
+    };
+
+    function screenHintRow(hs) {
+      const hints = (hs?.screen_hints || []).filter(h => screenHintText[h]);
+      if (!hints.length) return '';
+      return `<div class="ss-row"><span class="ss-k">จอปลายทาง</span><span class="ss-v ss-fallback">${hints.map(h => `<div>• ${esc(screenHintText[h])}</div>`).join('')}</span></div>`;
+    }
+
+    // blackScreenAdvice explains an all-black picture from the host's screen hints.
+    function blackScreenAdvice(hs) {
+      const h = new Set(hs?.screen_hints || []);
+      const pre = 'ภาพที่ได้เป็นสีดำทั้งจอ — ';
+      if (h.has('wayland')) return pre + 'เครื่องปลายทางเข้าระบบด้วย Wayland ซึ่งจับภาพแบบ X11 ไม่ได้ ให้เปลี่ยนไปใช้ Xorg: ตอนล็อกอินกด ⚙ เลือก "on Xorg" หรือตั้ง WaylandEnable=false ใน /etc/gdm3/custom.conf แล้วรีบูต';
+      if (h.has('lid_closed')) return pre + 'ฝาโน้ตบุ๊กปลายทางพับอยู่ทำให้จอในตัวดับ — เปิดฝา หรือต่อจอ/HDMI dummy plug';
+      if (h.has('no_display')) return pre + 'เครื่องปลายทางไม่มีจอต่ออยู่ — ต่อจอหรือ HDMI dummy plug';
+      if (h.has('display_off')) return pre + 'จอของเครื่องปลายทางดับอยู่ — ลองขยับเมาส์/กดปุ่ม หรือปิดการพักจออัตโนมัติ';
+      if (h.has('login_screen')) return pre + 'ปลายทางอยู่ที่หน้า login — ลองล็อกอินที่เครื่องปลายทาง';
+      return pre + 'จอปลายทางอาจดับ ล็อก หรือจับภาพผิดจอ ลองขยับเมาส์ หรือกด 🔎 ตรวจระบบจับภาพ';
+    }
+
     // diagnoseScreen names the stage that limits smoothness right now, from host and viewer counters.
     function diagnoseScreen(hs, path, rendered, video) {
       const target = hs?.target_fps || parseInt(document.getElementById('selFPS').value, 10) || 60;
+      if (screenBlackSince && performance.now() - screenBlackSince >= 3000) {
+        return { cls: 'warn', text: blackScreenAdvice(hs) };
+      }
       if (!video) return { cls: 'ok', text: 'โหมด Smart Tiles — ใช้เมื่อเข้ารหัสวิดีโอไม่ได้' };
       if (hs) {
         if (hs.dropped > 0 || hs.stall_ms > 80) {
@@ -3464,6 +3516,8 @@
         ? `รับ ${vstat.recv} · ถอดรหัส ${vstat.decoded} · แสดง ${n(rendered)} FPS · ข้าม ${vstat.skipped}`
         : `แสดง ${n(rendered)} FPS`;
       const cursorLine = hs?.local_cursor ? 'วาดที่เครื่องนี้ (ไม่หน่วง)' : (wantLocalCursor() ? 'อยู่ในวิดีโอ (ปลายทางยังไม่รองรับ)' : 'อยู่ในวิดีโอ (ตามที่ตั้งไว้)');
+      if (pictureIsBlack()) { if (!screenBlackSince) screenBlackSince = performance.now(); }
+      else screenBlackSince = 0;
       const d = diagnoseScreen(hs, path, rendered, video);
       el.innerHTML = `
         <div class="ss-head"><span>📊 สถิติการเชื่อมต่อ</span><span style="display:flex;gap:6px"><button class="secondary" onclick="startCaptureCheck()" ${captureCheck && !captureCheck.done ? 'disabled' : ''} title="ลองทุกวิธีจับภาพและตัวเข้ารหัสบนเครื่องปลายทาง แล้วแสดงว่าอันไหนใช้ได้และทำไม (ใช้เวลาไม่เกินราว 1 นาที)">🔎 ตรวจระบบจับภาพ</button><button class="secondary" onclick="toggleScreenStats(false)">✕</button></span></div>
@@ -3477,6 +3531,7 @@
         ${row('เคอร์เซอร์', esc(cursorLine))}
         ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
         ${fallbackRows(hs)}
+        ${screenHintRow(hs)}
         <div class="ss-hint ${d.cls}">${esc(d.text)}</div>
         ${captureCheckRows()}`;
     }
@@ -3746,6 +3801,7 @@
       captureCheck = null;
       screenRTT = null;
       screenRTTAvg = null;
+      screenBlackSince = 0;
       setRemoteCursorShape('');
       Object.keys(vstat).forEach(k => { vstat[k] = 0; });
       const ws = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
