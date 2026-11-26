@@ -945,12 +945,14 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 				"-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0",
 			}
 
-			// Hardware H.265 GPU candidates ONLY (if none supported, ServeScreenSession cleanly falls back to 60 FPS H.264!)
+			// Hardware H.265 GPU candidates ONLY (if none supported, ServeScreenSession cleanly falls back to 60 FPS H.264!).
+			// Prefer native vendor encoders (NVENC / AMF / Intel QSV) ahead of D3D12VA for consistent
+			// VPS/SPS/PPS IDR headers and lowest startup latency on modern NVIDIA/AMD/Intel drivers.
 			list = append(list,
-				encoderCandidate{name: "WGC + H.265 D3D12 GPU", tier: "WGC", args: makeWGCD12(hevcD12Args)},
 				encoderCandidate{name: "WGC + H.265 NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcNVENCArgs)},
 				encoderCandidate{name: "WGC + H.265 AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcAMFArgs)},
 				encoderCandidate{name: "WGC + H.265 Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, hevcQSVArgs)},
+				encoderCandidate{name: "WGC + H.265 D3D12 GPU", tier: "WGC", args: makeWGCD12(hevcD12Args)},
 				encoderCandidate{name: "WGC + H.265 Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, hevcMFArgs)},
 				encoderCandidate{name: "WGC + H.265 Hardware GPU (MF Safe)", tier: "WGC", args: makeWGC(wgcNV12, hevcMFSafeArgs)},
 			)

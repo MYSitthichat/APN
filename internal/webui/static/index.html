@@ -2744,6 +2744,9 @@
         <label title="คัดลอกที่เครื่องไหนก็วางอีกเครื่องได้ทันที รวมถึงคลิกขวา → Paste/Copy (ส่งเฉพาะตอนเนื้อหาเปลี่ยน)">
           <input type="checkbox" id="chkClipSync" checked onchange="localStorage.setItem('apn_clip_autosync', this.checked ? '1' : '0')" style="margin:0" /> ซิงค์คลิปบอร์ดอัตโนมัติ (คลิกขวา Copy/Paste ได้)
         </label>
+        <label title="ลดบิตเรตชั่วคราวอัตโนมัติเมื่อเน็ตแน่นหรือส่งไม่ทัน แล้วปรับคืนคมชัดเมื่อเน็ตโล่ง">
+          <input type="checkbox" id="chkAutoBitrate" checked onchange="localStorage.setItem('apn_auto_bitrate', this.checked ? '1' : '0')" style="margin:0" /> ปรับบิตเรตอัตโนมัติเมื่อเน็ตแน่น (Auto Bitrate)
+        </label>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="secondary" style="flex:1;padding:6px 8px;font-size:0.78rem" onclick="sendInput({type:'keyframe'}); toggleRemoteSettingsPop(false);">↻ รีเฟรชหน้าจอ</button>
@@ -3042,7 +3045,11 @@
       let activeTabObj = null;
       document.querySelectorAll('.remote-tab-frame').forEach(fr => {
         const isMe = !isHome && fr.dataset.tabKey === activeSessionTab;
+        const wasActive = fr.classList.contains('active');
         fr.classList.toggle('active', isMe);
+        if (wasActive && !isMe) {
+          try { fr.contentWindow?.postMessage({ type: 'apn_tab_hidden' }, location.origin); } catch {}
+        }
         if (isMe) {
           setTimeout(() => {
             try {
@@ -4375,7 +4382,8 @@
     let screenBlackSince = 0;    // performance.now() when the shown picture became all black (0 = not black)
     let blackSampler = null;     // small canvas used to check whether the picture is all black
     let webCodecsHEVCSupported = false;
-    const webCodecsHEVCReady = ('VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function')
+    const hevcPreviouslyBroken = (() => { try { return sessionStorage.getItem('apn_hevc_broken') === '1'; } catch { return false; } })();
+    const webCodecsHEVCReady = (!hevcPreviouslyBroken && 'VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function')
       ? VideoDecoder.isConfigSupported({
           codec: 'hvc1.1.6.L120.90',
           codedWidth: 1920,
@@ -4383,6 +4391,83 @@
           optimizeForLatency: true
         }).then(r => { webCodecsHEVCSupported = !!(r && r.supported); }).catch(() => {})
       : Promise.resolve();
+
+    // Ping/Pong dead-stream watchdog & Adaptive Bitrate (ABR) state
+    let screenLastActivityAt = 0;
+    let screenPongSupported = false;
+    const ABR_LADDER = [65, 82, 90, 95];
+    let abrBaseQuality = 82;
+    let abrCongestStreak = 0;
+    let abrHealthyStreak = 0;
+    let abrLastChangeAt = 0;
+
+    function resetABRState(baseQ) {
+      if (typeof baseQ === 'number' && !isNaN(baseQ)) abrBaseQuality = baseQ;
+      abrCongestStreak = 0;
+      abrHealthyStreak = 0;
+      abrLastChangeAt = performance.now();
+    }
+
+    function evaluateAdaptiveBitrate(hs) {
+      const chk = document.getElementById('chkAutoBitrate');
+      if (!chk || !chk.checked || !hs) return;
+      const selCodec = document.getElementById('selCodec');
+      const selQuality = document.getElementById('selQuality');
+      if (!selCodec || !selQuality) return;
+      const codec = selCodec.value;
+      if (codec !== 'h264' && codec !== 'hevc') return;
+      // Ignore idle screens (no real traffic to measure congestion)
+      if ((hs.sent_fps || 0) < 3 && (hs.dropped || 0) === 0) return;
+
+      const curQ = parseInt(selQuality.value, 10) || 82;
+      const now = performance.now();
+      const congested =
+        (hs.dropped || 0) >= 2 ||
+        ((hs.max_write_ms || 0) >= 85 && (hs.queue || 0) >= 3) ||
+        (screenRTTAvg !== null && screenRTTAvg >= 180 && (hs.max_write_ms || 0) >= 60);
+      const healthy =
+        (hs.dropped || 0) === 0 &&
+        (hs.max_write_ms || 0) < 25 &&
+        (hs.queue || 0) <= 1 &&
+        (screenRTTAvg === null || screenRTTAvg < 90);
+
+      if (congested) {
+        abrCongestStreak++;
+        abrHealthyStreak = 0;
+        if (abrCongestStreak >= 4 && now - abrLastChangeAt >= 12000) {
+          const idx = ABR_LADDER.indexOf(curQ);
+          const nextIdx = idx > 0 ? idx - 1 : (curQ > ABR_LADDER[0] ? 0 : -1);
+          if (nextIdx >= 0 && ABR_LADDER[nextIdx] < curQ) {
+            const nextQ = ABR_LADDER[nextIdx];
+            selQuality.value = String(nextQ);
+            abrCongestStreak = 0;
+            abrHealthyStreak = 0;
+            abrLastChangeAt = now;
+            showToast(`📉 เน็ตแน่น — ปรับบิตเรตลงชั่วคราว (Q${nextQ}) เพื่อความลื่น`);
+            sendScreenConfig(true);
+          }
+        }
+      } else if (healthy && curQ < abrBaseQuality) {
+        abrHealthyStreak++;
+        abrCongestStreak = 0;
+        if (abrHealthyStreak >= 18 && now - abrLastChangeAt >= 15000) {
+          const curIdx = ABR_LADDER.indexOf(curQ);
+          const baseIdx = ABR_LADDER.indexOf(abrBaseQuality);
+          const nextIdx = curIdx >= 0 && baseIdx > curIdx ? curIdx + 1 : -1;
+          if (nextIdx >= 0) {
+            const nextQ = ABR_LADDER[nextIdx];
+            selQuality.value = String(nextQ);
+            abrCongestStreak = 0;
+            abrHealthyStreak = 0;
+            abrLastChangeAt = now;
+            showToast(`📈 เน็ตโล่งแล้ว — ปรับความคมชัดคืนเป็น Q${nextQ}`);
+            sendScreenConfig(true);
+          }
+        }
+      } else {
+        abrCongestStreak = Math.max(0, abrCongestStreak - 1);
+      }
+    }
 
     function versionAtLeast(ver, minVer) {
       if (!ver) return false;
@@ -4925,6 +5010,21 @@
           error: (err) => {
             h264Errors++;
             resetH264Decoder();
+            if (kind === 'hevc' && h264Errors >= 2) {
+              // Chromium/Edge has no software HEVC decoder — remember for this browser session and
+              // step down to 60 FPS H.264 right away so future tabs start fast without stalling.
+              webCodecsHEVCSupported = false;
+              try { sessionStorage.setItem('apn_hevc_broken', '1'); } catch {}
+              h264Errors = 0;
+              h264HwAccel = 'prefer-hardware';
+              const notice = document.getElementById('screenNotice');
+              notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้ — สลับเป็น H.264 60 FPS อัตโนมัติ`;
+              notice.style.display = 'block';
+              document.getElementById('selCodec').value = 'h264';
+              document.getElementById('selFPS').value = '60';
+              sendScreenConfig(true);
+              return;
+            }
             if (h264Errors === 1 && h264HwAccel === 'prefer-hardware') {
               h264HwAccel = 'no-preference';
               sendInput({ type: 'keyframe' });
@@ -4933,22 +5033,11 @@
               sendInput({ type: 'keyframe' });
             } else if (h264Errors >= 4) {
               const notice = document.getElementById('screenNotice');
-              if (kind === 'hevc') {
-                // Step down from H.265 to H.264 60 FPS before ever falling back to Smart Tiles!
-                h264Errors = 0;
-                h264HwAccel = 'prefer-hardware';
-                notice.textContent = `WebCodecs H.265 (${codecStr}) ไม่รองรับบนเครื่องนี้ — สลับเป็น H.264 60 FPS อัตโนมัติ`;
-                notice.style.display = 'block';
-                document.getElementById('selCodec').value = 'h264';
-                document.getElementById('selFPS').value = '60';
-                sendScreenConfig();
-              } else {
-                notice.textContent = `WebCodecs H.264 (${codecStr}) ไม่รองรับบนเบราว์เซอร์นี้ — สลับกลับ Smart JPEG อัตโนมัติ`;
-                notice.style.display = 'block';
-                document.getElementById('selCodec').value = 'tiles';
-                document.getElementById('selFPS').value = '24';
-                sendScreenConfig();
-              }
+              notice.textContent = `WebCodecs H.264 (${codecStr}) ไม่รองรับบนเบราว์เซอร์นี้ — สลับกลับ Smart JPEG อัตโนมัติ`;
+              notice.style.display = 'block';
+              document.getElementById('selCodec').value = 'tiles';
+              document.getElementById('selFPS').value = '24';
+              sendScreenConfig();
             } else {
               // Immediately request a fresh keyframe on decoder glitch so it recovers in <100ms!
               sendInput({ type: 'keyframe' });
@@ -5040,6 +5129,12 @@
       screenRTT = null;
       screenRTTAvg = null;
       screenBlackSince = 0;
+      screenLastActivityAt = performance.now();
+      screenPongSupported = false;
+      const savedABR = localStorage.getItem('apn_auto_bitrate');
+      const chkABR = document.getElementById('chkAutoBitrate');
+      if (chkABR && savedABR !== null) chkABR.checked = savedABR === '1';
+      resetABRState(parseInt(document.getElementById('selQuality')?.value || '82', 10) || 82);
       setRemoteCursorShape('');
       Object.keys(vstat).forEach(k => { vstat[k] = 0; });
       const ws = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
@@ -5101,6 +5196,15 @@
           notifyParentTab({ type: 'apn_tab_status', state: 'live', meta: shortMeta });
         }
         if (screenWS && screenWS.readyState === WebSocket.OPEN) {
+          // Dead-connection Ping/Pong watchdog: if a newer host stops replying for >10s (network switch / dead NAT),
+          // force-close the socket immediately so Auto-Reconnect kicks in twice as fast!
+          if (screenPongSupported && screenLastActivityAt > 0 && (performance.now() - screenLastActivityAt) > 10000) {
+            notice.textContent = '⚠️ ขาดสัญญาณตอบกลับเกิน 10 วินาที — กำลังเชื่อมต่อใหม่อัตโนมัติ...';
+            notice.style.display = 'block';
+            notifyParentTab({ type: 'apn_tab_status', state: 'connecting', meta: 'เชื่อมใหม่' });
+            try { screenWS.close(); } catch {}
+            return;
+          }
           sendInput({ type: 'ping', t: performance.now() });
         }
         renderScreenStats(agentId, screenFrames, screenBytesSec);
@@ -5112,6 +5216,7 @@
       let tileQueue = Promise.resolve();
 
       screenWS.onmessage = (ev) => {
+        screenLastActivityAt = performance.now();
         if (typeof ev.data === 'string') {
           const msg = JSON.parse(ev.data);
           if (msg.type === 'init') {
@@ -5126,6 +5231,7 @@
           } else if (msg.type === 'clipboard_changed') {
             onRemoteClipboardChanged();
           } else if (msg.type === 'stats') {
+            screenPongSupported = true;
             if (typeof msg.pong === 'number') {
               screenRTT = Math.max(0, performance.now() - msg.pong);
               screenRTTAvg = screenRTTAvg === null ? screenRTT : screenRTTAvg * 0.7 + screenRTT * 0.3;
@@ -5139,6 +5245,7 @@
               hostStatsAt = performance.now();
               hostHist.push(msg.stats);
               if (hostHist.length > 5) hostHist.shift();
+              evaluateAdaptiveBitrate(msg.stats);
             }
           } else if (msg.type === 'cursor') {
             setRemoteCursorShape(typeof msg.shape === 'string' ? msg.shape : '');
@@ -5223,6 +5330,9 @@
         } else if (fType === 0x05 || fType === 0x08) {
           if (buf.length < 10) return;
           const kind = fType === 0x08 ? 'hevc' : 'h264';
+          // Ignore stale in-flight frames from the previous codec right after switching H.264 <-> H.265
+          const wantCodec = document.getElementById('selCodec')?.value;
+          if ((wantCodec === 'hevc' || wantCodec === 'h264') && kind !== wantCodec) return;
           const seq = dv.getUint32(0);
           const sw = dv.getUint16(4);
           const sh = dv.getUint16(6);
@@ -5294,12 +5404,14 @@
           document.getElementById('screenMeta').textContent = 'ตัดการเชื่อมต่อแล้ว';
           notice.textContent = 'ไม่สามารถเชื่อมต่อเครื่องปลายทางได้หลังจากพยายามซ้ำ — กดปิดแล้วเชื่อมต่อใหม่อีกครั้ง';
           notice.style.display = 'block';
+          notifyParentTab({ type: 'apn_tab_status', state: 'error', meta: 'หลุด' });
           return;
         }
         const target = activeScreenTarget;
         document.getElementById('screenMeta').textContent = `🔄 เชื่อมใหม่ (${screenReconnectAttempts}/24)...`;
         notice.textContent = `🔄 ขาดการเชื่อมต่อชั่วคราว (เครื่องปลายทางอาจกำลังรีสตาร์ทหรืออัปเดต) — กำลังเชื่อมต่อใหม่อัตโนมัติ...`;
         notice.style.display = 'block';
+        notifyParentTab({ type: 'apn_tab_status', state: 'connecting', meta: `เชื่อมใหม่ (${screenReconnectAttempts})` });
         screenReconnectTimer = setTimeout(async () => {
           if (screenManualClose || !activeScreenTarget) return;
           if (lastMode === 'peer') {
@@ -5333,6 +5445,7 @@
         return;
       }
       toggleRemoteSettingsPop(false);
+      releaseHeldKeys();
       screenManualClose = true;
       activeScreenTarget = null;
       if (screenReconnectTimer) { clearTimeout(screenReconnectTimer); screenReconnectTimer = null; }
@@ -5353,16 +5466,53 @@
       screenWS.send(JSON.stringify(ev));
     }
 
-    window.sendScreenConfig = () => {
+    window.sendScreenConfig = (isAuto = false) => {
+      const nextCodec = document.getElementById('selCodec').value;
+      const nextQ = parseInt(document.getElementById('selQuality').value, 10) || 82;
+      if (!isAuto) {
+        resetABRState(nextQ);
+      }
+      h264Errors = 0;
+      h264HwAccel = 'prefer-hardware';
       resetH264Decoder();
+      clearScreenFallbackTimers();
       sendInput({
         type: 'config',
         fps: parseInt(document.getElementById('selFPS').value, 10),
-        quality: parseInt(document.getElementById('selQuality').value, 10),
-        codec: document.getElementById('selCodec').value,
+        quality: nextQ,
+        codec: nextCodec,
         max_width: parseInt(document.getElementById('selScale').value, 10),
         local_cursor: wantLocalCursor()
       });
+      // Safety watchdog on manual codec switch: if no new frame decodes within 6s, auto step-down so the screen never stays frozen!
+      if (nextCodec === 'hevc' || nextCodec === 'h264') {
+        const baselineFrames = screenTotalFrames;
+        const wsRef = screenWS;
+        screenKeyRetry1 = setTimeout(() => {
+          if (screenTotalFrames === baselineFrames && screenWS === wsRef && wsRef?.readyState === WebSocket.OPEN) {
+            sendInput({ type: 'keyframe' });
+          }
+        }, 1800);
+        screenFallbackTimer = setTimeout(() => {
+          if (screenTotalFrames === baselineFrames && screenWS === wsRef && wsRef?.readyState === WebSocket.OPEN) {
+            const curC = document.getElementById('selCodec').value;
+            const notice = document.getElementById('screenNotice');
+            if (curC === 'hevc') {
+              notice.textContent = 'ยังไม่ได้รับภาพ H.265 หลังสลับโหมด — สลับกลับเป็น H.264 60 FPS อัตโนมัติ';
+              notice.style.display = 'block';
+              document.getElementById('selCodec').value = 'h264';
+              document.getElementById('selFPS').value = '60';
+              sendScreenConfig(true);
+            } else if (curC === 'h264') {
+              notice.textContent = 'ยังไม่ได้รับภาพ H.264 หลังสลับโหมด — สลับกลับเป็น Smart JPEG อัตโนมัติ';
+              notice.style.display = 'block';
+              document.getElementById('selCodec').value = 'tiles';
+              document.getElementById('selFPS').value = '24';
+              sendScreenConfig(true);
+            }
+          }
+        }, 6500);
+      }
     };
 
     // ---- Cross-PC Screenshot & Clipboard Sync (Local PC -> Remote PC Chat!) ----
@@ -5759,13 +5909,27 @@
         sendInput({ type: 'key_up', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
       });
     }
-    bindRemoteCanvasEvents(canvas);
-    bindRemoteCanvasEvents(videoCanvas);
-    window.addEventListener('blur', () => {
+    function releaseHeldKeys() {
       if (heldCodes.size === 0) return;
       heldCodes.forEach(code => sendInput({ type: 'key_up', code }));
       heldCodes.clear();
+      swallowedLangCode = '';
+    }
+    bindRemoteCanvasEvents(canvas);
+    bindRemoteCanvasEvents(videoCanvas);
+    canvas.addEventListener('blur', releaseHeldKeys);
+    videoCanvas.addEventListener('blur', releaseHeldKeys);
+    window.addEventListener('blur', releaseHeldKeys);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) releaseHeldKeys();
     });
+    if (isEmbeddedViewer) {
+      window.addEventListener('message', (e) => {
+        if (e.origin === location.origin && e.data?.type === 'apn_tab_hidden') {
+          releaseHeldKeys();
+        }
+      });
+    }
 
     // ---- Remote Terminal (with Command History, Quick Chips & Copy) ----
     let shellWS = null;
