@@ -554,7 +554,10 @@ func streamVideoFFmpeg(
 			data  []byte
 			isKey bool
 		}
-		frameCh := make(chan auPacket, 12)
+		// Half a second of frames: a keyframe burst or a short network stall is absorbed and caught
+		// up. Overflowing drops every frame until the next keyframe (up to keyframeInterval of frozen
+		// picture), so that must be left to real congestion, not to one large frame.
+		frameCh := make(chan auPacket, sendQueueDepth(fps))
 		// needKeyCh tells the sender loop that frames were dropped and the viewer now waits for a keyframe.
 		needKeyCh := make(chan struct{}, 1)
 		readDone := make(chan struct{})
@@ -769,6 +772,34 @@ type encoderCandidate struct {
 	args []string
 }
 
+// sendQueueDepth is how many encoded frames may wait for the network before frames are dropped.
+func sendQueueDepth(fps int) int {
+	if d := fps / 2; d > 12 {
+		return d
+	}
+	return 12
+}
+
+// keyframeBurst is how long a stretch of the maximum bitrate one frame may use (see lowLatencyVBV).
+const keyframeBurst = 150 * time.Millisecond
+
+// lowLatencyVBV returns the encoder rate buffer holding burst worth of a maximum bitrate such as
+// "7M" or "3500k".
+func lowLatencyVBV(maxRate string, burst time.Duration) string {
+	kbps := 0
+	switch {
+	case strings.HasSuffix(maxRate, "M"):
+		v, _ := strconv.ParseFloat(strings.TrimSuffix(maxRate, "M"), 64)
+		kbps = int(v * 1000)
+	case strings.HasSuffix(maxRate, "k"):
+		kbps, _ = strconv.Atoi(strings.TrimSuffix(maxRate, "k"))
+	}
+	if kbps <= 0 {
+		return maxRate
+	}
+	return strconv.Itoa(int(float64(kbps)*burst.Seconds())) + "k"
+}
+
 func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
 	return videoEncoderCandidates("h264", fps, srcW, srcH, outW, outH, quality, true)
 }
@@ -786,35 +817,40 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 
 	// Map UI quality selector to crisp, generous VBV bitrate targets.
 	// NOTE: H.265 (HEVC) achieves equal/superior sharpness at ~60% of H.264's bitrate!
-	// And for x264, bufsize MUST be >= 4M-12M so 1080p keyframes NEVER crush into macroblock mosaic!
 	cqStr := "20"
 	targetBitrate := "5M"
 	maxRate := "7M"
-	bufSize := "7M"
 	hevcBitrate := "3500k"
 	hevcMaxRate := "5M"
 	if quality > 0 && quality <= 68 {
 		cqStr = "25"
 		targetBitrate = "2500k"
 		maxRate = "3500k"
-		bufSize = "4M"
 		hevcBitrate = "1800k"
 		hevcMaxRate = "2600k"
 	} else if quality >= 93 {
 		cqStr = "16"
 		targetBitrate = "14M"
 		maxRate = "18M"
-		bufSize = "16M"
 		hevcBitrate = "9M"
 		hevcMaxRate = "12M"
 	} else if quality >= 88 {
 		cqStr = "18"
 		targetBitrate = "8M"
 		maxRate = "11M"
-		bufSize = "10M"
 		hevcBitrate = "5500k"
 		hevcMaxRate = "7500k"
 	}
+
+	// Rate-control buffer (VBV): it caps how many bits one frame may take, i.e. the size of a
+	// keyframe. The former one-second buffer let every periodic keyframe reach 140-280 KB at
+	// 1080p; sent in one burst that stalled the stream ~200 ms on an Internet link and overflowed
+	// the send queue. keyframeBurst worth of bits keeps keyframes around 50-115 KB.
+	// x264 ultrafast needs more bits for a clean keyframe (a tight buffer gives it blocky ones),
+	// so the CPU fallback gets twice the room.
+	bufSize := lowLatencyVBV(maxRate, keyframeBurst)
+	x264BufSize := lowLatencyVBV(maxRate, 2*keyframeBurst)
+	hevcBufSize := lowLatencyVBV(hevcMaxRate, keyframeBurst)
 
 	needScale := outW != (srcW&^1) || outH != (srcH&^1)
 	nv12Filter := "format=nv12"
@@ -925,16 +961,16 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			hevcNVENCArgs := []string{
 				"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull",
 				"-zerolatency", "1", "-rc-lookahead", "0", "-delay", "0", "-forced-idr", "1",
-				"-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0",
+				"-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcBufSize, "-g", gopStr, "-bf", "0",
 			}
 			hevcAMFArgs := []string{
 				"-c:v", "hevc_amf", "-usage", "ultralowlatency", "-quality", "speed",
 				"-preanalysis", "0", "-vbaq", "0",
-				"-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0",
+				"-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcBufSize, "-g", gopStr, "-bf", "0",
 			}
 			hevcQSVArgs := []string{
 				"-c:v", "hevc_qsv", "-preset", "veryfast", "-async_depth", "1", "-look_ahead", "0",
-				"-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0",
+				"-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcBufSize, "-g", gopStr, "-bf", "0",
 			}
 			hevcMFArgs := []string{
 				"-c:v", "hevc_mf", "-hw_encoding", "1", "-scenario", "display_remoting", "-rate_control", "ld_vbr",
@@ -997,7 +1033,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		x264Args := []string{
 			"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline",
 			"-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0",
-			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
+			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", x264BufSize, "-g", gopStr, "-bf", "0",
 		}
 
 		// Tier 1: WGC (gfxcapture) + native vendor GPU encoders (NVENC / AMF / Intel QSV) first because
@@ -1072,7 +1108,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 				args: makeUnix(nv12Filter, []string{"-c:v", "hevc_videotoolbox", "-realtime", "true", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}),
 			})
 		} else {
-			nvenc := []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-forced-idr", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcMaxRate, "-g", gopStr, "-bf", "0"}
+			nvenc := []string{"-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-forced-idr", "1", "-rc", "cbr", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-bufsize", hevcBufSize, "-g", gopStr, "-bf", "0"}
 			vaapi := []string{"-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}
 			list = append(list, linuxGPUCandidates("H.265 ", makeUnix, inLowLatency, inputArgs, outFlags, nv12Filter, needScale, outW, outH, nvenc, vaapi)...)
 		}
@@ -1091,7 +1127,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	}
 	list = append(list, encoderCandidate{
 		name: "x264 ZeroLatency",
-		args: makeUnix(yuvFilter, []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0", "-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
+		args: makeUnix(yuvFilter, []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0", "-crf", cqStr, "-maxrate", maxRate, "-bufsize", x264BufSize, "-g", gopStr, "-bf", "0"}),
 	})
 	return list
 }

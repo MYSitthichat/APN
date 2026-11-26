@@ -4905,6 +4905,7 @@
           ${row('เครื่องนี้', esc(viewLine) + (video ? ` · ถอดรหัส ${decodeMs}` : ''))}
           ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}
           ${row('เคอร์เซอร์', esc(cursorLine))}
+          ${video && activeDecoderCodec ? row('ตัวถอดรหัส', esc(activeDecoderCodec)) : ''}
           ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
           ${fallbackRows(hs)}
           ${screenHintRow(hs)}
@@ -5098,11 +5099,115 @@
       return `${prefix}.1.6.L153.90`; // Main Profile Level 5.1 fallback (covers 1080p60 & 4K60)
     }
 
+    // ---- H.265 decoder configuration check ----
+    // Before the decoder is configured, the browser is asked whether it can decode the exact codec
+    // string of this stream. The start-up probe tests only one generic string, and a string built
+    // from the stream's SPS can be refused although that one passes; the nearest accepted variant
+    // is then used instead of giving up on H.265 (the decoder reads the real parameters from the
+    // stream anyway, the string only selects a decoder).
+    const hevcResolved = new Map(); // "codec|WxH" -> accepted codec string, or null when none is
+    let hevcPending = null;         // { frames: [] } while the browser is being asked
+    let hevcTried = 0;              // how many codec strings the last check tried
+    let activeDecoderCodec = '';    // codec string the running decoder was configured with
+
+    function hevcResolveKey(exact, w, h) { return `${exact}|${w}x${h}`; }
+
+    function hevcCodecCandidates(exact) {
+      const out = [];
+      const add = (c) => { if (!out.includes(c)) out.push(c); };
+      const other = (p) => (p === 'hvc1' ? 'hev1' : 'hvc1');
+      add(exact);
+      const m = /^(hvc1|hev1)\.([A-C]?\d+)\.([0-9A-Fa-f]+)\.([LH]\d+)\.([0-9A-Fa-f]+)$/.exec(exact);
+      if (m) {
+        const [, p, prof, compat, lvl, con] = m;
+        add(`${other(p)}.${prof}.${compat}.${lvl}.${con}`);
+        const generic = prof === '2' ? '4' : '6'; // compatibility flags most encoders write (Main10 / Main)
+        add(`${p}.${prof}.${generic}.${lvl}.${con}`);
+        add(`${other(p)}.${prof}.${generic}.${lvl}.${con}`);
+        add(`${p}.${prof}.${generic}.${lvl}.B0`);
+      }
+      add('hvc1.1.6.L123.90'); // what the start-up probe accepted
+      add('hev1.1.6.L123.90');
+      add('hvc1.1.6.L120.90'); // the fixed string used up to v1.3.28
+      return out;
+    }
+
+    async function resolveHEVCCodec(exact, w, h) {
+      const cands = hevcCodecCandidates(exact);
+      hevcTried = cands.length;
+      for (const codec of cands) {
+        try {
+          const r = await VideoDecoder.isConfigSupported({ codec, codedWidth: w, codedHeight: h, hardwareAcceleration: 'no-preference', optimizeForLatency: true });
+          if (r && r.supported) {
+            if (codec !== exact) console.warn(`[APN] H.265: browser refuses ${exact}, using ${codec}`);
+            return codec;
+          }
+        } catch {}
+      }
+      return null;
+    }
+
+    // stepDownFromHEVC gives up on H.265 for this browser session and continues with H.264.
+    function stepDownFromHEVC(codecStr, errMessage) {
+      webCodecsHEVCSupported = false;
+      try { sessionStorage.setItem('apn_hevc_broken', '1'); } catch {}
+      h264Errors = 0;
+      h264HwAccel = 'prefer-hardware';
+      const reason = errMessage ? ` (${errMessage})` : '';
+      const hint = /unsupported configuration|ไม่รองรับ/i.test(errMessage || '')
+        ? ' — ลองปิดแล้วเปิดหน้าต่าง APN ใหม่เพื่อรีเซ็ต GPU หรือตรวจ HEVC Video Extensions'
+        : '';
+      const notice = document.getElementById('screenNotice');
+      notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้${reason} — สลับเป็น H.264 60 FPS อัตโนมัติ${hint}`;
+      notice.style.display = 'block';
+      screenNoticePinnedUntil = performance.now() + 10000;
+      document.getElementById('selCodec').value = 'h264';
+      document.getElementById('selFPS').value = '60';
+      sendScreenConfig(true);
+    }
+
+    // feedVideoFrame hands one H.264/H.265 access unit to the decoder, creating it when needed.
+    function feedVideoFrame(kind, nal, sw, sh, isKey) {
+      const notice = document.getElementById('screenNotice');
+      if (h264WaitingKey && !isKey) return;
+      if (!ensureH264Decoder(nal, sw, sh, kind)) {
+        if (kind === 'hevc') {
+          notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.265 — สลับเป็น H.264 60 FPS อัตโนมัติ';
+          notice.style.display = 'block';
+          document.getElementById('selCodec').value = 'h264';
+          document.getElementById('selFPS').value = '60';
+          sendScreenConfig();
+          return;
+        }
+        notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.264 — สลับกลับ Smart Tiles อัตโนมัติ';
+        notice.style.display = 'block';
+        document.getElementById('selCodec').value = 'tiles';
+        sendScreenConfig();
+        return;
+      }
+      h264WaitingKey = false;
+      if (h264Decoder.decodeQueueSize > 8 && !isKey) {
+        resetH264Decoder();
+        sendInput({ type: 'keyframe' });
+        return;
+      }
+      try {
+        const fpsSel = parseInt(document.getElementById('selFPS').value, 10) || 60;
+        h264PtsUs += Math.round(1000000 / Math.max(15, fpsSel));
+        if (decodeStart.size > 120) decodeStart.clear();
+        decodeStart.set(h264PtsUs, performance.now());
+        h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: h264PtsUs, data: nal }));
+      } catch {
+        h264WaitingKey = true;
+        sendInput({ type: 'keyframe' });
+      }
+    }
+
     function ensureH264Decoder(nal, w, h, kind = 'h264') {
       if (!('VideoDecoder' in window)) return false;
       if (h264Decoder && h264Configured && h264DecoderKind === kind) return true;
       resetH264Decoder();
-      const codecStr = kind === 'hevc' ? extractHEVCCodec(nal) : extractAVC1Codec(nal);
+      const codecStr = kind === 'hevc' ? (hevcResolved.get(hevcResolveKey(extractHEVCCodec(nal), w, h)) || extractHEVCCodec(nal)) : extractAVC1Codec(nal);
       try {
         h264Decoder = new VideoDecoder({
           output: (frame) => {
@@ -5133,23 +5238,7 @@
               return;
             }
             if (kind === 'hevc' && h264Errors >= 2) {
-              // Chromium/Edge has no software HEVC decoder — remember for this browser session and
-              // step down to 60 FPS H.264 right away, keeping the exact error visible for 8 seconds!
-              webCodecsHEVCSupported = false;
-              try { sessionStorage.setItem('apn_hevc_broken', '1'); } catch {}
-              h264Errors = 0;
-              h264HwAccel = 'prefer-hardware';
-              const reason = err?.message ? ` (${err.message})` : '';
-              const hint = /unsupported configuration/i.test(err?.message || '')
-                ? ' — ลองปิดแล้วเปิดหน้าต่าง APN ใหม่เพื่อรีเซ็ต GPU หรือตรวจ HEVC Video Extensions'
-                : '';
-              const notice = document.getElementById('screenNotice');
-              notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้${reason} — สลับเป็น H.264 60 FPS อัตโนมัติ${hint}`;
-              notice.style.display = 'block';
-              screenNoticePinnedUntil = performance.now() + 10000;
-              document.getElementById('selCodec').value = 'h264';
-              document.getElementById('selFPS').value = '60';
-              sendScreenConfig(true);
+              stepDownFromHEVC(codecStr, err?.message || '');
               return;
             }
             if (h264Errors === 1 && h264HwAccel === 'prefer-hardware') {
@@ -5175,11 +5264,12 @@
           codec: codecStr,
           codedWidth: w,
           codedHeight: h,
-          hardwareAcceleration: h264HwAccel,
+          hardwareAcceleration: kind === 'hevc' ? 'no-preference' : h264HwAccel,
           optimizeForLatency: true
         });
         h264Configured = true;
         h264DecoderKind = kind;
+        activeDecoderCodec = codecStr;
         startVideoRenderLoop();
         return true;
       } catch {
@@ -5189,6 +5279,8 @@
     }
 
     function teardownScreenStream() {
+      hevcPending = null;
+      activeDecoderCodec = '';
       setRemoteCursorShape('');
       stopVideoRenderLoop();
       resetH264Decoder();
@@ -5467,38 +5559,37 @@
           const isKey = (buf[8] & 1) === 1;
           const nal = buf.subarray(9);
           vstat.recv++;
-          if (h264WaitingKey && !isKey) return;
-          if (!ensureH264Decoder(nal, sw, sh, kind)) {
-            if (kind === 'hevc') {
-              notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.265 — สลับเป็น H.264 60 FPS อัตโนมัติ';
-              notice.style.display = 'block';
-              document.getElementById('selCodec').value = 'h264';
-              document.getElementById('selFPS').value = '60';
-              sendScreenConfig();
+          if (kind === 'hevc' && !(h264Decoder && h264Configured && h264DecoderKind === 'hevc')) {
+            // Ask the browser about this stream's codec string before configuring the decoder; frames
+            // that arrive meanwhile are kept and decoded once the answer is in (a few milliseconds).
+            if (hevcPending) {
+              if (hevcPending.frames.length < 240) hevcPending.frames.push({ nal, sw, sh, isKey });
               return;
             }
-            notice.textContent = 'เบราว์เซอร์นี้ไม่รองรับ WebCodecs H.264 — สลับกลับ Smart Tiles อัตโนมัติ';
-            notice.style.display = 'block';
-            document.getElementById('selCodec').value = 'tiles';
-            sendScreenConfig();
-            return;
+            if (!isKey) return;
+            const exact = extractHEVCCodec(nal);
+            const rkey = hevcResolveKey(exact, sw, sh);
+            if (!hevcResolved.has(rkey)) {
+              const pend = hevcPending = { frames: [{ nal, sw, sh, isKey }] };
+              resolveHEVCCodec(exact, sw, sh).then((codec) => {
+                if (hevcPending !== pend) return; // stream closed meanwhile
+                hevcPending = null;
+                hevcResolved.set(rkey, codec);
+                if (screenWS !== ws || document.getElementById('selCodec')?.value !== 'hevc') return;
+                if (!codec) {
+                  stepDownFromHEVC(exact, `เบราว์เซอร์ตอบว่าไม่รองรับ ลองแล้ว ${hevcTried} แบบ`);
+                  return;
+                }
+                for (const f of pend.frames) feedVideoFrame('hevc', f.nal, f.sw, f.sh, f.isKey);
+              });
+              return;
+            }
+            if (hevcResolved.get(rkey) === null) {
+              stepDownFromHEVC(exact, `เบราว์เซอร์ตอบว่าไม่รองรับ ลองแล้ว ${hevcTried} แบบ`);
+              return;
+            }
           }
-          h264WaitingKey = false;
-          if (h264Decoder.decodeQueueSize > 8 && !isKey) {
-            resetH264Decoder();
-            sendInput({ type: 'keyframe' });
-            return;
-          }
-          try {
-            const fpsSel = parseInt(document.getElementById('selFPS').value, 10) || 60;
-            h264PtsUs += Math.round(1000000 / Math.max(15, fpsSel));
-            if (decodeStart.size > 120) decodeStart.clear();
-            decodeStart.set(h264PtsUs, performance.now());
-            h264Decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: h264PtsUs, data: nal }));
-          } catch {
-            h264WaitingKey = true;
-            sendInput({ type: 'keyframe' });
-          }
+          feedVideoFrame(kind, nal, sw, sh, isKey);
         } else if (fType === 0x01) {
           if (buf.length <= 4) return;
           const sw = dv.getUint16(0);
