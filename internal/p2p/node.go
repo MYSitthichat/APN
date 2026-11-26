@@ -2512,8 +2512,10 @@ func (n *Node) rememberPeerLocked(p *connectedPeer) {
 			if kp.VPNIP == "" {
 				kp.VPNIP = prev.VPNIP
 			}
-			if kp.QUICAddr == "" {
-				kp.QUICAddr = prev.QUICAddr
+			if kp.QUICAddr == "" && prev.QUICAddr != "" {
+				if h, _, err := net.SplitHostPort(prev.QUICAddr); err != nil || !IsSlowOverlayIP(net.ParseIP(h)) {
+					kp.QUICAddr = prev.QUICAddr
+				}
 			}
 			if kp.WSURL == "" && !strings.Contains(strings.ToLower(prev.WSURL), ".trycloudflare.com") {
 				kp.WSURL = prev.WSURL

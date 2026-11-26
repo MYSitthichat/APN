@@ -1261,10 +1261,256 @@
       color: var(--text);
       border-color: color-mix(in srgb, var(--accent) 55%, transparent);
     }
+    .group-pill.drop-active {
+      background: color-mix(in srgb, var(--accent) 26%, var(--surface-2));
+      border-color: var(--accent);
+      color: var(--text);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      transform: scale(1.04);
+    }
     .group-pill .gp-count {
       font-size: 0.7rem;
       opacity: 0.78;
       font-variant-numeric: tabular-nums;
+    }
+
+    /* Floating Drag & Drop Dock (zero layout shift while dragging a device card) */
+    .drag-drop-dock {
+      position: fixed;
+      left: 50%;
+      bottom: 42px;
+      transform: translateX(-50%);
+      z-index: 180;
+      display: none;
+      align-items: stretch;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      max-width: min(640px, 92vw);
+    }
+    body.is-dragging-peer .drag-drop-dock {
+      display: flex;
+    }
+    .drop-zone-pill {
+      min-width: 210px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 11px;
+      border: 2px dashed color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+      color: var(--text);
+      font-size: 0.83rem;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .drop-zone-pill.drop-danger {
+      border-color: color-mix(in srgb, var(--warn) 55%, var(--border-strong));
+      background: color-mix(in srgb, var(--warn) 8%, var(--surface-2));
+    }
+    .drop-zone-pill.drop-active {
+      border-style: solid;
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+      color: var(--text);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      transform: scale(1.01);
+    }
+    .drop-zone-pill.drop-danger.drop-active {
+      border-color: var(--warn);
+      background: color-mix(in srgb, var(--warn) 20%, var(--surface-2));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 30%, transparent);
+    }
+
+    /* Draggable Saved Cards */
+    .saved-card[draggable="true"] {
+      cursor: grab;
+    }
+    .saved-card[draggable="true"]:active {
+      cursor: grabbing;
+    }
+    .saved-card.is-dragging {
+      opacity: 0.45;
+      transform: scale(0.97);
+    }
+
+    /* Big Group Folder Cards Grid */
+    .folder-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .group-folder-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 15px 12px;
+      border-radius: 15px;
+      background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 9%, var(--surface-solid)), var(--surface-solid));
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+      min-width: 0;
+    }
+    .group-folder-card.has-online {
+      border-color: color-mix(in srgb, var(--ok) 42%, var(--border-strong));
+    }
+    .group-folder-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+    }
+    .group-folder-card.drop-active {
+      border: 2px dashed var(--accent);
+      background: color-mix(in srgb, var(--accent) 18%, var(--surface-solid));
+      box-shadow: 0 0 0 4px var(--accent-glow);
+      transform: scale(1.02);
+    }
+    .gf-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .gf-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.35rem;
+      flex-shrink: 0;
+      background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+    }
+    .gf-title {
+      font-weight: 800;
+      font-size: 1.02rem;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .gf-sub {
+      font-size: 0.76rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .gf-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .gf-online-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      background: var(--surface-2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .gf-online-pill.is-up {
+      color: var(--ok);
+      background: color-mix(in srgb, var(--ok) 13%, var(--surface-2));
+      border-color: color-mix(in srgb, var(--ok) 38%, transparent);
+    }
+    .gf-meter {
+      height: 5px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      overflow: hidden;
+    }
+    .gf-meter-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--ok), var(--accent));
+      transition: width 0.25s ease;
+    }
+    .gf-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-height: 24px;
+    }
+    .gf-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-soft);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .gf-chip .dot {
+      width: 6px;
+      height: 6px;
+      flex-shrink: 0;
+    }
+    .gf-foot {
+      margin-top: auto;
+      padding-top: 7px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--muted);
+    }
+    .group-folder-card.drop-active .gf-foot {
+      color: var(--accent);
+    }
+
+    /* Inside-Group Breadcrumb Bar */
+    .group-breadcrumb {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 10px 14px;
+      border-radius: 13px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-strong);
+    }
+    .group-breadcrumb-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .group-section.drop-active {
+      outline: 2px dashed var(--accent);
+      outline-offset: 6px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--accent) 6%, transparent);
     }
     .group-tag {
       display: inline-flex;
@@ -2024,6 +2270,206 @@
       color: var(--text-soft);
     }
     .apr-foot b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* ---- AnyDesk-Style Multi-Session Tab Bar & Tear-Off Stage ---- */
+    .session-tabbar {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 12px 0;
+      background: color-mix(in srgb, var(--surface-solid) 92%, var(--bg));
+      border-bottom: 1px solid var(--border-strong);
+      flex-shrink: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      min-height: 39px;
+      user-select: none;
+    }
+    .session-tabbar.visible {
+      display: flex;
+    }
+    .session-tabbar::-webkit-scrollbar { height: 4px; }
+    .session-tabbar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+    .sess-tab {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 33px;
+      padding: 0 11px;
+      border-radius: 10px 10px 0 0;
+      background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+      border: 1px solid transparent;
+      border-bottom: none;
+      color: var(--muted);
+      font-size: 0.79rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      max-width: 240px;
+      flex-shrink: 0;
+      transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+    }
+    .sess-tab:hover {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    .sess-tab.active {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--border-strong);
+      box-shadow: 0 2px 0 0 var(--bg);
+    }
+    .sess-tab.tab-dragging {
+      opacity: 0.45;
+    }
+    .sess-tab.tab-drop-before {
+      box-shadow: inset 3px 0 0 0 var(--accent);
+    }
+    .sess-tab.tab-drop-after {
+      box-shadow: inset -3px 0 0 0 var(--accent);
+    }
+    .sess-tab-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 120px;
+    }
+    .sess-tab-meta {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .sess-tab-act {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1;
+      box-shadow: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .sess-tab-act:hover {
+      background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+      color: var(--text);
+      transform: none;
+    }
+    .sess-tab-act.close-act:hover {
+      background: color-mix(in srgb, var(--danger) 22%, var(--surface-2));
+      color: var(--danger);
+    }
+    .sess-tab-add {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 3px;
+      padding: 0;
+      border-radius: 8px;
+      background: transparent;
+      border: 1px dashed var(--border-strong);
+      color: var(--muted);
+      font-size: 0.95rem;
+      font-weight: 800;
+      box-shadow: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .sess-tab-add:hover {
+      border-style: solid;
+      border-color: var(--accent);
+      color: var(--text);
+      background: var(--surface-2);
+      transform: none;
+    }
+    .sess-tabbar-hint {
+      margin-left: auto;
+      padding: 0 6px 4px;
+      font-size: 0.71rem;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    @media (max-width: 980px) {
+      .sess-tabbar-hint { display: none; }
+    }
+    .remote-tab-stage {
+      display: none;
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      position: relative;
+      background: #050810;
+      overflow: hidden;
+    }
+    .remote-tab-stage.active {
+      display: flex;
+    }
+    .remote-tab-frame {
+      display: none;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #050810;
+    }
+    .remote-tab-frame.active {
+      display: block;
+    }
+    .tab-tear-hint {
+      position: fixed;
+      left: 50%;
+      top: 96px;
+      transform: translateX(-50%);
+      z-index: 2800;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface-solid) 95%, transparent);
+      border: 1.5px dashed var(--accent);
+      color: var(--text);
+      font-size: 0.82rem;
+      font-weight: 700;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+      pointer-events: none;
+    }
+    body.is-dragging-tab .tab-tear-hint {
+      display: inline-flex;
+    }
+    body.is-dragging-tab .remote-tab-frame {
+      pointer-events: none;
+    }
+
+    /* Standalone / Embedded Remote Viewer Mode (?viewer=1) */
+    body.viewer-only {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    body.viewer-only > header,
+    body.viewer-only > #apnSessionBar,
+    body.viewer-only > #app,
+    body.viewer-only > #remoteTabStage,
+    body.viewer-only > footer {
+      display: none !important;
+    }
+    body.viewer-only #screenModal {
+      display: flex !important;
+      position: fixed;
+      inset: 0;
+    }
   </style>
 
 </head>
@@ -2080,9 +2526,14 @@
     </div>
   </div>
 
+  <!-- AnyDesk-Style Multi-Session Tab Bar (Home + Live Remote Desktop Tabs) -->
+  <nav id="apnSessionBar" class="session-tabbar" aria-label="Remote Sessions"></nav>
+  <div id="tabTearHint" class="tab-tear-hint">🪟 ปล่อยนอกแถบแท็บเพื่อแยกเป็นหน้าต่างอิสระ · หรือวางบนแท็บอื่นเพื่อเรียงลำดับ</div>
+
   <main id="app">
     <div class="card muted">กำลังโหลดข้อมูล...</div>
   </main>
+  <div id="remoteTabStage" class="remote-tab-stage"></div>
 
   <!-- Slide-over Settings & Tools Drawer (Peer Mode) -->
   <div id="settingsDrawer" class="drawer-backdrop" onclick="if(event.target===this)toggleSettingsDrawer(false)">
@@ -2232,6 +2683,8 @@
         <button class="secondary icon-btn" onclick="openActiveRemoteFiles()" title="โอนไฟล์ข้ามเครื่องแบบ 2 ฝั่ง (ฟรี 100%)">📁 ไฟล์</button>
         <button class="secondary icon-btn" onclick="toggleScreenStats()" title="สถิติการเชื่อมต่อ: เส้นทาง, RTT, FPS ต้นทาง/ปลายทาง และจุดที่ทำให้กระตุก">📊</button>
         <button id="btnRemoteSettings" class="secondary icon-btn" onclick="toggleRemoteSettingsPop()" title="ตั้งค่าภาพ FPS, เมาส์, ภาษา และปุ่มลัด">⚙️ ตั้งค่า</button>
+        <button id="btnViewerPopout" class="secondary icon-btn" style="display:none" onclick="popoutCurrentViewer()" title="แยกหน้าจอนี้ออกเป็นหน้าต่างอิสระ (วางดูคู่กับเครื่องอื่นได้)">↗ แยกหน้าต่าง</button>
+        <button id="btnViewerRedock" class="secondary icon-btn" style="display:none" onclick="redockCurrentViewer()" title="รวมหน้าต่างนี้กลับเข้าไปเป็นแท็บในหน้าหลัก APN">↙ รวมเข้าแท็บ</button>
         <button class="secondary icon-btn" onclick="toggleFullscreen()" title="เข้าโหมดเต็มจอ (กด Esc ค้างเพื่อออก)">⛶ เต็มจอ</button>
         <button class="danger icon-btn" onclick="closeScreenModal()">✕ ปิด</button>
       </div>
@@ -2450,6 +2903,14 @@
   </div>
 
   <script>
+    const viewerParams = new URLSearchParams(location.search);
+    const isViewerWindow = viewerParams.get('viewer') === '1';
+    const isEmbeddedViewer = isViewerWindow && viewerParams.get('embed') === '1';
+    const viewerTabKey = viewerParams.get('tabkey') || '';
+    const viewerPeerParam = viewerParams.get('peer') || '';
+    const viewerNameParam = viewerParams.get('name') || '';
+    const viewerH264Param = viewerParams.get('h264') === '1';
+
     const app = document.getElementById('app');
     const modeBadge = document.getElementById('modeBadge');
     const statusBadge = document.getElementById('statusBadge');
@@ -2464,6 +2925,322 @@
     let peerGroupedView = (localStorage.getItem('apn_group_view') ?? '1') === '1';
     let lastPeerData = null;
     let toastTimer = null;
+
+    // ---- Live Theme Sync Across Multi-Tabs & Pop-Out Windows ----
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'relayvpn_theme' && e.newValue) {
+        applyTheme(e.newValue, true);
+      } else if (e.key === 'relayvpn_accent') {
+        if (e.newValue) applyAccent(e.newValue, true);
+        else {
+          document.documentElement.style.removeProperty('--accent');
+          document.documentElement.style.removeProperty('--accent-glow');
+        }
+      }
+    });
+
+    // ---- AnyDesk-Style Multi-Session Tab Manager (Tabs + Drag-Out Pop-Out + Re-Dock) ----
+    const sessionTabs = []; // [{ key, agentId, name, preferH264, state, meta }]
+    const popoutWindows = new Map(); // agentId -> Window
+    let activeSessionTab = 'home';
+    let draggingTabKey = '';
+    let draggingTabReordered = false;
+
+    function buildViewerURL(agentId, name, preferH264, embed, tabKey = '') {
+      const p = new URLSearchParams();
+      p.set('viewer', '1');
+      p.set('peer', agentId);
+      if (name) p.set('name', name);
+      if (preferH264) p.set('h264', '1');
+      if (embed) p.set('embed', '1');
+      if (tabKey) p.set('tabkey', tabKey);
+      return `/?${p.toString()}`;
+    }
+
+    function notifyParentTab(payload) {
+      if (!isEmbeddedViewer || !window.parent || window.parent === window) return;
+      try {
+        window.parent.postMessage({ ...payload, key: viewerTabKey }, location.origin);
+      } catch {}
+    }
+
+    window.popoutCurrentViewer = () => {
+      if (isEmbeddedViewer) {
+        notifyParentTab({ type: 'apn_tab_popout' });
+      }
+    };
+
+    window.redockCurrentViewer = () => {
+      if (!isViewerWindow || isEmbeddedViewer) return;
+      const target = activeScreenTarget || {
+        agentId: viewerPeerParam,
+        name: viewerNameParam,
+        preferH264: viewerH264Param
+      };
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.postMessage({
+            type: 'apn_redock',
+            agentId: target.agentId,
+            name: target.name,
+            preferH264: !!target.preferH264
+          }, location.origin);
+        } catch {}
+      }
+      closeScreenModal(true);
+      try { window.close(); } catch {}
+    };
+
+    function renderSessionBar() {
+      const bar = document.getElementById('apnSessionBar');
+      if (!bar || isViewerWindow) return;
+      const showBar = lastMode === 'peer' || lastMode === 'client' || lastMode === 'portal' || sessionTabs.length > 0;
+      bar.classList.toggle('visible', showBar);
+      if (!showBar) return;
+
+      const tabsHTML = sessionTabs.map(t => {
+        const dotCls = t.state === 'live' ? 'ok' : (t.state === 'error' ? 'danger' : 'warn');
+        const activeCls = activeSessionTab === t.key ? 'active' : '';
+        return `
+          <div class="sess-tab ${activeCls}"
+               data-tab-key="${esc(t.key)}"
+               draggable="true"
+               onclick="activateSessionTab(${jsArg(t.key)})"
+               onauxclick="if(event.button===1){event.preventDefault();closeSessionTab(${jsArg(t.key)});}"
+               ondragstart="onSessTabDragStart(event,${jsArg(t.key)})"
+               ondragover="onSessTabDragOver(event,${jsArg(t.key)})"
+               ondragleave="onSessTabDragLeave(event)"
+               ondrop="onSessTabDrop(event,${jsArg(t.key)})"
+               ondragend="onSessTabDragEnd(event,${jsArg(t.key)})"
+               title="${esc(t.name)} — คลิกเพื่อสลับ · ลากออกนอกแถบเพื่อแยกหน้าต่าง">
+            <span class="dot ${dotCls}"></span>
+            <span class="sess-tab-label">${esc(t.name)}</span>
+            ${t.meta ? `<span class="sess-tab-meta">${esc(t.meta)}</span>` : ''}
+            <button type="button" class="sess-tab-act" onclick="event.stopPropagation();popoutSessionTab(${jsArg(t.key)})" title="แยกเป็นหน้าต่างอิสระ (Pop-out)">↗</button>
+            <button type="button" class="sess-tab-act close-act" onclick="event.stopPropagation();closeSessionTab(${jsArg(t.key)})" title="ปิดหน้าจอนี้">✕</button>
+          </div>`;
+      }).join('');
+
+      bar.innerHTML = `
+        <div class="sess-tab ${activeSessionTab === 'home' ? 'active' : ''}" onclick="activateSessionTab('home')" title="หน้าหลักสำหรับกรอก ID / จัดการกลุ่มเครื่อง">
+          <span>🏠</span>
+          <span>หน้าหลัก</span>
+        </div>
+        ${tabsHTML}
+        <button type="button" class="sess-tab-add" onclick="focusNewRemoteTab()" title="เปิดหน้าหลักเพื่อเชื่อมต่อเครื่องเพิ่มอีกแท็บ">＋</button>
+        ${sessionTabs.length > 0 ? `<span class="sess-tabbar-hint">💡 ลากแท็บออกนอกแถบ หรือกด ↗ เพื่อแยกเป็นหน้าต่างอิสระ</span>` : ''}
+      `;
+    }
+
+    window.activateSessionTab = (key) => {
+      activeSessionTab = key || 'home';
+      const stage = document.getElementById('remoteTabStage');
+      const isHome = activeSessionTab === 'home';
+      if (app) app.style.display = isHome ? '' : 'none';
+      if (stage) stage.classList.toggle('active', !isHome);
+
+      let activeTabObj = null;
+      document.querySelectorAll('.remote-tab-frame').forEach(fr => {
+        const isMe = !isHome && fr.dataset.tabKey === activeSessionTab;
+        fr.classList.toggle('active', isMe);
+        if (isMe) {
+          setTimeout(() => {
+            try {
+              fr.contentWindow?.focus();
+              fr.contentWindow?.document?.getElementById('screenCanvas')?.focus();
+            } catch {}
+          }, 30);
+        }
+      });
+      if (!isHome) {
+        activeTabObj = sessionTabs.find(t => t.key === activeSessionTab);
+        document.title = activeTabObj ? `APN — ${activeTabObj.name}` : 'APN — Remote Desktop';
+      } else {
+        document.title = 'APN — Remote Desktop & VPN';
+        poll(true);
+      }
+      renderSessionBar();
+    };
+
+    window.focusNewRemoteTab = () => {
+      activateSessionTab('home');
+      setTimeout(() => {
+        const inp = document.getElementById('pRemoteID');
+        if (inp) { inp.focus(); inp.select(); }
+      }, 60);
+    };
+
+    function openRemoteSessionTab(agentId, name, preferH264 = false) {
+      const displayName = name || agentId;
+
+      // 1. Already popped out in its own standalone window? Focus it!
+      const existingPop = popoutWindows.get(agentId);
+      if (existingPop && !existingPop.closed) {
+        try { existingPop.focus(); } catch {}
+        showToast(`🪟 สลับไปยังหน้าต่างของ ${displayName} แล้ว`);
+        return;
+      }
+      if (existingPop && existingPop.closed) {
+        popoutWindows.delete(agentId);
+      }
+
+      // 2. Already open as a live tab? Switch straight to it!
+      const existingTab = sessionTabs.find(t => t.agentId === agentId);
+      if (existingTab) {
+        existingTab.name = displayName;
+        activateSessionTab(existingTab.key);
+        return;
+      }
+
+      // 3. Spawn a brand-new live iframe session tab!
+      const key = 'tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+      sessionTabs.push({
+        key,
+        agentId,
+        name: displayName,
+        preferH264: !!preferH264,
+        state: 'connecting',
+        meta: ''
+      });
+      const stage = document.getElementById('remoteTabStage');
+      const frame = document.createElement('iframe');
+      frame.className = 'remote-tab-frame';
+      frame.dataset.tabKey = key;
+      frame.allow = 'clipboard-read; clipboard-write; fullscreen';
+      frame.src = buildViewerURL(agentId, displayName, preferH264, true, key);
+      stage.appendChild(frame);
+
+      activateSessionTab(key);
+    }
+
+    window.closeSessionTab = (key) => {
+      const idx = sessionTabs.findIndex(t => t.key === key);
+      if (idx === -1) return;
+      sessionTabs.splice(idx, 1);
+
+      const frame = document.querySelector(`.remote-tab-frame[data-tab-key="${CSS.escape(key)}"]`);
+      if (frame) {
+        try { frame.contentWindow?.closeScreenModal?.(true); } catch {}
+        frame.src = 'about:blank';
+        frame.remove();
+      }
+
+      if (activeSessionTab === key) {
+        const nextTab = sessionTabs[Math.min(idx, sessionTabs.length - 1)];
+        activateSessionTab(nextTab ? nextTab.key : 'home');
+      } else {
+        renderSessionBar();
+      }
+    };
+
+    window.popoutSessionTab = (key, screenX = null, screenY = null) => {
+      const tab = sessionTabs.find(t => t.key === key);
+      if (!tab) return;
+      const w = Math.min(1320, Math.max(960, window.outerWidth - 60));
+      const h = Math.min(820, Math.max(640, window.outerHeight - 60));
+      const left = typeof screenX === 'number' && screenX > 0 ? Math.max(20, Math.round(screenX - 180)) : Math.max(40, (window.screenX || 60) + 40);
+      const top = typeof screenY === 'number' && screenY > 0 ? Math.max(20, Math.round(screenY - 28)) : Math.max(40, (window.screenY || 60) + 40);
+      const url = buildViewerURL(tab.agentId, tab.name, tab.preferH264, false, '');
+      const winName = 'apn_remote_' + String(tab.agentId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const pop = window.open(url, winName, `popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes`);
+      if (!pop) {
+        showToast('⚠ เบราว์เซอร์บล็อกการเปิดหน้าต่างใหม่ กรุณาอนุญาต Pop-up สำหรับหน้านี้');
+        return;
+      }
+      popoutWindows.set(tab.agentId, pop);
+      closeSessionTab(key);
+      showToast(`🪟 แยกหน้าจอ "${tab.name}" ออกเป็นหน้าต่างอิสระแล้ว`);
+    };
+
+    // ---- Drag Tab: Reorder Inside Bar OR Tear-Off Outside Bar to Pop-Out ----
+    window.onSessTabDragStart = (e, key) => {
+      draggingTabKey = key;
+      draggingTabReordered = false;
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', key);
+      } catch {}
+      const el = e.currentTarget;
+      setTimeout(() => {
+        if (!draggingTabKey) return;
+        document.body.classList.add('is-dragging-tab');
+        el?.classList.add('tab-dragging');
+      }, 0);
+    };
+
+    window.onSessTabDragOver = (e, targetKey) => {
+      if (!draggingTabKey || draggingTabKey === targetKey) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch {}
+      const rect = e.currentTarget.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      e.currentTarget.classList.toggle('tab-drop-before', before);
+      e.currentTarget.classList.toggle('tab-drop-after', !before);
+    };
+
+    window.onSessTabDragLeave = (e) => {
+      e.currentTarget.classList.remove('tab-drop-before', 'tab-drop-after');
+    };
+
+    window.onSessTabDrop = (e, targetKey) => {
+      e.preventDefault();
+      e.currentTarget.classList.remove('tab-drop-before', 'tab-drop-after');
+      if (!draggingTabKey || draggingTabKey === targetKey) return;
+      const fromIdx = sessionTabs.findIndex(t => t.key === draggingTabKey);
+      let toIdx = sessionTabs.findIndex(t => t.key === targetKey);
+      if (fromIdx === -1 || toIdx === -1) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      const [moved] = sessionTabs.splice(fromIdx, 1);
+      toIdx = sessionTabs.findIndex(t => t.key === targetKey);
+      sessionTabs.splice(before ? toIdx : toIdx + 1, 0, moved);
+      draggingTabReordered = true;
+      renderSessionBar();
+    };
+
+    window.onSessTabDragEnd = (e, key) => {
+      const wasReordered = draggingTabReordered;
+      draggingTabKey = '';
+      draggingTabReordered = false;
+      document.body.classList.remove('is-dragging-tab');
+      document.querySelectorAll('.tab-dragging,.tab-drop-before,.tab-drop-after').forEach(el => {
+        el.classList.remove('tab-dragging', 'tab-drop-before', 'tab-drop-after');
+      });
+      if (wasReordered) return;
+
+      const bar = document.getElementById('apnSessionBar');
+      const rect = bar ? bar.getBoundingClientRect() : null;
+      const outOfViewport = e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight;
+      const pulledAwayFromBar = rect && (e.clientY > rect.bottom + 36 || e.clientY < rect.top - 24);
+      if (outOfViewport || pulledAwayFromBar) {
+        popoutSessionTab(key, e.screenX, e.screenY);
+      }
+    };
+
+    // Receive live status / popout / close / re-dock messages from embedded tabs & popup windows
+    if (!isViewerWindow) {
+      window.addEventListener('message', (e) => {
+        if (e.origin !== location.origin || !e.data || typeof e.data !== 'object') return;
+        const msg = e.data;
+        if (msg.type === 'apn_tab_status' && msg.key) {
+          const tab = sessionTabs.find(t => t.key === msg.key);
+          if (!tab) return;
+          let changed = false;
+          if (msg.state && tab.state !== msg.state) { tab.state = msg.state; changed = true; }
+          if (typeof msg.meta === 'string' && tab.meta !== msg.meta) { tab.meta = msg.meta; changed = true; }
+          if (changed) renderSessionBar();
+        } else if (msg.type === 'apn_tab_popout' && msg.key) {
+          popoutSessionTab(msg.key);
+        } else if (msg.type === 'apn_tab_close' && msg.key) {
+          closeSessionTab(msg.key);
+        } else if (msg.type === 'apn_redock' && msg.agentId) {
+          popoutWindows.delete(msg.agentId);
+          openRemoteSessionTab(msg.agentId, msg.name || msg.agentId, !!msg.preferH264);
+          try { window.focus(); } catch {}
+          showToast(`↙ รวมหน้าจอ "${msg.name || msg.agentId}" กลับเข้าแท็บแล้ว`);
+        }
+      });
+    }
 
     // ---- Centered Theme-Aware App Dialog (apnConfirm / apnPrompt / apnAlert) ----
     let apnDialogResolver = null;
@@ -3147,7 +3924,7 @@
           : (sp.online ? (sp.online_via === 'lan' ? 'ออนไลน์ (LAN)' : 'ออนไลน์') : 'ออฟไลน์');
         const grp = (sp.group || '').trim();
         return `
-          <div class="saved-card ${sp.online ? 'is-online' : ''}">
+          <div class="saved-card ${sp.online ? 'is-online' : ''}" draggable="true" ondragstart="onPeerDragStart(event,${jsArg(sp.device_id)},${jsArg(sp.name)},${jsArg(grp)})" ondragend="onPeerDragEnd(event)" title="ลากการ์ดนี้ไปวางบนกลุ่มเพื่อจัดกลุ่มได้ทันที">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
               <div style="min-width:0;flex:1">
                 <div style="font-weight:700;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.name)}</div>
@@ -3170,7 +3947,7 @@
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.74rem" class="muted">
-              ${grp ? `<span class="group-tag" title="คลิกเพื่อกรองเฉพาะกลุ่ม ${esc(grp)}" onclick="setPeerGroupFilter(${jsArg(grp)})">📁 ${esc(grp)}</span>` : ''}
+              ${grp ? `<span class="group-tag" title="คลิกเพื่อเปิดดูกลุ่ม ${esc(grp)}" onclick="setPeerGroupFilter(${jsArg(grp)})">📁 ${esc(grp)}</span>` : ''}
               ${sp.has_saved_password ? '<span class="badge" style="padding:2px 7px;font-size:0.7rem">🔑 จำรหัสแล้ว</span>' : '<span class="badge" style="padding:2px 7px;font-size:0.7rem;opacity:0.7">ยังไม่จำรหัส</span>'}
               ${renderPeerVersionBadge(cp?.version || sp.version, !!cp)}
               ${sp.vpn_ip ? `<code style="cursor:pointer" title="คลิกคัดลอก VPN IP" onclick="copyText(${jsArg(sp.vpn_ip)},${jsArg('คัดลอก VPN IP ' + sp.vpn_ip + ' แล้ว')})">🛡 ${esc(sp.vpn_ip)}</code>` : ''}
@@ -3191,6 +3968,56 @@
           </div>`;
       };
 
+      const renderGroupFolderCard = (g, idx) => {
+        const items = saved.filter(s => (s.group || '').trim() === g);
+        const onlineCnt = items.filter(x => x.online).length;
+        const totalCnt = items.length;
+        const pct = totalCnt > 0 ? Math.round((onlineCnt / totalCnt) * 100) : 0;
+        const preview = items.slice(0, 4);
+        const extra = Math.max(0, totalCnt - preview.length);
+        const menuId = 'gfm-' + idx;
+        return `
+          <div class="group-folder-card ${onlineCnt > 0 ? 'has-online' : ''}"
+               onclick="setPeerGroupFilter(${jsArg(g)})"
+               ondragover="onGroupDragOver(event)"
+               ondragleave="onGroupDragLeave(event)"
+               ondrop="onGroupDrop(event,${jsArg(g)})">
+            <div class="gf-head">
+              <div style="display:flex;align-items:center;gap:11px;min-width:0;flex:1">
+                <div class="gf-icon">📁</div>
+                <div style="min-width:0;flex:1">
+                  <div class="gf-title" title="${esc(g)}">${esc(g)}</div>
+                  <div class="gf-sub">${totalCnt} เครื่องในกลุ่มนี้</div>
+                </div>
+              </div>
+              <div class="card-menu-wrap" onclick="event.stopPropagation()">
+                <button type="button" class="secondary icon-btn" style="padding:4px 8px;font-size:0.9rem;line-height:1" onclick="toggleCardMenu(event,${jsArg(menuId)})" title="จัดการกลุ่มนี้">⋮</button>
+                <div id="${esc(menuId)}" class="card-menu-pop">
+                  <button type="button" onclick="event.stopPropagation(); closeCardMenus(); setPeerGroupFilter(${jsArg(g)})">📂 เปิดดูเครื่องในกลุ่ม</button>
+                  <button type="button" onclick="event.stopPropagation(); closeCardMenus(); peerRenameGroup(${jsArg(g)})">✏️ เปลี่ยนชื่อกลุ่ม</button>
+                  <button type="button" class="menu-danger" onclick="event.stopPropagation(); closeCardMenus(); peerDissolveGroup(${jsArg(g)})">✕ ยุบกลุ่ม</button>
+                </div>
+              </div>
+            </div>
+            <div class="gf-status-row">
+              <span class="gf-online-pill ${onlineCnt > 0 ? 'is-up' : ''}">
+                <span class="dot ${onlineCnt > 0 ? 'ok' : ''}"></span>
+                ออนไลน์ ${onlineCnt} / ${totalCnt} เครื่อง
+              </span>
+              <span class="muted" style="font-size:0.73rem">${pct}%</span>
+            </div>
+            <div class="gf-meter"><div class="gf-meter-fill" style="width:${pct}%"></div></div>
+            <div class="gf-preview">
+              ${preview.map(it => `<span class="gf-chip" title="${esc(it.name)}"><span class="dot ${it.online ? 'ok' : ''}"></span><span>${esc(it.name)}</span></span>`).join('')}
+              ${extra > 0 ? `<span class="gf-chip">+${extra} อื่นๆ</span>` : ''}
+            </div>
+            <div class="gf-foot">
+              <span class="gf-foot-text">คลิกเพื่อเปิดดู · ลากเครื่องมาวางได้</span>
+              <span>➔</span>
+            </div>
+          </div>`;
+      };
+
       // Render active workspace tab content
       let tabContentHTML = '';
       if (peerTab === 'saved') {
@@ -3204,26 +4031,54 @@
               </button>
               ${groupNames.map(g => {
                 const st = groupMap.get(g);
-                return `<button type="button" class="group-pill ${peerGroupFilter === g ? 'active' : ''}" onclick="setPeerGroupFilter(${jsArg(g)})">📁 ${esc(g)} <span class="gp-count">(${st.online}/${st.total})</span></button>`;
+                return `<button type="button" class="group-pill ${peerGroupFilter === g ? 'active' : ''}" onclick="setPeerGroupFilter(${jsArg(g)})" ondragover="onGroupDragOver(event)" ondragleave="onGroupDragLeave(event)" ondrop="onGroupDrop(event,${jsArg(g)})" title="คลิกเพื่อเปิดกลุ่ม หรือลากเครื่องมาวางที่นี่">📁 ${esc(g)} <span class="gp-count">(${st.online}/${st.total})</span></button>`;
               }).join('')}
               ${hasGroups && ungroupedTotal > 0 ? `
-                <button type="button" class="group-pill ${peerGroupFilter === '__ungrouped__' ? 'active' : ''}" onclick="setPeerGroupFilter('__ungrouped__')">
+                <button type="button" class="group-pill ${peerGroupFilter === '__ungrouped__' ? 'active' : ''}" onclick="setPeerGroupFilter('__ungrouped__')" ondragover="onGroupDragOver(event)" ondragleave="onGroupDragLeave(event)" ondrop="onGroupDrop(event,'__ungrouped__')" title="คลิกเพื่อดูเครื่องที่ไม่มีกลุ่ม หรือลากเครื่องมาวางเพื่อนำออกจากกลุ่ม">
                   ไม่มีกลุ่ม <span class="gp-count">(${ungroupedOnline}/${ungroupedTotal})</span>
                 </button>` : ''}
             </div>
             <div class="row-actions" style="gap:5px">
-              ${isSpecificGroup ? `
-                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem" onclick="peerRenameGroup(${jsArg(peerGroupFilter)})">✏️ เปลี่ยนชื่อกลุ่ม</button>
-                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem;color:var(--danger)" onclick="peerDissolveGroup(${jsArg(peerGroupFilter)})">✕ ยุบกลุ่ม</button>
-              ` : (hasGroups && peerGroupFilter === '__all__' ? `
-                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem" onclick="togglePeerGroupedView()" title="สลับมุมมองแยกหัวข้อตามกลุ่มหรือแสดงรวมทั้งหมด">${peerGroupedView ? '▦ แสดงรวม' : '🗂 แยกตามกลุ่ม'}</button>
-              ` : `<span class="muted" style="font-size:0.73rem">💡 คลิก <strong>⋮</strong> บนการ์ดเพื่อจัดกลุ่มเครื่อง</span>`)}
+              ${hasGroups && peerGroupFilter === '__all__' && !q ? `
+                <button type="button" class="secondary" style="padding:4px 9px;font-size:0.74rem" onclick="togglePeerGroupedView()" title="สลับระหว่างมุมมองโฟลเดอร์กลุ่มกับแสดงการ์ดทั้งหมด">${peerGroupedView ? '▦ แสดงการ์ดทั้งหมด' : '📁 มุมมองโฟลเดอร์'}</button>
+              ` : (!isSpecificGroup ? `<span class="muted" style="font-size:0.73rem">💡 ลากการ์ดเครื่องวางเพื่อจัดกลุ่ม หรือกด <strong>⋮</strong></span>` : '')}
+            </div>
+          </div>
+          <div class="drag-drop-dock">
+            <div class="drop-zone-pill" ondragover="onGroupDragOver(event)" ondragleave="onGroupDragLeave(event)" ondrop="onGroupDrop(event,'__new__')">
+              ➕ วางที่นี่เพื่อสร้างกลุ่มใหม่
+            </div>
+            <div id="dropUngroupZone" class="drop-zone-pill drop-danger" ondragover="onGroupDragOver(event)" ondragleave="onGroupDragLeave(event)" ondrop="onGroupDrop(event,'__ungrouped__')">
+              📤 วางที่นี่เพื่อนำออกจากกลุ่ม
             </div>
           </div>` : '';
 
-        if (filteredSaved.length === 0) {
+        const breadcrumbHTML = isSpecificGroup ? (() => {
+          const st = groupMap.get(peerGroupFilter) || { online: 0, total: 0 };
+          return `
+            <div class="group-breadcrumb">
+              <div class="group-breadcrumb-left">
+                <button type="button" class="secondary" style="padding:6px 11px;font-size:0.79rem" onclick="setPeerGroupFilter('__all__')">⬅ กลับหน้ากลุ่มทั้งหมด</button>
+                <span style="font-weight:800;font-size:0.96rem">📁 ${esc(peerGroupFilter)}</span>
+                <span class="gf-online-pill ${st.online > 0 ? 'is-up' : ''}">
+                  <span class="dot ${st.online > 0 ? 'ok' : ''}"></span>
+                  ออนไลน์ ${st.online} / ${st.total} เครื่อง
+                </span>
+              </div>
+              <div class="row-actions" style="gap:6px">
+                <button type="button" class="secondary" style="padding:5px 10px;font-size:0.76rem" onclick="peerRenameGroup(${jsArg(peerGroupFilter)})">✏️ เปลี่ยนชื่อกลุ่ม</button>
+                <button type="button" class="secondary" style="padding:5px 10px;font-size:0.76rem;color:var(--danger)" onclick="peerDissolveGroup(${jsArg(peerGroupFilter)})">✕ ยุบกลุ่ม</button>
+              </div>
+            </div>`;
+        })() : '';
+
+        // When searching, match across all saved devices even if currently in folder root view
+        const searchMatches = q ? saved.filter(matchesSearch) : filteredSaved;
+
+        if ((q ? searchMatches.length : filteredSaved.length) === 0) {
           tabContentHTML = `
             ${groupBarHTML}
+            ${breadcrumbHTML}
             <div style="margin:auto;text-align:center;max-width:460px;padding:24px 12px">
               <div style="font-size:2.1rem;margin-bottom:8px">🖥️</div>
               <div style="font-weight:700;font-size:1rem;margin-bottom:6px">${q ? 'ไม่พบเครื่องที่ค้นหา' : 'ยังไม่มีประวัติเครื่องที่บันทึกไว้'}</div>
@@ -3236,38 +4091,47 @@
                   </div>
                 </div>` : ''}
             </div>`;
+        } else if (q) {
+          tabContentHTML = `
+            ${groupBarHTML}
+            <div class="saved-grid">
+              ${searchMatches.map(renderSavedCard).join('')}
+            </div>`;
         } else if (hasGroups && peerGroupFilter === '__all__' && peerGroupedView) {
-          const buckets = [];
-          groupNames.forEach(g => {
-            const items = filteredSaved.filter(s => (s.group || '').trim() === g);
-            if (items.length > 0) buckets.push({ name: g, items, real: true });
-          });
-          const ungroupedItems = filteredSaved.filter(s => !(s.group || '').trim());
-          if (ungroupedItems.length > 0) {
-            buckets.push({ name: 'ยังไม่จัดกลุ่ม', items: ungroupedItems, real: false });
-          }
+          const ungroupedItems = saved.filter(s => !(s.group || '').trim());
+          const groupOnlineSum = groupNames.reduce((acc, g) => acc + (groupMap.get(g)?.online || 0), 0);
+          const groupTotalSum = groupNames.reduce((acc, g) => acc + (groupMap.get(g)?.total || 0), 0);
           tabContentHTML = `
             ${groupBarHTML}
             <div class="group-sections">
-              ${buckets.map(b => `
-                <div class="group-section">
+              <div class="group-section">
+                <div class="group-section-head">
+                  <div class="group-section-title">
+                    <span>📂 กลุ่มเครื่อง (${groupNames.length} กลุ่ม)</span>
+                    <span class="badge" style="padding:2px 8px;font-size:0.7rem"><span class="dot ${groupOnlineSum > 0 ? 'ok' : ''}"></span>ออนไลน์ ${groupOnlineSum}/${groupTotalSum}</span>
+                  </div>
+                  <span class="muted" style="font-size:0.73rem">คลิกกลุ่มเพื่อเปิดดู · ลากการ์ดเครื่องมาวางบนกลุ่มได้เลย</span>
+                </div>
+                <div class="folder-grid">
+                  ${groupNames.map((g, idx) => renderGroupFolderCard(g, idx)).join('')}
+                </div>
+              </div>
+              ${ungroupedItems.length > 0 ? `
+                <div class="group-section" ondragover="onGroupDragOver(event)" ondragleave="onGroupDragLeave(event)" ondrop="onGroupDrop(event,'__ungrouped__')">
                   <div class="group-section-head">
                     <div class="group-section-title">
-                      <span>${b.real ? '📁' : '📌'} ${esc(b.name)}</span>
-                      <span class="badge" style="padding:2px 8px;font-size:0.7rem">${b.items.filter(x => x.online).length}/${b.items.length} ออนไลน์</span>
+                      <span>📌 ยังไม่จัดกลุ่ม</span>
+                      <span class="badge" style="padding:2px 8px;font-size:0.7rem"><span class="dot ${ungroupedOnline > 0 ? 'ok' : ''}"></span>${ungroupedOnline}/${ungroupedItems.length} ออนไลน์</span>
                     </div>
-                    ${b.real ? `
-                      <div class="group-section-actions">
-                        <button type="button" class="secondary" style="padding:3px 8px;font-size:0.72rem" onclick="peerRenameGroup(${jsArg(b.name)})" title="เปลี่ยนชื่อกลุ่มนี้">✏️ เปลี่ยนชื่อ</button>
-                        <button type="button" class="secondary" style="padding:3px 8px;font-size:0.72rem;color:var(--danger)" onclick="peerDissolveGroup(${jsArg(b.name)})" title="ยุบกลุ่มนี้ (ไม่ลบเครื่อง)">✕ ยุบกลุ่ม</button>
-                      </div>` : ''}
+                    <span class="muted" style="font-size:0.73rem">ลากการ์ดด้านล่างไปวางบนกลุ่มด้านบนเพื่อจัดกลุ่มได้ทันที</span>
                   </div>
-                  <div class="saved-grid">${b.items.map(renderSavedCard).join('')}</div>
-                </div>`).join('')}
+                  <div class="saved-grid">${ungroupedItems.map(renderSavedCard).join('')}</div>
+                </div>` : ''}
             </div>`;
         } else {
           tabContentHTML = `
             ${groupBarHTML}
+            ${breadcrumbHTML}
             <div class="saved-grid">
               ${filteredSaved.map(renderSavedCard).join('')}
             </div>`;
@@ -4127,6 +4991,14 @@
     }
 
     window.openRemoteScreen = (agentId, name, preferH264 = false, isReconnect = false) => {
+      if (!isViewerWindow && !isReconnect) {
+        openRemoteSessionTab(agentId, name, preferH264);
+        return;
+      }
+      launchDirectRemoteScreen(agentId, name, preferH264, isReconnect);
+    };
+
+    function launchDirectRemoteScreen(agentId, name, preferH264 = false, isReconnect = false) {
       if (screenReconnectTimer) { clearTimeout(screenReconnectTimer); screenReconnectTimer = null; }
       teardownScreenStream();
       screenManualClose = false;
@@ -4134,6 +5006,7 @@
         screenReconnectAttempts = 0;
       }
       activeScreenTarget = { agentId, name, preferH264 };
+      notifyParentTab({ type: 'apn_tab_status', state: 'connecting', meta: isReconnect ? 'เชื่อมใหม่' : '' });
       resetRemoteCanvas(isReconnect ? `🔄 กำลังเชื่อมต่อหน้าจอ ${name || agentId} ใหม่...` : `⏳ กำลังเชื่อมต่อหน้าจอ ${name || agentId}...`, false);
       const modal = document.getElementById('screenModal');
       const notice = document.getElementById('screenNotice');
@@ -4222,6 +5095,10 @@
           }
           const extra = [screenRTT !== null ? `${Math.round(screenRTTAvg)} ms` : '', screenPath(agentId).short].filter(Boolean);
           if (extra.length) meta.textContent += ' · ' + extra.join(' · ');
+          const shortMeta = screenFrames > 0
+            ? `${screenFrames} FPS${screenRTT !== null ? ` · ${Math.round(screenRTTAvg)}ms` : ''}`
+            : (screenRTT !== null ? `${Math.round(screenRTTAvg)}ms` : '');
+          notifyParentTab({ type: 'apn_tab_status', state: 'live', meta: shortMeta });
         }
         if (screenWS && screenWS.readyState === WebSocket.OPEN) {
           sendInput({ type: 'ping', t: performance.now() });
@@ -4243,6 +5120,7 @@
             document.getElementById('chkControl').disabled = !screenAllowInput;
             syncCanvasCursor();
             document.getElementById('screenMeta').textContent = `เชื่อมต่อสำเร็จ (${msg.width}×${msg.height})`;
+            notifyParentTab({ type: 'apn_tab_status', state: 'live', meta: '' });
             canvas.focus();
             syncLocalClipboardToRemote(true);
           } else if (msg.type === 'clipboard_changed') {
@@ -4286,6 +5164,7 @@
             }
           } else if (msg.type === 'error') {
             document.getElementById('screenMeta').textContent = '⚠ ไม่สามารถจับภาพหน้าจอได้';
+            notifyParentTab({ type: 'apn_tab_status', state: 'error', meta: 'Error' });
             notice.textContent = `ข้อผิดพลาด: ${msg.error}`;
             notice.style.display = 'block';
             if (screenTotalFrames === 0) {
@@ -4448,7 +5327,11 @@
       };
     };
 
-    window.closeScreenModal = () => {
+    window.closeScreenModal = (fromParent = false) => {
+      if (isEmbeddedViewer && !fromParent) {
+        notifyParentTab({ type: 'apn_tab_close' });
+        return;
+      }
       toggleRemoteSettingsPop(false);
       screenManualClose = true;
       activeScreenTarget = null;
@@ -4458,6 +5341,9 @@
       videoCanvas.classList.remove('hide-local-cursor');
       resetRemoteCanvas('⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...', false);
       document.getElementById('screenModal').classList.remove('open');
+      if (isViewerWindow && !isEmbeddedViewer) {
+        try { window.close(); } catch {}
+      }
     };
 
     function sendInput(ev) {
@@ -5969,6 +6855,101 @@
         poll(true);
       } catch (err) { showToast('⚠ ' + err.message); }
     };
+
+    // ---- Drag & Drop Device Grouping ----
+    let draggingDeviceId = '';
+    let draggingDeviceName = '';
+    let draggingDeviceGroup = '';
+
+    async function assignDeviceGroup(deviceId, deviceName, targetGroup) {
+      const g = (targetGroup || '').trim();
+      try {
+        await api(`/api/peer/saved/${encodeURIComponent(deviceId)}/group`, {
+          method: 'POST',
+          body: JSON.stringify({ group: g })
+        });
+        showToast(g ? `📁 ย้าย "${deviceName || fmtDevID(deviceId)}" ไปกลุ่ม "${g}" แล้ว` : `✓ นำ "${deviceName || fmtDevID(deviceId)}" ออกจากกลุ่มแล้ว`);
+        poll(true);
+      } catch (err) {
+        showToast('⚠ ' + err.message);
+      }
+    }
+
+    window.onPeerDragStart = (e, deviceId, name, currentGroup = '') => {
+      closeCardMenus();
+      draggingDeviceId = deviceId;
+      draggingDeviceName = name || fmtDevID(deviceId);
+      draggingDeviceGroup = (currentGroup || '').trim();
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', deviceId);
+      } catch {}
+      const ungZone = document.getElementById('dropUngroupZone');
+      if (ungZone) ungZone.style.display = draggingDeviceGroup ? 'flex' : 'none';
+      const card = e.currentTarget;
+      setTimeout(() => {
+        if (!draggingDeviceId) return;
+        document.body.classList.add('is-dragging-peer');
+        card?.classList.add('is-dragging');
+      }, 0);
+    };
+
+    window.onPeerDragEnd = () => {
+      draggingDeviceId = '';
+      draggingDeviceName = '';
+      draggingDeviceGroup = '';
+      document.body.classList.remove('is-dragging-peer');
+      document.querySelectorAll('.is-dragging').forEach(el => el.classList.remove('is-dragging'));
+      document.querySelectorAll('.drop-active').forEach(el => el.classList.remove('drop-active'));
+    };
+
+    window.onGroupDragOver = (e) => {
+      if (!draggingDeviceId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { e.dataTransfer.dropEffect = 'move'; } catch {}
+      e.currentTarget.classList.add('drop-active');
+    };
+
+    window.onGroupDragLeave = (e) => {
+      if (!e.currentTarget.contains(e.relatedTarget)) {
+        e.currentTarget.classList.remove('drop-active');
+      }
+    };
+
+    window.onGroupDrop = async (e, targetGroup) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.classList.remove('drop-active');
+      const devId = draggingDeviceId || (() => { try { return e.dataTransfer.getData('text/plain'); } catch { return ''; } })();
+      const devName = draggingDeviceName;
+      const curGroup = draggingDeviceGroup;
+      onPeerDragEnd();
+      if (!devId) return;
+
+      if (targetGroup === '__new__') {
+        const next = await apnPrompt({
+          icon: '📁',
+          title: 'สร้างกลุ่มใหม่',
+          message: `ตั้งชื่อกลุ่มใหม่สำหรับ "${devName || fmtDevID(devId)}"`,
+          placeholder: 'เช่น Server หลัก, ออฟฟิศ, เครื่องลูกค้า...',
+          okText: 'สร้างกลุ่มและย้าย'
+        });
+        if (!next || !next.trim()) return;
+        await assignDeviceGroup(devId, devName, next.trim());
+        return;
+      }
+
+      if (targetGroup === '__ungrouped__') {
+        if (!curGroup) return;
+        await assignDeviceGroup(devId, devName, '');
+        return;
+      }
+
+      const nextGroup = (targetGroup || '').trim();
+      if (!nextGroup || nextGroup === curGroup) return;
+      await assignDeviceGroup(devId, devName, nextGroup);
+    };
     window.peerRefreshSaved = async () => {
       showToast('↻ กำลังเช็กสถานะออนไลน์...');
       try {
@@ -6128,13 +7109,17 @@
     };
 
     async function poll(force = false) {
+      if (isViewerWindow) return;
       if (!force) {
+        if (activeSessionTab !== 'home') {
+          return;
+        }
         const activeTag = document.activeElement?.tagName;
         if ((lastMode === 'client' || lastMode === 'portal_login' || lastMode === 'peer') &&
             (activeTag === 'INPUT' || activeTag === 'SELECT')) {
           return;
         }
-        if (isPeerConnecting || document.querySelector('.card-menu-pop.open')) {
+        if (isPeerConnecting || draggingDeviceId || document.querySelector('.card-menu-pop.open')) {
           return;
         }
         if (document.getElementById('apnAuthBackdrop')?.classList.contains('open') ||
@@ -6176,6 +7161,7 @@
         document.body.classList.toggle('peer-desktop', isPeer);
         const btnSet = document.getElementById('btnSettings');
         if (btnSet) btnSet.style.display = isPeer ? 'inline-flex' : 'none';
+        renderSessionBar();
         if (res.mode === 'server') renderServer(res.data);
         else if (res.mode === 'agent') renderAgent(res.data);
         else if (res.mode === 'client') renderClient(res.data);
@@ -6356,12 +7342,32 @@
         aprRender();
       } catch (_) {}
     };
-    setInterval(aprPoll, 1000);
-    aprPoll();
-
     initTheme();
-    poll();
-    setInterval(poll, 2500);
+    if (isViewerWindow) {
+      document.body.classList.add('viewer-only');
+      const popBtn = document.getElementById('btnViewerPopout');
+      const redockBtn = document.getElementById('btnViewerRedock');
+      if (popBtn) popBtn.style.display = isEmbeddedViewer ? 'inline-flex' : 'none';
+      if (redockBtn) redockBtn.style.display = (!isEmbeddedViewer && window.opener && !window.opener.closed) ? 'inline-flex' : 'none';
+      document.title = `APN — ${viewerNameParam || viewerPeerParam || 'Remote Desktop'}`;
+      api('/api/status').then(res => {
+        lastMode = res.mode || 'peer';
+        if (res.version) appVersion = res.version;
+        if (res.mode === 'peer' && res.data) lastPeerData = res.data;
+      }).catch(() => {
+        lastMode = 'peer';
+      }).finally(() => {
+        if (viewerPeerParam) {
+          launchDirectRemoteScreen(viewerPeerParam, viewerNameParam || viewerPeerParam, viewerH264Param, false);
+        }
+      });
+    } else {
+      setInterval(aprPoll, 1000);
+      aprPoll();
+      renderSessionBar();
+      poll();
+      setInterval(poll, 2500);
+    }
   </script>
 </body>
 </html>

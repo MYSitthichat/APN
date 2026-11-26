@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -184,14 +185,28 @@ func parseAddrAttr(val []byte, xor bool, txID [12]byte) (string, bool) {
 }
 
 // IsSlowOverlayIP reports whether ip belongs to a tunneled/overlay address range
-// that degrades P2P streaming performance (APN's own 10.99/16 VPN subnet, Windows Teredo
-// 2001:0000::/32 public relays, 6to4 2002::/16 relays, or IPv6 ULA fc00::/7 virtual NICs).
+// that degrades P2P streaming performance (APN's own 10.99/16 VPN subnet, Radmin VPN 26.0.0.0/8,
+// Hamachi 25.0.0.0/8, Tailscale/CGNAT overlay 100.64.0.0/10, Windows Teredo 2001:0000::/32,
+// 6to4 2002::/16, or IPv6 ULA fc00::/7 virtual NICs).
 func IsSlowOverlayIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
 	if ip4 := ip.To4(); ip4 != nil {
-		return ip4[0] == 10 && ip4[1] == 99
+		// APN's own Built-in L3 VPN subnet
+		if ip4[0] == 10 && ip4[1] == 99 {
+			return true
+		}
+		// Radmin VPN (26.0.0.0/8) & LogMeIn Hamachi (25.0.0.0/8): double-tunneled virtual VPNs
+		// whose relay servers / smaller MTU cause severe remote-desktop stutter if auto-selected.
+		if ip4[0] == 26 || ip4[0] == 25 {
+			return true
+		}
+		// Tailscale / Headscale / NetBird / CGNAT overlay (100.64.0.0/10)
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			return true
+		}
+		return false
 	}
 	ip16 := ip.To16()
 	if len(ip16) != net.IPv6len {
@@ -212,9 +227,38 @@ func IsSlowOverlayIP(ip net.IP) bool {
 	return false
 }
 
+// isVirtualVPNInterface reports whether a local network interface name belongs to a
+// third-party or virtual VPN/tunnel adapter (Radmin VPN, ZeroTier, Tailscale, Hamachi,
+// WireGuard, OpenVPN, Wintun, Cloudflare WARP, etc.) that should be excluded from
+// automatic LAN discovery broadcasts and candidate UDP advertisement.
+func isVirtualVPNInterface(name string) bool {
+	low := strings.ToLower(strings.TrimSpace(name))
+	if low == "" {
+		return false
+	}
+	for _, kw := range []string{
+		"radmin", "hamachi", "zerotier", "tailscale",
+		"wireguard", "wintun", "openvpn", "tap-windows",
+		"nordlynx", "cloudflarewarp", "warp", "apn-vpn", "relayvpn",
+	} {
+		if strings.Contains(low, kw) {
+			return true
+		}
+	}
+	for _, pfx := range []string{"zt", "wg", "utun", "tun", "tap", "tailscale"} {
+		if strings.HasPrefix(low, pfx) && len(low) > len(pfx) {
+			next := low[len(pfx)]
+			if next >= '0' && next <= '9' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // LocalLANIPs returns usable non-loopback local IPv4 (and native global IPv6) addresses on this device,
-// excluding RelayVPN's own 10.99.0.0/16 subnet and slow IPv6 relays (Teredo/6to4/ULA),
-// and prioritizing physical LANs ahead of virtual adapters.
+// excluding virtual VPN adapters and slow overlay subnets (APN 10.99.x, Radmin 26.x, Hamachi 25.x,
+// Tailscale 100.64.x, Teredo/6to4/ULA), and prioritizing physical LANs.
 func LocalLANIPs() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -223,6 +267,9 @@ func LocalLANIPs() []string {
 	var primaryV4, secondaryV4, v6 []string
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if isVirtualVPNInterface(iface.Name) {
 			continue
 		}
 		addrs, err := iface.Addrs()
@@ -238,8 +285,8 @@ func LocalLANIPs() []string {
 				continue
 			}
 			if ip4 := ipNet.IP.To4(); ip4 != nil {
-				// Prefer physical private LAN subnets (192.168.x.x / 10.x.x.x) ahead of virtual VPNs (26.x / 172.x)
-				if ip4[0] == 192 && ip4[1] == 168 || ip4[0] == 10 {
+				// Prefer physical private LAN subnets (192.168.x.x / 10.x.x.x) first
+				if (ip4[0] == 192 && ip4[1] == 168) || ip4[0] == 10 {
 					primaryV4 = append(primaryV4, ip4.String())
 				} else {
 					secondaryV4 = append(secondaryV4, ip4.String())

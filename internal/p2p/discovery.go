@@ -99,8 +99,10 @@ func (d *lanDiscovery) listenLoop(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		// Never learn a peer via RelayVPN's own 10.99.x.x virtual LAN!
-		if ip := net.ParseIP(host).To4(); ip != nil && ip[0] == 10 && ip[1] == 99 {
+		// Never learn a peer via APN's own 10.99.x.x VPN or third-party overlay VPNs
+		// (Radmin 26.x, Hamachi 25.x, Tailscale 100.64.x, etc.) so slow double-tunneled
+		// VPN routes never hijack real LAN / direct QUIC / Cloudflare 443 connections!
+		if IsSlowOverlayIP(net.ParseIP(host)) {
 			continue
 		}
 		dp := DiscoveredPeer{
@@ -149,8 +151,8 @@ func (d *lanDiscovery) broadcastLoop(ctx context.Context) {
 
 	sendAll := func() {
 		targets := ifaceBroadcastTargets()
-		// Bind a socket to EACH active local IPv4 address so Windows actually emits
-		// broadcast packets out of EVERY interface (Wi-Fi, Ethernet, Radmin, etc.).
+		// Bind a socket to EACH active physical LAN IPv4 address so Windows emits
+		// broadcast packets out of Wi-Fi / Ethernet without leaking onto virtual VPN adapters.
 		for _, t := range targets {
 			conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: t.localIP, Port: 0})
 			if err != nil {
@@ -197,6 +199,9 @@ func ifaceBroadcastTargets() []bcastTarget {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
+		if isVirtualVPNInterface(iface.Name) {
+			continue
+		}
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
@@ -207,7 +212,7 @@ func ifaceBroadcastTargets() []bcastTarget {
 				continue
 			}
 			ip4 := ipNet.IP.To4()
-			if ip4 == nil || ip4.IsLoopback() || ip4.IsLinkLocalUnicast() || (ip4[0] == 10 && ip4[1] == 99) {
+			if ip4 == nil || ip4.IsLoopback() || ip4.IsLinkLocalUnicast() || IsSlowOverlayIP(ip4) {
 				continue
 			}
 			mask := ipNet.Mask

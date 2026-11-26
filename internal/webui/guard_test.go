@@ -88,7 +88,7 @@ func TestLocalGuardHeadersAndSelfCaller(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("own account refused: %d", resp.StatusCode)
 	}
-	if resp.Header.Get("X-Frame-Options") != "DENY" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+	if resp.Header.Get("X-Frame-Options") != "SAMEORIGIN" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'self'") {
 		t.Fatalf("missing anti-framing headers: %v", resp.Header)
 	}
 }
