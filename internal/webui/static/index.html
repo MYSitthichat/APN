@@ -4382,15 +4382,33 @@
     let screenBlackSince = 0;    // performance.now() when the shown picture became all black (0 = not black)
     let blackSampler = null;     // small canvas used to check whether the picture is all black
     let webCodecsHEVCSupported = false;
+    let hevcCodecPrefix = 'hvc1';
     const hevcPreviouslyBroken = (() => { try { return sessionStorage.getItem('apn_hevc_broken') === '1'; } catch { return false; } })();
     const webCodecsHEVCReady = (!hevcPreviouslyBroken && 'VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function')
       ? VideoDecoder.isConfigSupported({
-          codec: 'hvc1.1.6.L120.90',
+          codec: 'hvc1.1.6.L123.90',
           codedWidth: 1920,
           codedHeight: 1080,
           optimizeForLatency: true
-        }).then(r => { webCodecsHEVCSupported = !!(r && r.supported); }).catch(() => {})
+        }).then(async (r) => {
+          if (r && r.supported) {
+            webCodecsHEVCSupported = true;
+            hevcCodecPrefix = 'hvc1';
+            return;
+          }
+          const r2 = await VideoDecoder.isConfigSupported({
+            codec: 'hev1.1.6.L123.90',
+            codedWidth: 1920,
+            codedHeight: 1080,
+            optimizeForLatency: true
+          }).catch(() => null);
+          if (r2 && r2.supported) {
+            webCodecsHEVCSupported = true;
+            hevcCodecPrefix = 'hev1';
+          }
+        }).catch(() => {})
       : Promise.resolve();
+    let screenNoticePinnedUntil = 0;
 
     // Ping/Pong dead-stream watchdog & Adaptive Bitrate (ABR) state
     let screenLastActivityAt = 0;
@@ -4423,12 +4441,12 @@
       const now = performance.now();
       const congested =
         (hs.dropped || 0) >= 2 ||
-        ((hs.max_write_ms || 0) >= 85 && (hs.queue || 0) >= 3) ||
-        (screenRTTAvg !== null && screenRTTAvg >= 180 && (hs.max_write_ms || 0) >= 60);
+        ((hs.stall_ms || 0) >= 85 && (hs.queue_max || 0) >= 3) ||
+        (screenRTTAvg !== null && screenRTTAvg >= 180 && (hs.stall_ms || 0) >= 60);
       const healthy =
         (hs.dropped || 0) === 0 &&
-        (hs.max_write_ms || 0) < 25 &&
-        (hs.queue || 0) <= 1 &&
+        (hs.stall_ms || 0) < 25 &&
+        (hs.queue_max || 0) <= 1 &&
         (screenRTTAvg === null || screenRTTAvg < 90);
 
       if (congested) {
@@ -4791,6 +4809,24 @@
       if (activeScreenTarget) renderScreenStats(activeScreenTarget.agentId, null, null);
     };
 
+    window.copyCaptureCheck = () => {
+      if (!captureCheck) return;
+      const rs = captureCheck.results || [];
+      const okN = rs.filter(r => r.ok).length;
+      const head = captureCheck.done
+        ? `ผลตรวจระบบจับภาพ: ใช้ได้ ${okN}/${rs.length}`
+        : `กำลังตรวจระบบจับภาพ… (${rs.length})`;
+      const lines = rs.map(r => {
+        const codec = r.codec === 'hevc' ? 'H.265' : 'H.264';
+        return r.ok
+          ? `✅ ${codec} · ${r.name} — ${(r.ms / 1000).toFixed(1)} วิ`
+          : `❌ ${codec} · ${r.name} — ${r.reason || 'ใช้ไม่ได้'}`;
+      });
+      copyText([head, ...lines].join('\n'), 'คัดลอกผลตรวจระบบจับภาพแล้ว');
+    };
+
+    let lastCaptureCheckSig = '';
+
     // captureCheckRows lists the host's capture self-check: every capture method and encoder tried,
     // with the time to the first frame or the reason it failed.
     function captureCheckRows() {
@@ -4806,12 +4842,36 @@
           ? `<div>✅ ${codec} · ${esc(r.name)} — ${(r.ms / 1000).toFixed(1)} วิ</div>`
           : `<div class="bad">❌ ${codec} · ${esc(r.name)} — ${esc(r.reason || 'ใช้ไม่ได้')}</div>`;
       }).join('');
-      return `<div class="ss-check"><div class="ss-k">${esc(head)}</div>${lines}</div>`;
+      return `
+        <div class="ss-check" style="user-select:text;-webkit-user-select:text;cursor:text">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
+            <span class="ss-k">${esc(head)}</span>
+            ${rs.length > 0 ? `<button type="button" class="secondary" style="padding:2px 7px;font-size:0.69rem;flex-shrink:0" onclick="copyCaptureCheck()">📋 คัดลอก</button>` : ''}
+          </div>
+          ${lines}
+        </div>`;
+    }
+
+    function hasSelectionInside(node) {
+      if (!node) return false;
+      const sel = window.getSelection?.();
+      if (!sel || sel.isCollapsed) return false;
+      return (sel.anchorNode && node.contains(sel.anchorNode)) || (sel.focusNode && node.contains(sel.focusNode));
     }
 
     function renderScreenStats(agentId, rendered, bytesSec) {
       const el = document.getElementById('screenStats');
       if (!el || !el.classList.contains('open')) return;
+      // Ensure persistent 2-zone structure so 1s live stat updates NEVER reset scroll or text selection in the capture-check box!
+      let liveBox = document.getElementById('screenStatsLive');
+      let checkBox = document.getElementById('screenStatsCheck');
+      if (!liveBox || !checkBox) {
+        el.innerHTML = `<div id="screenStatsLive" style="user-select:text;-webkit-user-select:text"></div><div id="screenStatsCheck"></div>`;
+        liveBox = document.getElementById('screenStatsLive');
+        checkBox = document.getElementById('screenStatsCheck');
+        lastCaptureCheckSig = '';
+      }
+
       const codec = document.getElementById('selCodec').value;
       const video = codec === 'h264' || codec === 'hevc';
       const path = screenPath(agentId);
@@ -4833,21 +4893,32 @@
       if (pictureIsBlack()) { if (!screenBlackSince) screenBlackSince = performance.now(); }
       else screenBlackSince = 0;
       const d = diagnoseScreen(hs, path, rendered, video);
-      el.innerHTML = `
-        <div class="ss-head"><span>📊 สถิติการเชื่อมต่อ</span><span style="display:flex;gap:6px"><button class="secondary" onclick="startCaptureCheck()" ${captureCheck && !captureCheck.done ? 'disabled' : ''} title="ลองทุกวิธีจับภาพและตัวเข้ารหัสบนเครื่องปลายทาง แล้วแสดงว่าอันไหนใช้ได้และทำไม (ใช้เวลาไม่เกินราว 1 นาที)">🔎 ตรวจระบบจับภาพ</button><button class="secondary" onclick="toggleScreenStats(false)">✕</button></span></div>
-        ${row('เส้นทาง', esc(path.long))}
-        ${row('RTT', rtt)}
-        ${row('ต้นทาง', esc(hostLine))}
-        ${hs ? row('โหลดปลายทาง', esc(hostLoadText(hs) || 'ไม่มีข้อมูล (วัดไม่ได้บนเครื่องนี้)')) : ''}
-        ${row('เครือข่าย', esc(netLine))}
-        ${row('เครื่องนี้', esc(viewLine) + (video ? ` · ถอดรหัส ${decodeMs}` : ''))}
-        ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}
-        ${row('เคอร์เซอร์', esc(cursorLine))}
-        ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
-        ${fallbackRows(hs)}
-        ${screenHintRow(hs)}
-        <div class="ss-hint ${d.cls}">${esc(d.text)}</div>
-        ${captureCheckRows()}`;
+
+      if (!hasSelectionInside(liveBox)) {
+        liveBox.innerHTML = `
+          <div class="ss-head"><span>📊 สถิติการเชื่อมต่อ</span><span style="display:flex;gap:6px"><button class="secondary" onclick="startCaptureCheck()" ${captureCheck && !captureCheck.done ? 'disabled' : ''} title="ลองทุกวิธีจับภาพและตัวเข้ารหัสบนเครื่องปลายทาง แล้วแสดงว่าอันไหนใช้ได้และทำไม (ใช้เวลาไม่เกินราว 1 นาที)">🔎 ตรวจระบบจับภาพ</button><button class="secondary" onclick="toggleScreenStats(false)">✕</button></span></div>
+          ${row('เส้นทาง', esc(path.long))}
+          ${row('RTT', rtt)}
+          ${row('ต้นทาง', esc(hostLine))}
+          ${hs ? row('โหลดปลายทาง', esc(hostLoadText(hs) || 'ไม่มีข้อมูล (วัดไม่ได้บนเครื่องนี้)')) : ''}
+          ${row('เครือข่าย', esc(netLine))}
+          ${row('เครื่องนี้', esc(viewLine) + (video ? ` · ถอดรหัส ${decodeMs}` : ''))}
+          ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}
+          ${row('เคอร์เซอร์', esc(cursorLine))}
+          ${row('Encoder', esc(hs?.encoder || screenEncoderLabel))}
+          ${fallbackRows(hs)}
+          ${screenHintRow(hs)}
+          <div class="ss-hint ${d.cls}">${esc(d.text)}</div>`;
+      }
+
+      const checkSig = captureCheck ? `${captureCheck.done ? 1 : 0}:${(captureCheck.results || []).length}` : '';
+      if (checkSig !== lastCaptureCheckSig) {
+        const prevScroll = checkBox.querySelector('.ss-check')?.scrollTop || 0;
+        checkBox.innerHTML = captureCheckRows();
+        const nextBox = checkBox.querySelector('.ss-check');
+        if (nextBox && prevScroll > 0) nextBox.scrollTop = prevScroll;
+        lastCaptureCheckSig = checkSig;
+      }
     }
 
     function clearVideoFrameQueue() {
@@ -4983,11 +5054,55 @@
       return 'avc1.42E033'; // Constrained Baseline Level 5.1 (supports 1080p60 & 4K)
     }
 
+    function extractHEVCCodec(nal, prefix = hevcCodecPrefix) {
+      // Parse actual profile_tier_level from Annex-B HEVC SPS (nalType 33) so 1080p60 (L123 / Level 4.1)
+      // and 1440p/4K (L150/L153) from hevc_nvenc never fail a hardcoded L120 (Level 4.0) decoder config!
+      for (let i = 0; i + 18 < nal.length; i++) {
+        if (nal[i] === 0 && nal[i + 1] === 0) {
+          let start = -1;
+          if (nal[i + 2] === 1) start = i + 3;
+          else if (nal[i + 2] === 0 && nal[i + 3] === 1) start = i + 4;
+          if (start >= 0 && start + 15 < nal.length && ((nal[start] >> 1) & 0x3F) === 33) {
+            // Unescape RBSP emulation-prevention bytes (00 00 03 -> 00 00) for first 16 bytes after 2-byte NAL header
+            const rbsp = [];
+            for (let j = start + 2; j < nal.length && rbsp.length < 16; j++) {
+              if (j + 2 < nal.length && nal[j] === 0 && nal[j + 1] === 0 && nal[j + 2] === 3) {
+                rbsp.push(0, 0);
+                j += 2;
+                continue;
+              }
+              rbsp.push(nal[j]);
+            }
+            if (rbsp.length >= 13) {
+              // rbsp[0] = vps_id(4)|max_sub_layers(3)|temporal_nesting(1); rbsp[1..12] = profile_tier_level
+              const p0 = rbsp[1];
+              const profileIdc = p0 & 0x1F;
+              const tier = (p0 & 0x20) ? 'H' : 'L';
+              // Bit-reverse general_profile_compatibility_flags (32-bit big-endian in rbsp[2..5]) per ISO 14496-15
+              let compat = ((rbsp[2] << 24) | (rbsp[3] << 16) | (rbsp[4] << 8) | rbsp[5]) >>> 0;
+              let rev = 0;
+              for (let b = 0; b < 32; b++) {
+                rev = ((rev << 1) | (compat & 1)) >>> 0;
+                compat >>>= 1;
+              }
+              const compatHex = (rev >>> 0).toString(16).toUpperCase();
+              const levelIdc = rbsp[12];
+              const constr = rbsp[6].toString(16).padStart(2, '0').toUpperCase();
+              if (profileIdc > 0 && levelIdc >= 30) {
+                return `${prefix}.${profileIdc}.${compatHex}.${tier}${levelIdc}.${constr}`;
+              }
+            }
+          }
+        }
+      }
+      return `${prefix}.1.6.L153.90`; // Main Profile Level 5.1 fallback (covers 1080p60 & 4K60)
+    }
+
     function ensureH264Decoder(nal, w, h, kind = 'h264') {
       if (!('VideoDecoder' in window)) return false;
       if (h264Decoder && h264Configured && h264DecoderKind === kind) return true;
       resetH264Decoder();
-      const codecStr = kind === 'hevc' ? 'hvc1.1.6.L120.90' : extractAVC1Codec(nal);
+      const codecStr = kind === 'hevc' ? extractHEVCCodec(nal) : extractAVC1Codec(nal);
       try {
         h264Decoder = new VideoDecoder({
           output: (frame) => {
@@ -5010,16 +5125,25 @@
           error: (err) => {
             h264Errors++;
             resetH264Decoder();
+            if (kind === 'hevc' && h264Errors === 1) {
+              // Retry once with alternate HEVC prefix (hvc1 <-> hev1) and no-preference before stepping down!
+              hevcCodecPrefix = hevcCodecPrefix === 'hvc1' ? 'hev1' : 'hvc1';
+              h264HwAccel = 'no-preference';
+              sendInput({ type: 'keyframe' });
+              return;
+            }
             if (kind === 'hevc' && h264Errors >= 2) {
               // Chromium/Edge has no software HEVC decoder — remember for this browser session and
-              // step down to 60 FPS H.264 right away so future tabs start fast without stalling.
+              // step down to 60 FPS H.264 right away, keeping the exact error visible for 8 seconds!
               webCodecsHEVCSupported = false;
               try { sessionStorage.setItem('apn_hevc_broken', '1'); } catch {}
               h264Errors = 0;
               h264HwAccel = 'prefer-hardware';
+              const reason = err?.message ? ` (${err.message})` : '';
               const notice = document.getElementById('screenNotice');
-              notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้ — สลับเป็น H.264 60 FPS อัตโนมัติ`;
+              notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้${reason} — สลับเป็น H.264 60 FPS อัตโนมัติ`;
               notice.style.display = 'block';
+              screenNoticePinnedUntil = performance.now() + 8000;
               document.getElementById('selCodec').value = 'h264';
               document.getElementById('selFPS').value = '60';
               sendScreenConfig(true);
@@ -5263,10 +5387,11 @@
               }
             }
             // Only show the notice banner for warnings/fallbacks; normal GPU H.265/H.264 info is shown cleanly in the top badge.
+            // Preserve recent error/fallback notices briefly so the user sees why a step-down happened.
             if (msg.notice && msg.codec !== 'h264' && msg.codec !== 'hevc') {
               notice.textContent = msg.notice;
               notice.style.display = 'block';
-            } else {
+            } else if (performance.now() >= screenNoticePinnedUntil) {
               notice.style.display = 'none';
             }
           } else if (msg.type === 'error') {
@@ -5471,6 +5596,10 @@
       const nextQ = parseInt(document.getElementById('selQuality').value, 10) || 82;
       if (!isAuto) {
         resetABRState(nextQ);
+        if (nextCodec === 'hevc') {
+          try { sessionStorage.removeItem('apn_hevc_broken'); } catch {}
+          hevcCodecPrefix = 'hvc1';
+        }
       }
       h264Errors = 0;
       h264HwAccel = 'prefer-hardware';
@@ -5500,12 +5629,14 @@
             if (curC === 'hevc') {
               notice.textContent = 'ยังไม่ได้รับภาพ H.265 หลังสลับโหมด — สลับกลับเป็น H.264 60 FPS อัตโนมัติ';
               notice.style.display = 'block';
+              screenNoticePinnedUntil = performance.now() + 8000;
               document.getElementById('selCodec').value = 'h264';
               document.getElementById('selFPS').value = '60';
               sendScreenConfig(true);
             } else if (curC === 'h264') {
               notice.textContent = 'ยังไม่ได้รับภาพ H.264 หลังสลับโหมด — สลับกลับเป็น Smart JPEG อัตโนมัติ';
               notice.style.display = 'block';
+              screenNoticePinnedUntil = performance.now() + 8000;
               document.getElementById('selCodec').value = 'tiles';
               document.getElementById('selFPS').value = '24';
               sendScreenConfig(true);
