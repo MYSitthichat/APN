@@ -5140,10 +5140,13 @@
               h264Errors = 0;
               h264HwAccel = 'prefer-hardware';
               const reason = err?.message ? ` (${err.message})` : '';
+              const hint = /unsupported configuration/i.test(err?.message || '')
+                ? ' — ลองปิดแล้วเปิดหน้าต่าง APN ใหม่เพื่อรีเซ็ต GPU หรือตรวจ HEVC Video Extensions'
+                : '';
               const notice = document.getElementById('screenNotice');
-              notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้${reason} — สลับเป็น H.264 60 FPS อัตโนมัติ`;
+              notice.textContent = `WebCodecs H.265 (${codecStr}) ถอดรหัสไม่ได้บนเครื่องนี้${reason} — สลับเป็น H.264 60 FPS อัตโนมัติ${hint}`;
               notice.style.display = 'block';
-              screenNoticePinnedUntil = performance.now() + 8000;
+              screenNoticePinnedUntil = performance.now() + 10000;
               document.getElementById('selCodec').value = 'h264';
               document.getElementById('selFPS').value = '60';
               sendScreenConfig(true);

@@ -98,9 +98,35 @@ func raiseAppWindow() bool {
 	return true
 }
 
-// appWindowArgs: a standalone app window that may play the request chime without a prior click.
-func appWindowArgs(url string) []string {
-	return []string{"--app=" + url, "--window-size=1280,800", "--autoplay-policy=no-user-gesture-required"}
+func appProfileDir(env func(string) string) string {
+	if base := strings.TrimSpace(env("LOCALAPPDATA")); base != "" {
+		return filepath.Join(base, "APN", "AppProfile")
+	}
+	if home := strings.TrimSpace(env("USERPROFILE")); home != "" {
+		return filepath.Join(home, "AppData", "Local", "APN", "AppProfile")
+	}
+	return ""
+}
+
+// appWindowArgs launches APN in its own isolated Chromium/Edge app profile with Startup Boost
+// and background mode disabled, so closing APN truly resets its GPU process and personal browser
+// extensions, disabled hardware acceleration, or stale crashed GPU processes never break WebCodecs H.265.
+func appWindowArgs(url string, env func(string) string) []string {
+	args := []string{
+		"--app=" + url,
+		"--window-size=1280,800",
+		"--autoplay-policy=no-user-gesture-required",
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-background-mode",
+		"--disable-features=msEdgeStartupBoost",
+	}
+	if env != nil {
+		if prof := appProfileDir(env); prof != "" {
+			args = append([]string{"--user-data-dir=" + prof}, args...)
+		}
+	}
+	return args
 }
 
 func browserCandidates(env func(string) string) []string {
@@ -140,7 +166,7 @@ func launchAsSessionUser(url string) {
 		if _, err := os.Stat(bin); err != nil {
 			continue
 		}
-		cmd := exec.Command(bin, appWindowArgs(url)...)
+		cmd := exec.Command(bin, appWindowArgs(url, env)...)
 		cmd.Env = envList
 		cmd.Dir = env("USERPROFILE")
 		cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(tok)}

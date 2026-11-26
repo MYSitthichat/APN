@@ -174,7 +174,7 @@ func OpenAppWindow(url string) {
 	for _, bin := range browserCandidates(os.Getenv) {
 		if bin != "" {
 			if _, err := os.Stat(bin); err == nil {
-				cmd := exec.Command(bin, appWindowArgs(url)...)
+				cmd := exec.Command(bin, appWindowArgs(url, os.Getenv)...)
 				if err := cmd.Start(); err == nil {
 					return
 				}

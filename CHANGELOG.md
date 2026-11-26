@@ -4,6 +4,12 @@
 
 ---
 
+## v1.3.30 (2026-11-26)
+- **แก้ปัญหา H.265/HEVC หลุดค้างจาก Edge Startup Boost / โปรเซสเบราว์เซอร์ส่วนตัว (แก้หายขาด):**
+  - แยกโปรไฟล์หน้าต่างแอปเฉพาะของ APN (`--user-data-dir=%LOCALAPPDATA%\APN\AppProfile` บน Windows และ `~/.config/apn/app-profile` บน Linux) พร้อมปิด `--disable-background-mode` และ `--disable-features=msEdgeStartupBoost`
+  - ปิดหน้าต่าง APN = ปิดโปรเซส UI และ GPU process ของ APN จริง 100% ทำให้เปิดใหม่ได้ GPU process สดใหม่โหลดไดรเวอร์ล่าสุดทันที ไม่ติดค้างจาก Edge/Chrome ส่วนตัวหรือส่วนขยาย/การตั้งค่าปิด Hardware Acceleration ของผู้ใช้
+- **ปรับปรุงข้อความแจ้งเตือน WebCodecs H.265:** แสดงคำแนะนำชัดเจนเมื่อตรวจพบ `Unsupported configuration` (ปิด-เปิดหน้าต่าง APN ใหม่เพื่อรีเซ็ต GPU หรือตรวจ HEVC Video Extensions) พร้อมตรึงข้อความ 10 วินาที
+
 ## v1.3.29 (2026-11-26)
 - **แก้ `H.265 NVENC` (60 FPS) เด้งกลับไป H.264:**
   - เพิ่ม `extractHEVCCodec()` อ่านค่า `profile / tier / level` จริงจาก HEVC SPS ของเครื่องปลายทางแบบไดนามิก (รองรับ Level 4.1 `L123` ของ `hevc_nvenc` ที่ 1080p60 จนถึง Level 5.1 `L153` 4K60 แทนการล็อก `L120` ตายตัว) พร้อมลองสลับ `hvc1 ↔ hev1` อัตโนมัติและตรึงข้อความเตือนเหตุผลไว้ 8 วินาที

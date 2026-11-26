@@ -5,6 +5,7 @@ package tray
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 )
 
@@ -28,9 +29,20 @@ func OpenAppWindow(url string) {
 		_ = exec.Command("open", url).Start()
 		return
 	}
+	args := []string{
+		"--app=" + url,
+		"--window-size=1200,840",
+		"--autoplay-policy=no-user-gesture-required",
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-background-mode",
+	}
+	if cfgDir, err := os.UserConfigDir(); err == nil && cfgDir != "" {
+		args = append([]string{"--user-data-dir=" + filepath.Join(cfgDir, "apn", "app-profile")}, args...)
+	}
 	for _, bin := range []string{"google-chrome", "chromium", "chromium-browser", "microsoft-edge"} {
 		if p, err := exec.LookPath(bin); err == nil {
-			if err := exec.Command(p, "--app="+url, "--window-size=1200,840").Start(); err == nil {
+			if err := exec.Command(p, args...).Start(); err == nil {
 				return
 			}
 		}
