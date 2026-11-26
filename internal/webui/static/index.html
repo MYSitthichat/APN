@@ -2745,7 +2745,7 @@
           <input type="checkbox" id="chkClipSync" checked onchange="localStorage.setItem('apn_clip_autosync', this.checked ? '1' : '0')" style="margin:0" /> ซิงค์คลิปบอร์ดอัตโนมัติ (คลิกขวา Copy/Paste ได้)
         </label>
         <label title="ลดบิตเรตชั่วคราวอัตโนมัติเมื่อเน็ตแน่นหรือส่งไม่ทัน แล้วปรับคืนคมชัดเมื่อเน็ตโล่ง">
-          <input type="checkbox" id="chkAutoBitrate" checked onchange="localStorage.setItem('apn_auto_bitrate', this.checked ? '1' : '0')" style="margin:0" /> ปรับบิตเรตอัตโนมัติเมื่อเน็ตแน่น (Auto Bitrate)
+          <input type="checkbox" id="chkAutoBitrate" checked onchange="onAutoBitrateToggle(this)" style="margin:0" /> ปรับบิตเรตอัตโนมัติเมื่อเน็ตแน่น (Auto Bitrate)
         </label>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -4413,79 +4413,127 @@
     // Ping/Pong dead-stream watchdog & Adaptive Bitrate (ABR) state
     let screenLastActivityAt = 0;
     let screenPongSupported = false;
+    // ---- Auto Bitrate ----
+    // Auto Bitrate lowers the quality the host is asked for while the network cannot carry the
+    // picture, and raises it again once it can. It never changes the quality selector: that is the
+    // user's choice, and the level Auto Bitrate returns to.
     const ABR_LADDER = [65, 82, 90, 95];
-    let abrBaseQuality = 82;
-    let abrCongestStreak = 0;
-    let abrHealthyStreak = 0;
+    const ABR_QUALITY_NAMES = { 65: 'ประหยัดเน็ต', 82: 'สมดุลคมชัด', 90: 'เล่นเกม', 95: 'Ultra' };
+    const ABR_HOLD_MIN = 8;    // calm seconds before the first try at a higher step
+    const ABR_HOLD_MAX = 120;  // ...and the most it grows to after tries that failed
+    let abrBaseQuality = 82;   // what the user picked
+    let abrQuality = 82;       // what the host is asked for right now (never above the user's pick)
+    let abrCongestScore = 0;
+    let abrCalmSecs = 0;
+    let abrHoldSecs = ABR_HOLD_MIN;
     let abrLastChangeAt = 0;
+    let abrLastStepUpAt = -Infinity;
 
+    function selectedQuality() { return parseInt(document.getElementById('selQuality')?.value || '82', 10) || 82; }
+    function autoBitrateOn() { return !!document.getElementById('chkAutoBitrate')?.checked; }
+    function qualityLabel(q) { return ABR_QUALITY_NAMES[q] ? `${ABR_QUALITY_NAMES[q]} (Q${q})` : `Q${q}`; }
+
+    // streamQuality is the quality to ask the host for: the user's pick, or less while Auto Bitrate
+    // is holding the stream down.
+    function streamQuality() {
+      const sel = selectedQuality();
+      return autoBitrateOn() ? Math.min(sel, abrQuality) : sel;
+    }
+
+    // resetABRState starts over from the user's pick (new session, or the user changed a setting).
     function resetABRState(baseQ) {
       if (typeof baseQ === 'number' && !isNaN(baseQ)) abrBaseQuality = baseQ;
-      abrCongestStreak = 0;
-      abrHealthyStreak = 0;
+      abrQuality = abrBaseQuality;
+      abrCongestScore = 0;
+      abrCalmSecs = 0;
+      abrHoldSecs = ABR_HOLD_MIN;
+      abrLastChangeAt = performance.now();
+      abrLastStepUpAt = -Infinity;
+    }
+
+    // resumeABRState keeps the current level across an automatic reconnect (the network is most
+    // likely the same) without turning it into the level to return to.
+    function resumeABRState() {
+      abrCongestScore = 0;
+      abrCalmSecs = 0;
       abrLastChangeAt = performance.now();
     }
 
+    // abrJudge classifies one per-second report from the host.
+    // congested: frames were dropped, or frames piled up behind a write that blocked. One slow
+    //   write with a short queue is what every periodic keyframe looks like and is not counted.
+    // calm: nothing waited to speak of. Seconds that are neither do not count either way.
+    function abrJudge(hs) {
+      const fps = hs.target_fps || 60;
+      const dropped = hs.dropped || 0, stall = hs.stall_ms || 0, queue = hs.queue_max || 0;
+      const backlog = stall >= 150 && queue >= Math.max(6, Math.round(fps / 6));
+      return {
+        congested: dropped > 0 || backlog,
+        weight: dropped > 0 ? 2 : 1,
+        calm: dropped === 0 && stall < 60 && queue <= Math.max(3, Math.round(fps / 15)),
+      };
+    }
+
+    function applyABRQuality(q, now, toast) {
+      abrQuality = q;
+      abrCongestScore = 0;
+      abrCalmSecs = 0;
+      abrLastChangeAt = now;
+      showToast(toast);
+      sendScreenConfig(true);
+    }
+
     function evaluateAdaptiveBitrate(hs) {
-      const chk = document.getElementById('chkAutoBitrate');
-      if (!chk || !chk.checked || !hs) return;
-      const selCodec = document.getElementById('selCodec');
-      const selQuality = document.getElementById('selQuality');
-      if (!selCodec || !selQuality) return;
-      const codec = selCodec.value;
+      if (!hs || !autoBitrateOn()) return;
+      const codec = document.getElementById('selCodec')?.value;
       if (codec !== 'h264' && codec !== 'hevc') return;
-      // Ignore idle screens (no real traffic to measure congestion)
+      const baseQ = selectedQuality();
+      if (abrQuality > baseQ) abrQuality = baseQ;
+      // An idle screen sends almost nothing, so it says nothing about the network.
       if ((hs.sent_fps || 0) < 3 && (hs.dropped || 0) === 0) return;
 
-      const curQ = parseInt(selQuality.value, 10) || 82;
       const now = performance.now();
-      const congested =
-        (hs.dropped || 0) >= 2 ||
-        ((hs.stall_ms || 0) >= 85 && (hs.queue_max || 0) >= 3) ||
-        (screenRTTAvg !== null && screenRTTAvg >= 180 && (hs.stall_ms || 0) >= 60);
-      const healthy =
-        (hs.dropped || 0) === 0 &&
-        (hs.stall_ms || 0) < 25 &&
-        (hs.queue_max || 0) <= 1 &&
-        (screenRTTAvg === null || screenRTTAvg < 90);
-
-      if (congested) {
-        abrCongestStreak++;
-        abrHealthyStreak = 0;
-        if (abrCongestStreak >= 4 && now - abrLastChangeAt >= 12000) {
-          const idx = ABR_LADDER.indexOf(curQ);
-          const nextIdx = idx > 0 ? idx - 1 : (curQ > ABR_LADDER[0] ? 0 : -1);
-          if (nextIdx >= 0 && ABR_LADDER[nextIdx] < curQ) {
-            const nextQ = ABR_LADDER[nextIdx];
-            selQuality.value = String(nextQ);
-            abrCongestStreak = 0;
-            abrHealthyStreak = 0;
-            abrLastChangeAt = now;
-            showToast(`📉 เน็ตแน่น — ปรับบิตเรตลงชั่วคราว (Q${nextQ}) เพื่อความลื่น`);
-            sendScreenConfig(true);
-          }
+      const j = abrJudge(hs);
+      if (j.congested) {
+        abrCongestScore += j.weight;
+        abrCalmSecs = 0;
+        const lower = ABR_LADDER.filter((q) => q < abrQuality).pop();
+        // A step up that brought the congestion straight back is undone quickly, and the next try
+        // waits twice as long; otherwise changes are at least 12 s apart.
+        const failedTry = now - abrLastStepUpAt < 30000;
+        if (lower !== undefined && abrCongestScore >= 4 && now - abrLastChangeAt >= (failedTry ? 4000 : 12000)) {
+          abrHoldSecs = failedTry ? Math.min(ABR_HOLD_MAX, abrHoldSecs * 2) : ABR_HOLD_MIN;
+          abrLastStepUpAt = -Infinity;
+          applyABRQuality(lower, now, `📉 เน็ตส่งภาพไม่ทัน — ลดบิตเรตชั่วคราวเป็น ${qualityLabel(lower)}`);
         }
-      } else if (healthy && curQ < abrBaseQuality) {
-        abrHealthyStreak++;
-        abrCongestStreak = 0;
-        if (abrHealthyStreak >= 18 && now - abrLastChangeAt >= 15000) {
-          const curIdx = ABR_LADDER.indexOf(curQ);
-          const baseIdx = ABR_LADDER.indexOf(abrBaseQuality);
-          const nextIdx = curIdx >= 0 && baseIdx > curIdx ? curIdx + 1 : -1;
-          if (nextIdx >= 0) {
-            const nextQ = ABR_LADDER[nextIdx];
-            selQuality.value = String(nextQ);
-            abrCongestStreak = 0;
-            abrHealthyStreak = 0;
-            abrLastChangeAt = now;
-            showToast(`📈 เน็ตโล่งแล้ว — ปรับความคมชัดคืนเป็น Q${nextQ}`);
-            sendScreenConfig(true);
-          }
-        }
-      } else {
-        abrCongestStreak = Math.max(0, abrCongestStreak - 1);
+        return;
+      }
+      abrCongestScore = Math.max(0, abrCongestScore - 1);
+      if (abrQuality >= baseQ) return;
+      if (j.calm) abrCalmSecs++;
+      if (abrCalmSecs >= abrHoldSecs && now - abrLastChangeAt >= 10000) {
+        const higher = ABR_LADDER.find((q) => q > abrQuality);
+        const next = Math.min(baseQ, higher === undefined ? baseQ : higher);
+        abrLastStepUpAt = now;
+        applyABRQuality(next, now, `📈 เน็ตโล่งแล้ว — ปรับความคมชัดคืนเป็น ${qualityLabel(next)}`);
       }
     }
+
+    // abrStatusText is the 📊 panel line saying which quality the stream runs at and why.
+    function abrStatusText() {
+      const sel = selectedQuality();
+      if (!autoBitrateOn()) return `${qualityLabel(sel)} · Auto Bitrate ปิด`;
+      if (abrQuality < sel) return `Auto ลดเหลือ ${qualityLabel(abrQuality)} ชั่วคราว · ตั้งไว้ ${qualityLabel(sel)} · ปรับคืนเมื่อส่งทันครบ ${abrHoldSecs} วินาที`;
+      return `${qualityLabel(sel)} · ตามที่ตั้งไว้`;
+    }
+
+    window.onAutoBitrateToggle = (chk) => {
+      localStorage.setItem('apn_auto_bitrate', chk.checked ? '1' : '0');
+      const wasLowered = abrQuality < selectedQuality();
+      resetABRState(selectedQuality());
+      if (wasLowered && screenWS && screenWS.readyState === WebSocket.OPEN) sendScreenConfig(true);
+    };
+    // ---- end Auto Bitrate ----
 
     function versionAtLeast(ver, minVer) {
       if (!ver) return false;
@@ -4902,6 +4950,7 @@
           ${row('ต้นทาง', esc(hostLine))}
           ${hs ? row('โหลดปลายทาง', esc(hostLoadText(hs) || 'ไม่มีข้อมูล (วัดไม่ได้บนเครื่องนี้)')) : ''}
           ${row('เครือข่าย', esc(netLine))}
+          ${video ? row('คุณภาพ', esc(abrStatusText())) : ''}
           ${row('เครื่องนี้', esc(viewLine) + (video ? ` · ถอดรหัส ${decodeMs}` : ''))}
           ${row('ข้อมูลเข้า', bytesSec === null ? '–' : fmtBytes(bytesSec) + '/s')}
           ${row('เคอร์เซอร์', esc(cursorLine))}
@@ -5338,7 +5387,11 @@
       }
 
       const fps = document.getElementById('selFPS').value;
-      const quality = document.getElementById('selQuality').value;
+      const savedABR = localStorage.getItem('apn_auto_bitrate');
+      const chkABR = document.getElementById('chkAutoBitrate');
+      if (chkABR && savedABR !== null) chkABR.checked = savedABR === '1';
+      if (isReconnect) resumeABRState(); else resetABRState(selectedQuality());
+      const quality = streamQuality();
       const codec = document.getElementById('selCodec').value;
       const maxW = document.getElementById('selScale').value;
       const qs = `agent_id=${encodeURIComponent(agentId)}&fps=${fps}&quality=${quality}&codec=${encodeURIComponent(codec)}&max_width=${maxW}&local_cursor=${wantLocalCursor() ? 1 : 0}`;
@@ -5350,10 +5403,6 @@
       screenBlackSince = 0;
       screenLastActivityAt = performance.now();
       screenPongSupported = false;
-      const savedABR = localStorage.getItem('apn_auto_bitrate');
-      const chkABR = document.getElementById('chkAutoBitrate');
-      if (chkABR && savedABR !== null) chkABR.checked = savedABR === '1';
-      resetABRState(parseInt(document.getElementById('selQuality')?.value || '82', 10) || 82);
       setRemoteCursorShape('');
       Object.keys(vstat).forEach(k => { vstat[k] = 0; });
       const ws = new WebSocket(`${wsBaseURL()}/ws/remote/screen?${qs}`);
@@ -5687,7 +5736,7 @@
 
     window.sendScreenConfig = (isAuto = false) => {
       const nextCodec = document.getElementById('selCodec').value;
-      const nextQ = parseInt(document.getElementById('selQuality').value, 10) || 82;
+      const nextQ = isAuto ? streamQuality() : selectedQuality();
       if (!isAuto) {
         resetABRState(nextQ);
         if (nextCodec === 'hevc') {
