@@ -998,12 +998,14 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
 
-		// Tier 1: WGC (gfxcapture) + Zero-Delay Hardware GPU (D3D12VA 342 FPS / NVENC / AMF / QSV) -> crisp x264 -> MF
+		// Tier 1: WGC (gfxcapture) + native vendor GPU encoders (NVENC / AMF / Intel QSV) first because
+		// h264_d3d12va can emit corrupted NV12 chroma/stride frames on some Intel/hybrid iGPU drivers,
+		// then H.264 D3D12VA -> crisp x264 -> MF.
 		list = append(list,
-			encoderCandidate{name: "WGC + H.264 D3D12 GPU", tier: "WGC", args: makeWGCD12(h264D12Args)},
 			encoderCandidate{name: "WGC + NVENC GPU", tier: "WGC", args: makeWGC(wgcNV12, nvencArgs)},
 			encoderCandidate{name: "WGC + AMD AMF GPU", tier: "WGC", args: makeWGC(wgcNV12, amfArgs)},
 			encoderCandidate{name: "WGC + Intel QSV GPU", tier: "WGC", args: makeWGC(wgcNV12, qsvArgs)},
+			encoderCandidate{name: "WGC + H.264 D3D12 GPU", tier: "WGC", args: makeWGCD12(h264D12Args)},
 			encoderCandidate{name: "WGC + x264 ZeroLatency", tier: "WGC", args: makeWGC(wgcYUV, x264Args)},
 			encoderCandidate{name: "WGC + Hardware GPU (MF LD-VBR)", tier: "WGC", args: makeWGC(wgcNV12, mfArgs)},
 			encoderCandidate{name: "WGC + Hardware GPU (MF)", tier: "WGC", args: makeWGC(wgcNV12, mfSafeArgs)},

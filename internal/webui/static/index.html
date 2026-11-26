@@ -4375,14 +4375,14 @@
     let screenBlackSince = 0;    // performance.now() when the shown picture became all black (0 = not black)
     let blackSampler = null;     // small canvas used to check whether the picture is all black
     let webCodecsHEVCSupported = false;
-    if ('VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function') {
-      VideoDecoder.isConfigSupported({
-        codec: 'hvc1.1.6.L120.90',
-        codedWidth: 1920,
-        codedHeight: 1080,
-        optimizeForLatency: true
-      }).then(r => { webCodecsHEVCSupported = !!(r && r.supported); }).catch(() => {});
-    }
+    const webCodecsHEVCReady = ('VideoDecoder' in window && typeof VideoDecoder.isConfigSupported === 'function')
+      ? VideoDecoder.isConfigSupported({
+          codec: 'hvc1.1.6.L120.90',
+          codedWidth: 1920,
+          codedHeight: 1080,
+          optimizeForLatency: true
+        }).then(r => { webCodecsHEVCSupported = !!(r && r.supported); }).catch(() => {})
+      : Promise.resolve();
 
     function versionAtLeast(ver, minVer) {
       if (!ver) return false;
@@ -7350,13 +7350,14 @@
       if (popBtn) popBtn.style.display = isEmbeddedViewer ? 'inline-flex' : 'none';
       if (redockBtn) redockBtn.style.display = (!isEmbeddedViewer && window.opener && !window.opener.closed) ? 'inline-flex' : 'none';
       document.title = `APN — ${viewerNameParam || viewerPeerParam || 'Remote Desktop'}`;
-      api('/api/status').then(res => {
+      const statusReady = api('/api/status').then(res => {
         lastMode = res.mode || 'peer';
         if (res.version) appVersion = res.version;
         if (res.mode === 'peer' && res.data) lastPeerData = res.data;
       }).catch(() => {
         lastMode = 'peer';
-      }).finally(() => {
+      });
+      Promise.all([statusReady, webCodecsHEVCReady]).finally(() => {
         if (viewerPeerParam) {
           launchDirectRemoteScreen(viewerPeerParam, viewerNameParam || viewerPeerParam, viewerH264Param, false);
         }
