@@ -16,6 +16,8 @@ func waylandDesktop() bool { return false }
 
 func waylandStreamSize() (int, int, bool) { return 0, 0, false }
 
+func waylandToolsMissing() bool { return false }
+
 func waylandCaptureError() string { return "" }
 
 // RunWaylandCastHelper is "apn wayland-cast", which only exists on Linux.

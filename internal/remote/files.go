@@ -271,6 +271,10 @@ func handleRemoteDownload(stream io.ReadWriteCloser, filePath string, sentCounte
 	return err
 }
 
+// uploadSeq numbers upload part files so concurrent uploads never share one (a clock-based name
+// collided on Windows, whose clock can return the same value for two uploads started together).
+var uploadSeq atomic.Uint64
+
 func handleRemoteUpload(stream io.ReadWriteCloser, req FileRequest, recvCounter *atomic.Int64) error {
 	dir := strings.TrimSpace(req.Path)
 	if dir == "" || dir == "__roots__" {
@@ -289,7 +293,9 @@ func handleRemoteUpload(stream io.ReadWriteCloser, req FileRequest, recvCounter 
 	}
 
 	finalPath := filepath.Join(dir, name)
-	tmpPath := finalPath + ".apnpart"
+	// A unique part name: two uploads of the same file at once (a double click) used to write
+	// into one .apnpart and corrupt each other.
+	tmpPath := fmt.Sprintf("%s.%d.apnpart", finalPath, uploadSeq.Add(1))
 	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return protocol.WriteMessage(stream, FileResponse{OK: false, Error: err.Error()})

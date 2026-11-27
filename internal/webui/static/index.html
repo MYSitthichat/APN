@@ -2956,7 +2956,10 @@
     <div id="filesTransferBar" class="ft-transfer-bar">
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.84rem;margin-bottom:6px;gap:10px">
         <span id="filesTransferLabel" style="font-weight:700;color:var(--text)">กำลังโอนไฟล์...</span>
-        <span id="filesTransferStats" style="color:var(--accent-2);font-weight:700;font-variant-numeric:tabular-nums">0%</span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span id="filesTransferStats" style="color:var(--accent-2);font-weight:700;font-variant-numeric:tabular-nums">0%</span>
+          <button id="filesTransferCancel" type="button" class="secondary" style="display:none;padding:3px 10px;font-size:0.74rem" onclick="cancelFileTransfer()">ยกเลิก</button>
+        </span>
       </div>
       <div style="height:6px;background:var(--surface-2);border-radius:999px;overflow:hidden">
         <div id="filesTransferProgress" style="height:100%;width:4%;background:linear-gradient(90deg,var(--accent),var(--accent-2),var(--ok));transition:width 0.12s ease"></div>
@@ -2981,7 +2984,7 @@
           </form>
         </div>
         <div class="ft-col-head">
-          <input id="chkSelectAllLocal" type="checkbox" title="เลือกไฟล์ทั้งหมดฝั่งซ้าย" onchange="toggleSelectAllFiles('local', this.checked)" style="margin:0;cursor:pointer" />
+          <input id="chkSelectAllLocal" type="checkbox" title="เลือกไฟล์และโฟลเดอร์ทั้งหมดฝั่งซ้าย" onchange="toggleSelectAllFiles('local', this.checked)" style="margin:0;cursor:pointer" />
           <span>ชื่อไฟล์ / โฟลเดอร์</span>
           <span style="text-align:right">ขนาด</span>
           <span></span>
@@ -2991,8 +2994,8 @@
 
       <!-- CENTER ACTION DOCK -->
       <div class="ft-center">
-        <button id="btnPushFiles" class="success" onclick="pushCheckedLocalFiles()" title="ส่งไฟล์ที่ติ๊กเลือกจากเครื่องนี้ไปโฟลเดอร์ฝั่งขวา">ส่งไป ➔</button>
-        <button id="btnPullFiles" style="background:linear-gradient(135deg,var(--accent),var(--accent-2))" onclick="pullCheckedRemoteFiles()" title="ดึงไฟล์ที่ติ๊กเลือกจากเครื่องปลายทางมาเก็บในโฟลเดอร์ฝั่งซ้าย">⬅ ดึงมา</button>
+        <button id="btnPushFiles" class="success" onclick="pushCheckedLocalFiles()" title="ส่งไฟล์และโฟลเดอร์ที่ติ๊กเลือกจากเครื่องนี้ไปโฟลเดอร์ฝั่งขวา (โฟลเดอร์ส่งไปทั้งโฟลเดอร์)">ส่งไป ➔</button>
+        <button id="btnPullFiles" style="background:linear-gradient(135deg,var(--accent),var(--accent-2))" onclick="pullCheckedRemoteFiles()" title="ดึงไฟล์และโฟลเดอร์ที่ติ๊กเลือกจากเครื่องปลายทางมาเก็บในโฟลเดอร์ฝั่งซ้าย (โฟลเดอร์ดึงมาทั้งโฟลเดอร์)">⬅ ดึงมา</button>
         <div class="ft-center-hint muted" style="font-size:0.71rem;text-align:center;line-height:1.45;margin-top:2px">
           ติ๊กเลือกไฟล์แล้วกดปุ่ม<br/>ดับเบิลคลิกเพื่อเปิด/ส่งทันที
         </div>
@@ -3015,7 +3018,7 @@
           </form>
         </div>
         <div class="ft-col-head">
-          <input id="chkSelectAllRemote" type="checkbox" title="เลือกไฟล์ทั้งหมดฝั่งขวา" onchange="toggleSelectAllFiles('remote', this.checked)" style="margin:0;cursor:pointer" />
+          <input id="chkSelectAllRemote" type="checkbox" title="เลือกไฟล์และโฟลเดอร์ทั้งหมดฝั่งขวา" onchange="toggleSelectAllFiles('remote', this.checked)" style="margin:0;cursor:pointer" />
           <span>ชื่อไฟล์ / โฟลเดอร์</span>
           <span style="text-align:right">ขนาด</span>
           <span></span>
@@ -5227,6 +5230,7 @@
 
     const screenHintText = {
       wayland: 'ใช้ Wayland (จับภาพด้วย X11 ไม่ได้)',
+      wayland_tools: 'ใช้ Wayland แต่ยังไม่มีแพ็กเกจ GStreamer ที่ต้องใช้จับภาพ',
       login_screen: 'อยู่ที่หน้า login (ยังไม่มีผู้ใช้ล็อกอิน)',
       no_display: 'ไม่มีจอต่ออยู่',
       display_off: 'จอดับอยู่ (ประหยัดพลังงาน/ปิดจอ)',
@@ -5243,6 +5247,7 @@
     function blackScreenAdvice(hs) {
       const h = new Set(hs?.screen_hints || []);
       const pre = 'ภาพที่ได้เป็นสีดำทั้งจอ — ';
+      if (h.has('wayland_tools')) return pre + 'เครื่องปลายทางใช้ GNOME บน Wayland แต่ยังไม่มีแพ็กเกจที่ APN ใช้จับภาพ APN จะติดตั้งให้เองเฉพาะเมื่อไม่ต้องอัปเกรดแพ็กเกจอื่น ถ้ายังดำหลังผ่านไป 1 นาที ให้รันบนเครื่องปลายทาง: sudo apt install gstreamer1.0-pipewire gstreamer1.0-tools แล้วเชื่อมต่อใหม่';
       if (h.has('wayland')) return pre + 'เครื่องปลายทางใช้ Wayland ที่ APN ยังจับภาพไม่ได้ APN จับภาพ Wayland ได้เฉพาะ GNOME (ต้องมีแพ็กเกจ gstreamer1.0-pipewire และ gstreamer1.0-tools ซึ่ง APN ติดตั้งให้เองเมื่อรันเป็น service) ถ้าเพิ่งติดตั้ง ลองเชื่อมต่อใหม่ ส่วนเดสก์ท็อปอื่นให้ล็อกอินแบบ Xorg';
       if (h.has('lid_closed')) return pre + 'ฝาโน้ตบุ๊กปลายทางพับอยู่ทำให้จอในตัวดับ — เปิดฝา หรือต่อจอ/HDMI dummy plug';
       if (h.has('no_display')) return pre + 'เครื่องปลายทางไม่มีจอต่ออยู่ — ต่อจอหรือ HDMI dummy plug';
@@ -6657,38 +6662,30 @@
           }
           return;
         }
-        // 4) Seamless Ctrl+V (and Ctrl+Shift+V for Linux Terminal!):
-        //    - Ctrl+V: sync local clipboard into remote PC & paste with Ctrl+V
-        //    - Ctrl+Shift+V: sync local clipboard into remote PC (auto_paste=false), then send Ctrl+Shift+V!
+        // 4) Ctrl+V / Ctrl+Shift+V: the remote machine pastes from its own clipboard. Only when
+        //    something new was copied on THIS machine since the last sync is it sent over first
+        //    (the backend compares with what the remote already has). So copy and paste inside the
+        //    remote machine works, files included (Explorer), and copy here -> paste there too.
+        //    Before, every Ctrl+V overwrote the remote clipboard with this machine's, so files
+        //    copied inside the remote machine could never be pasted there.
         if (e.code === 'KeyV' && e.ctrlKey && !e.altKey && !e.metaKey) {
           if (!e.repeat) {
             swallowedLangCode = 'KeyV';
-            if (e.shiftKey) {
-              for (const mod of ['ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight']) {
-                if (heldCodes.has(mod)) {
-                  sendInput({ type: 'key_up', code: mod });
-                  heldCodes.delete(mod);
-                }
+            const withShift = e.shiftKey;
+            for (const mod of ['ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight']) {
+              if (heldCodes.has(mod)) {
+                sendInput({ type: 'key_up', code: mod });
+                heldCodes.delete(mod);
               }
-              pasteClipboardToRemote(false, false).finally(() => {
-                sendInput({ type: 'key_down', key: 'Control', code: 'ControlLeft', ctrl: true });
-                sendInput({ type: 'key_down', key: 'Shift', code: 'ShiftLeft', ctrl: true, shift: true });
-                sendInput({ type: 'key_down', key: 'V', code: 'KeyV', ctrl: true, shift: true });
-                sendInput({ type: 'key_up', key: 'V', code: 'KeyV', ctrl: true, shift: true });
-                sendInput({ type: 'key_up', key: 'Shift', code: 'ShiftLeft', ctrl: true });
-                sendInput({ type: 'key_up', key: 'Control', code: 'ControlLeft' });
-              });
-            } else {
-              if (heldCodes.has('ControlLeft')) {
-                sendInput({ type: 'key_up', code: 'ControlLeft' });
-                heldCodes.delete('ControlLeft');
-              }
-              if (heldCodes.has('ControlRight')) {
-                sendInput({ type: 'key_up', code: 'ControlRight' });
-                heldCodes.delete('ControlRight');
-              }
-              pasteClipboardToRemote(true, true);
             }
+            syncLocalClipboardToRemote(true).finally(() => {
+              sendInput({ type: 'key_down', key: 'Control', code: 'ControlLeft', ctrl: true });
+              if (withShift) sendInput({ type: 'key_down', key: 'Shift', code: 'ShiftLeft', ctrl: true, shift: true });
+              sendInput({ type: 'key_down', key: withShift ? 'V' : 'v', code: 'KeyV', ctrl: true, shift: withShift });
+              sendInput({ type: 'key_up', key: withShift ? 'V' : 'v', code: 'KeyV', ctrl: true, shift: withShift });
+              if (withShift) sendInput({ type: 'key_up', key: 'Shift', code: 'ShiftLeft', ctrl: true });
+              sendInput({ type: 'key_up', key: 'Control', code: 'ControlLeft' });
+            });
           }
           return;
         }
@@ -6927,7 +6924,7 @@
       selSet.clear();
       if (checked) {
         list.forEach(e => {
-          if (!e.is_dir && (!filter || (e.name || '').toLowerCase().includes(filter))) {
+          if (!filter || (e.name || '').toLowerCase().includes(filter)) {
             selSet.add(e.path);
           }
         });
@@ -6955,9 +6952,7 @@
                onclick="toggleFileSelect(${jsArg(side)}, ${Number(idx)}, event)"
                ondblclick="${e.is_dir ? openFn : (side === 'local' ? `pushSingleLocalFile(${idx})` : `pullSingleRemoteFile(${idx})`)}"
                title="${esc(e.name)}">
-            ${e.is_dir
-              ? `<span style="text-align:center;opacity:0.45;font-size:0.76rem">▸</span>`
-              : `<input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect(${jsArg(side)}, ${Number(idx)})" style="margin:0;cursor:pointer" />`}
+            <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect(${jsArg(side)}, ${Number(idx)})" style="margin:0;cursor:pointer" title="${e.is_dir ? 'เลือกทั้งโฟลเดอร์ (ดับเบิลคลิกเพื่อเปิด)' : 'เลือกไฟล์'}" />
             <span class="ft-name ${e.is_dir ? 'is-dir' : ''}">
               <span class="ft-icon">${fileIconFor(e)}</span>
               <span class="ft-name-text">${esc(e.name)}</span>
@@ -6983,7 +6978,7 @@
       const list = side === 'local' ? localEntriesCache : remoteEntriesCache;
       const selSet = side === 'local' ? selectedLocal : selectedRemote;
       const item = list[idx];
-      if (!item || item.is_dir) return;
+      if (!item) return;
       if (selSet.has(item.path)) selSet.delete(item.path);
       else selSet.add(item.path);
       document.getElementById(side === 'local' ? 'localListBody' : 'filesListBody').innerHTML = renderFilePaneRows(side, list);
@@ -7067,50 +7062,93 @@
       }, 900);
     }
 
-    async function runPushList(paths) {
-      if (!paths.length) { showToast('กรุณาติ๊กเลือกไฟล์ฝั่งซ้ายก่อนกด ส่งไป ➔'); return; }
-      for (let i = 0; i < paths.length; i++) {
-        const name = paths[i].split(/[\\/]/).pop();
-        startBackendProgressPoll(`⬆ ส่งไปปลายทาง (${i + 1}/${paths.length}): ${name}`);
-        try {
-          await api('/api/peer/files/push', {
-            method: 'POST',
-            body: JSON.stringify({ peer_id: filesPeerId, local_path: paths[i], remote_dir: filesCurrentPath })
-          });
-          showToast(`✓ ส่ง ${name} สำเร็จ!`);
-        } catch (err) {
-          showToast(`⚠ ส่ง ${name} ไม่สำเร็จ: ${err.message}`);
-          break;
-        }
+    // ---- Transfer jobs: files and whole folders, one job at a time per window ----
+    let ftJobId = '';
+
+    function setTransferButtonsBusy(busy) {
+      for (const id of ['btnPushFiles', 'btnPullFiles']) {
+        const b = document.getElementById(id);
+        if (b) b.disabled = busy;
       }
-      stopBackendProgressPoll();
-      loadRemoteDir(filesCurrentPath);
+      const c = document.getElementById('filesTransferCancel');
+      if (c) { c.style.display = busy ? 'inline-flex' : 'none'; c.disabled = false; c.textContent = 'ยกเลิก'; }
     }
 
-    async function runPullList(paths) {
-      if (!paths.length) { showToast('กรุณาติ๊กเลือกไฟล์ฝั่งขวาก่อนกด ⬅ ดึงมา'); return; }
-      for (let i = 0; i < paths.length; i++) {
-        const name = paths[i].split(/[\\/]/).pop();
-        startBackendProgressPoll(`⬇ ดึงมาเครื่องนี้ (${i + 1}/${paths.length}): ${name}`);
-        try {
-          await api('/api/peer/files/pull', {
-            method: 'POST',
-            body: JSON.stringify({ peer_id: filesPeerId, remote_path: paths[i], local_dir: localCurrentPath })
-          });
-          showToast(`✓ ดึง ${name} ลงเครื่องนี้สำเร็จ!`);
-        } catch (err) {
-          showToast(`⚠ ดึง ${name} ไม่สำเร็จ: ${err.message}`);
-          break;
-        }
+    function showJobProgress(dirLabel, p) {
+      const label = document.getElementById('filesTransferLabel');
+      const stats = document.getElementById('filesTransferStats');
+      const prog = document.getElementById('filesTransferProgress');
+      if (!p) return;
+      const count = p.files > 0 ? ` ${Math.min(p.done + p.failed + 1, p.files)}/${p.files} ไฟล์` : '';
+      label.textContent = `${dirLabel}${count}${p.current ? ': ' + p.current : ''}`;
+      if (p.total > 0) {
+        const pct = Math.min(99, Math.floor((Math.min(p.bytes, p.total) / p.total) * 100));
+        prog.style.width = `${Math.max(4, pct)}%`;
+        stats.textContent = `${pct}% · ${fmtBytes(Math.min(p.bytes, p.total))} / ${fmtBytes(p.total)} · ${fmtBytes(p.bytes_per_sec)}/s`;
+      } else {
+        stats.textContent = 'กำลังเตรียมรายการไฟล์...';
       }
-      stopBackendProgressPoll();
-      loadLocalDir(localCurrentPath);
     }
 
-    window.pushCheckedLocalFiles = () => runPushList(Array.from(selectedLocal));
-    window.pullCheckedRemoteFiles = () => runPullList(Array.from(selectedRemote));
-    window.pushSingleLocalFile = (idx) => { const it = localEntriesCache[idx]; if (it && !it.is_dir) runPushList([it.path]); };
-    window.pullSingleRemoteFile = (idx) => { const it = remoteEntriesCache[idx]; if (it && !it.is_dir) runPullList([it.path]); };
+    // runTransferJob sends (push) or fetches (pull) the selected entries; folders go whole.
+    async function runTransferJob(direction, entries) {
+      if (!entries.length) {
+        showToast(direction === 'push' ? 'กรุณาติ๊กเลือกไฟล์หรือโฟลเดอร์ฝั่งซ้ายก่อนกด ส่งไป ➔' : 'กรุณาติ๊กเลือกไฟล์หรือโฟลเดอร์ฝั่งขวาก่อนกด ⬅ ดึงมา');
+        return;
+      }
+      if (ftJobId) { showToast('⏳ กำลังโอนอยู่ — รอให้เสร็จหรือกดยกเลิกก่อน'); return; }
+      const jobId = Math.random().toString(16).slice(2) + Date.now().toString(16);
+      ftJobId = jobId;
+      const dirLabel = direction === 'push' ? '⬆ ส่งไปปลายทาง' : '⬇ ดึงมาเครื่องนี้';
+      const bar = document.getElementById('filesTransferBar');
+      bar.style.display = 'block';
+      document.getElementById('filesTransferProgress').style.width = '4%';
+      showJobProgress(dirLabel, { files: 0, done: 0, failed: 0, bytes: 0, total: 0 });
+      setTransferButtonsBusy(true);
+      if (ftProgressTimer) clearInterval(ftProgressTimer);
+      ftProgressTimer = setInterval(async () => {
+        try { showJobProgress(dirLabel, await api(`/api/peer/files/job?id=${encodeURIComponent(jobId)}`)); } catch {}
+      }, 300);
+      const names = entries.map(e => e.name).slice(0, 2).join(', ') + (entries.length > 2 ? ` และอีก ${entries.length - 2} รายการ` : '');
+      try {
+        const res = await api('/api/peer/files/transfer', {
+          method: 'POST',
+          body: JSON.stringify({
+            peer_id: filesPeerId, job_id: jobId, direction,
+            items: entries.map(e => ({ path: e.path, is_dir: !!e.is_dir })),
+            dest_dir: direction === 'push' ? filesCurrentPath : localCurrentPath
+          })
+        });
+        const st = res.status || {};
+        if (res.ok) {
+          showToast(`✓ ${direction === 'push' ? 'ส่ง' : 'ดึง'} ${names} สำเร็จ (${st.done} ไฟล์ · ${fmtBytes(st.total)})`);
+        } else if (st.failed > 0) {
+          showToast(`⚠ สำเร็จ ${st.done} ไฟล์ ไม่สำเร็จ ${st.failed} ไฟล์: ${st.error || ''}`);
+        } else {
+          showToast(`⚠ ${st.error || 'ยกเลิกการโอนแล้ว'}`);
+        }
+      } catch (err) {
+        showToast(`⚠ ${direction === 'push' ? 'ส่ง' : 'ดึง'}ไม่สำเร็จ: ${err.message}`);
+      } finally {
+        ftJobId = '';
+        setTransferButtonsBusy(false);
+        stopBackendProgressPoll();
+        if (direction === 'push') loadRemoteDir(filesCurrentPath); else loadLocalDir(localCurrentPath);
+      }
+    }
+
+    window.cancelFileTransfer = async () => {
+      if (!ftJobId) return;
+      const c = document.getElementById('filesTransferCancel');
+      if (c) { c.disabled = true; c.textContent = 'กำลังยกเลิก...'; }
+      try { await api('/api/peer/files/cancel', { method: 'POST', body: JSON.stringify({ job_id: ftJobId }) }); } catch {}
+    };
+
+    const selectedEntries = (cache, selSet) => cache.filter(e => selSet.has(e.path));
+    window.pushCheckedLocalFiles = () => runTransferJob('push', selectedEntries(localEntriesCache, selectedLocal));
+    window.pullCheckedRemoteFiles = () => runTransferJob('pull', selectedEntries(remoteEntriesCache, selectedRemote));
+    window.pushSingleLocalFile = (idx) => { const it = localEntriesCache[idx]; if (it && !it.is_dir) runTransferJob('push', [it]); };
+    window.pullSingleRemoteFile = (idx) => { const it = remoteEntriesCache[idx]; if (it && !it.is_dir) runTransferJob('pull', [it]); };
 
     window.uploadSelectedFiles = async (fileList) => {
       if (!filesPeerId || !fileList || fileList.length === 0) return;

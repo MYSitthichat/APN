@@ -6,7 +6,10 @@ package remote
 func hostScreenHints() []string {
 	var hints []string
 	// Wayland is a cause of a black picture only when capture could not use Mutter's screen cast.
-	if (isLinuxWayland() || waylandDesktop()) && !waylandCaptureActive() {
+	switch {
+	case waylandToolsMissing():
+		hints = append(hints, hintWaylandGst)
+	case (isLinuxWayland() || waylandDesktop()) && !waylandCaptureActive():
 		hints = append(hints, hintWayland)
 	}
 	if s := getActiveLinuxSession(); s.HasUserCred && s.UID < 1000 {

@@ -10,11 +10,12 @@ import (
 // display server or screen state, not the encoder or network, is the cause. Sent in the stats
 // report; the viewer turns them into advice.
 const (
-	hintWayland     = "wayland"      // Linux Wayland session: x11grab sees only an empty XWayland root
-	hintLoginScreen = "login_screen" // the captured display is the login greeter, nobody is logged in
-	hintNoDisplay   = "no_display"   // no monitor connected to any GPU output
-	hintDisplayOff  = "display_off"  // every connected monitor is off (DPMS / power saving)
-	hintLidClosed   = "lid_closed"   // laptop lid closed
+	hintWayland     = "wayland"       // Linux Wayland session: x11grab sees only an empty XWayland root
+	hintWaylandGst  = "wayland_tools" // GNOME Wayland: GStreamer's PipeWire source is not installed
+	hintLoginScreen = "login_screen"  // the captured display is the login greeter, nobody is logged in
+	hintNoDisplay   = "no_display"    // no monitor connected to any GPU output
+	hintDisplayOff  = "display_off"   // every connected monitor is off (DPMS / power saving)
+	hintLidClosed   = "lid_closed"    // laptop lid closed
 )
 
 // linuxDisplayHints reads monitor and lid state below root ("/" on a real host).

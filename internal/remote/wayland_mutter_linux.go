@@ -454,6 +454,9 @@ func waylandStreamSize() (int, int, bool) {
 	if !waylandDesktop() {
 		return 0, 0, false
 	}
+	if _, ok := waylandToolsReady(); !ok {
+		return 0, 0, false
+	}
 	ready, _, ok := ensureWaylandCast()
 	if !ok || ready.Width <= 0 || ready.Height <= 0 {
 		return 0, 0, false
@@ -666,12 +669,13 @@ func clampF(v, lo, hi float64) float64 {
 // waylandCaptureSource returns FFmpeg input arguments and a stdin source for capturing the
 // Wayland session at srcW x srcH, or ok=false to use x11grab.
 func waylandCaptureSource(srcW, srcH, fps int) (*candidateSource, []string, bool) {
-	if _, _, ok := ensureWaylandCast(); !ok {
+	// GStreamer first: without it there is no picture, so the screen cast (and GNOME's
+	// "screen is being shared" icon) must not start.
+	gst, ok := waylandToolsReady()
+	if !ok {
 		return nil, nil, false
 	}
-	gst, ok := gstreamerPipeWire()
-	if !ok {
-		requestWaylandCaptureTools()
+	if _, _, ok := ensureWaylandCast(); !ok {
 		return nil, nil, false
 	}
 	args := []string{
@@ -688,6 +692,28 @@ func waylandCaptureSource(srcW, srcH, fps int) (*candidateSource, []string, bool
 		},
 	}
 	return src, args, true
+}
+
+// waylandToolsReady reports whether GStreamer's PipeWire source is installed on a Wayland
+// desktop, and asks for the background install when it is not.
+func waylandToolsReady() (string, bool) {
+	if !waylandDesktop() {
+		return "", false
+	}
+	gst, ok := gstreamerPipeWire()
+	if !ok {
+		requestWaylandCaptureTools()
+	}
+	return gst, ok
+}
+
+// waylandToolsMissing reports a Wayland desktop that lacks GStreamer's PipeWire source.
+func waylandToolsMissing() bool {
+	if !waylandDesktop() {
+		return false
+	}
+	_, ok := gstreamerPipeWire()
+	return !ok
 }
 
 // gstreamerPipeWire finds gst-launch-1.0 and checks that the pipewiresrc element is installed.

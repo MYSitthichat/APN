@@ -871,6 +871,76 @@ func Start(ctx context.Context, opts Options) error {
 			writeJSON(w, http.StatusOK, getFileTransferProgress())
 		})
 
+		// Transfer jobs: any mix of files and folders, in either direction (see filejobs.go).
+		mux.HandleFunc("POST /api/peer/files/transfer", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				PeerID    string        `json:"peer_id"`
+				JobID     string        `json:"job_id"`
+				Direction string        `json:"direction"`
+				Items     []fileJobItem `json:"items"`
+				DestDir   string        `json:"dest_dir"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			peerID := strings.TrimSpace(body.PeerID)
+			if peerID == "" || len(body.Items) == 0 || (body.Direction != "push" && body.Direction != "pull") {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "กรุณาเลือกไฟล์หรือโฟลเดอร์ที่จะโอน"})
+				return
+			}
+			dest := strings.TrimSpace(body.DestDir)
+			if body.Direction == "push" && (dest == "" || dest == "__roots__") {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "กรุณาเปิดโฟลเดอร์ปลายทางฝั่งขวาก่อน"})
+				return
+			}
+			if body.Direction == "pull" && (dest == "" || dest == "__roots__") {
+				if home, err := os.UserHomeDir(); err == nil && home != "" {
+					dest = filepath.Join(home, "Downloads")
+				} else {
+					dest = os.TempDir()
+				}
+			}
+			open := func(ctx context.Context) (io.ReadWriteCloser, error) {
+				st, _, err := opts.Peer.OpenPeerStream(ctx, peerID, protocol.StreamOpenRequest{Mode: protocol.ModeFiles})
+				if err != nil {
+					return nil, errors.New(friendlyFileStreamErr(err))
+				}
+				return st, nil
+			}
+			// The job outlives a closed browser tab only until it is cancelled from another view.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			job := registerFileJob(strings.TrimSpace(body.JobID), body.Direction, cancel)
+			err := runFileJob(ctx, job, open, body.Items, dest)
+			st := job.status()
+			if err != nil && st.Done == 0 {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "status": st})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": err == nil && st.Failed == 0, "status": st, "dest": dest})
+		}))
+
+		mux.HandleFunc("GET /api/peer/files/job", func(w http.ResponseWriter, r *http.Request) {
+			j := lookupFileJob(strings.TrimSpace(r.URL.Query().Get("id")))
+			if j == nil {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such transfer"})
+				return
+			}
+			writeJSON(w, http.StatusOK, j.status())
+		})
+
+		mux.HandleFunc("POST /api/peer/files/cancel", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				JobID string `json:"job_id"`
+			}
+			_ = json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
+			if j := lookupFileJob(strings.TrimSpace(body.JobID)); j != nil && j.cancel != nil {
+				j.cancel()
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		}))
+
 		mux.HandleFunc("POST /api/peer/files/push", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
 			var body struct {
 				PeerID    string `json:"peer_id"`

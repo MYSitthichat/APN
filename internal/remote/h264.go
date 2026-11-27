@@ -108,6 +108,12 @@ func WarmupH264Encoder() {
 			warmupOnce.Unlock()
 		}()
 
+		// GNOME on Wayland: probing would start Mutter's screen cast, and GNOME would show its
+		// "screen is being shared" icon to the person at the machine while nobody is connected.
+		// The first real session finds its encoder itself.
+		if waylandDesktop() {
+			return
+		}
 		w, h := ScreenSize()
 		if w <= 0 || h <= 0 {
 			w, h = 1920, 1080

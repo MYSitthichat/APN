@@ -68,3 +68,22 @@ func TestWaylandCaptureDiag(t *testing.T) {
 		t.Logf("pointer move through ApplyInputEvent: err=%v", err)
 	}
 }
+
+// TestWaylandWarmupDiag checks that the startup encoder warmup leaves a Wayland desktop alone
+// (it would otherwise start Mutter's screen cast and GNOME's "screen is being shared" icon).
+func TestWaylandWarmupDiag(t *testing.T) {
+	waylandHelperExe = "/usr/local/bin/apn"
+	t.Logf("wayland desktop: %v", waylandDesktop())
+	WarmupH264Encoder()
+	time.Sleep(4 * time.Second)
+	t.Logf("helper active after warmup: %v", waylandCaptureActive())
+}
+
+// TestWaylandHintsDiag prints the screen hints the viewer would get, and whether a capture
+// attempt started the helper.
+func TestWaylandHintsDiag(t *testing.T) {
+	waylandHelperExe = "/usr/local/bin/apn"
+	w, h := ScreenSize()
+	cands := videoEncoderCandidates("h264", 30, w, h, w&^1, h&^1, 82, true)
+	t.Logf("first candidate %q, helper active %v, hints %v", cands[0].name, waylandCaptureActive(), hostScreenHints())
+}
