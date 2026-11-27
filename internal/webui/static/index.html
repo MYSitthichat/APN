@@ -507,7 +507,7 @@
       position: fixed;
       bottom: 22px;
       right: 22px;
-      z-index: 1500;
+      z-index: 4000;
       background: var(--surface-solid);
       color: var(--text);
       border: 1px solid var(--accent);
@@ -1651,6 +1651,88 @@
       font-size: 0.75rem;
       line-height: 1.45;
       color: var(--muted);
+    }
+    /* Result of the last account action, shown inside the dialog (toasts sit behind nothing now,
+       but the dialog is where the user is looking). */
+    .auth-ok {
+      padding: 8px 11px;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      color: var(--ok);
+      background: color-mix(in srgb, var(--ok) 12%, var(--surface-2));
+      border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+      animation: apnDialogPop 0.18s ease;
+    }
+    /* Connected-machine cards */
+    .conn-grid {
+      grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+    }
+    .conn-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .conn-name {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .conn-meta {
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .conn-transport {
+      padding: 3px 9px;
+      font-size: 0.72rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .conn-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .conn-actions > button {
+      width: 100%;
+    }
+    .conn-actions-row {
+      display: flex;
+      gap: 8px;
+    }
+    .conn-actions-row > button {
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    .conn-foot {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 9px;
+      border-top: 1px solid var(--border);
+    }
+    .conn-targets {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .conn-targets button {
+      padding: 4px 8px;
+      font-size: 0.74rem;
+    }
+    .conn-foot > button {
+      flex-shrink: 0;
+      padding: 5px 12px;
+      font-size: 0.76rem;
     }
     .desk-tabs {
       display: flex;
@@ -3385,9 +3467,15 @@
     let acctBusy = false;
     let acctResetUser = '';  // carried from "forgot" to "reset"
     let acctResetEmail = '';
+    let acctNotice = '';     // result of the last action, shown in the dialog until the next one
 
     function acctInfo() {
       return (lastPeerData && lastPeerData.account) || {};
+    }
+
+    function acctClock(iso) {
+      const t = iso ? Date.parse(iso) : Date.now();
+      return t ? new Date(t).toLocaleTimeString('th-TH') : '';
     }
 
     function acctAgo(iso) {
@@ -3443,7 +3531,9 @@
         sub.textContent = 'รายชื่อเครื่อง กลุ่ม และรหัสผ่านที่จำไว้ ซิงก์ไปทุกเครื่องที่เข้าสู่ระบบด้วยบัญชีนี้';
         const status = a.error
           ? `<div class="auth-err" style="display:block">ซิงก์ไม่สำเร็จ: ${esc(a.error)}</div>`
-          : `<div class="auth-hint">✓ ซิงก์แล้ว ${a.devices || 0} เครื่อง${a.last_sync ? ' · ล่าสุด ' + esc(acctAgo(a.last_sync)) : ''}</div>`;
+          : (a.last_sync
+            ? `<div class="auth-hint">✓ ซิงก์ล่าสุดเวลา ${esc(acctClock(a.last_sync))} (${esc(acctAgo(a.last_sync))}) · รายชื่อในบัญชี ${a.devices || 0} เครื่อง · ซิงก์เองทุก 1 นาที</div>`
+            : `<div class="auth-hint">ยังไม่ได้ซิงก์ในรอบนี้ · รายชื่อในบัญชี ${a.devices || 0} เครื่อง</div>`);
         const mail = a.email
           ? `<div class="auth-hint">✉ อีเมลสำหรับรีเซ็ตรหัสผ่าน: <strong style="color:var(--text)">${esc(a.email)}</strong> · ${acctLink('email', 'เปลี่ยน')}</div>`
           : `<div class="auth-hint" style="color:#fbbf24">⚠ บัญชีนี้ยังไม่มีอีเมล ถ้าลืมรหัสผ่านจะรีเซ็ตไม่ได้ · ${acctLink('email', 'ตั้งอีเมล')}</div>`;
@@ -3455,6 +3545,7 @@
             </div>
             <span class="badge" style="padding:3px 9px;font-size:0.72rem;flex-shrink:0"><span class="dot ok"></span>เข้าสู่ระบบอยู่</span>
           </div>
+          ${acctNotice ? `<div class="auth-ok">${esc(acctNotice)}</div>` : ''}
           ${status}
           ${mail}
           <div class="auth-hint">🔒 รายชื่อถูกเข้ารหัสบนเครื่องนี้ด้วยรหัสผ่านบัญชีก่อนส่ง เซิร์ฟเวอร์อ่านรายชื่อและรหัสผ่านของเครื่องปลายทางไม่ได้</div>
@@ -3577,6 +3668,7 @@
       acctBusy = false;
       acctResetUser = '';
       acctResetEmail = '';
+      acctNotice = '';
       renderAccountDialog();
       document.getElementById('apnAcctBackdrop').classList.add('open');
       setTimeout(acctFocusFirst, 30);
@@ -3595,6 +3687,7 @@
       const keepEmail = document.getElementById('acctEmail')?.value;
       if (keepUser) acctResetUser = keepUser.trim();
       if (keepEmail && acctView === 'forgot') acctResetEmail = keepEmail.trim();
+      acctNotice = '';
       acctView = v;
       renderAccountDialog();
       const u = document.getElementById('acctUser');
@@ -3603,20 +3696,28 @@
     };
 
     // acctRun sends one account request, shows progress on the main button and re-renders
-    // the dialog from the returned status.
-    async function acctRun(url, body, busyText, okView, okToast) {
+    // the dialog from the returned status. okMsg (text, or a function of the new account status)
+    // is the visible result: a green line in the dialog and a toast.
+    async function acctRun(url, body, busyText, okView, okMsg) {
       if (acctBusy) return false;
       const btn = document.getElementById('acctSubmit');
       const label = btn ? btn.textContent : '';
       acctBusy = true;
+      acctNotice = '';
       acctSetErr('');
+      document.querySelector('#apnAcctBody .auth-ok')?.remove();
       if (btn) { btn.disabled = true; btn.textContent = busyText; }
       try {
+        const started = Date.now();
         lastPeerData = await api(url, { method: 'POST', body: JSON.stringify(body || {}) });
+        // Keep the "working" label up long enough to be seen; a sync often answers in a few ms.
+        const shown = Date.now() - started;
+        if (shown < 450) await new Promise(r => setTimeout(r, 450 - shown));
         acctBusy = false;
         if (okView) acctView = okView;
+        acctNotice = (typeof okMsg === 'function' ? okMsg(acctInfo()) : okMsg) || '';
         renderAccountDialog();
-        if (okToast) showToast(okToast);
+        if (acctNotice) showToast(acctNotice);
         return true;
       } catch (e) {
         acctBusy = false;
@@ -3637,12 +3738,9 @@
       if (reg && password !== (document.getElementById('acctPass2')?.value || '')) {
         return acctSetErr('รหัสผ่านที่ยืนยันไม่ตรงกัน');
       }
-      const ok = await acctRun('/api/peer/account/login', { username, password, email, register: reg },
-        reg ? 'กำลังสมัคร...' : 'กำลังเข้าสู่ระบบ...', 'home', '');
-      if (ok) {
-        const a = acctInfo();
-        showToast(a.error ? '⚠ เข้าสู่ระบบแล้ว แต่ซิงก์รอบแรกไม่สำเร็จ' : `✓ เข้าสู่ระบบแล้ว ซิงก์ ${a.devices || 0} เครื่อง`);
-      }
+      await acctRun('/api/peer/account/login', { username, password, email, register: reg },
+        reg ? 'กำลังสมัคร...' : 'กำลังเข้าสู่ระบบ...', 'home',
+        a => a.error ? '' : `✓ เข้าสู่ระบบแล้ว รายชื่อในบัญชี ${a.devices || 0} เครื่อง`);
     };
 
     window.submitAccountForgot = async (e) => {
@@ -3665,11 +3763,10 @@
       if (newPw !== (document.getElementById('acctNew2')?.value || '')) return acctSetErr('รหัสผ่านใหม่ที่ยืนยันไม่ตรงกัน');
       acctResetUser = username;
       const ok = await acctRun('/api/peer/account/reset/confirm', { username, code, new_password: newPw },
-        'กำลังตั้งรหัสผ่านใหม่...', 'home', '');
+        'กำลังตั้งรหัสผ่านใหม่...', 'home', '✓ ตั้งรหัสผ่านใหม่แล้ว เครื่องอื่นต้องเข้าสู่ระบบใหม่ด้วยรหัสผ่านนี้');
       if (ok) {
         acctResetUser = '';
         acctResetEmail = '';
-        showToast('✓ ตั้งรหัสผ่านใหม่แล้ว เครื่องอื่นต้องเข้าสู่ระบบใหม่ด้วยรหัสผ่านนี้');
       }
     };
 
@@ -3681,7 +3778,8 @@
       await acctRun('/api/peer/account/email', { email, password }, 'กำลังบันทึก...', 'home', '✓ บันทึกอีเมลของบัญชีแล้ว');
     };
 
-    window.accountSyncNow = () => acctRun('/api/peer/account/sync', {}, 'กำลังซิงก์...', 'home', '');
+    window.accountSyncNow = () => acctRun('/api/peer/account/sync', {}, '↻ กำลังซิงก์...', 'home',
+      a => a.error ? '' : `✓ ซิงก์สำเร็จ เวลา ${acctClock(a.last_sync)} · รายชื่อในบัญชี ${a.devices || 0} เครื่อง`);
 
     window.accountLogout = async () => {
       const wipe = !!document.getElementById('acctWipe')?.checked;
@@ -3897,6 +3995,20 @@
         btns.push(`<button class="secondary" onclick="openRemoteShell(${jsArg(a.id)},${jsArg(a.name)})">💻 Terminal</button>`);
       }
       return btns.length ? `<div class="row-actions">${btns.join('')}</div>` : '<span class="muted">ปิดใช้งาน</span>';
+    }
+
+    // Buttons of a connected-machine card: Remote Desktop across the card, the rest sharing one row.
+    function renderConnActions(a) {
+      const caps = a.capabilities || {};
+      const hasFF = !!caps.has_ffmpeg;
+      const main = caps.allow_screen
+        ? `<button class="success" onclick="openRemoteScreen(${jsArg(a.id)},${jsArg(a.name)},${hasFF})">🖥 Remote Desktop${hasFF ? ' (60 FPS)' : ''}</button>`
+        : '';
+      const rest = [];
+      if (caps.allow_files) rest.push(`<button class="secondary" onclick="openRemoteFiles(${jsArg(a.id)},${jsArg(a.name)})">📁 โอนไฟล์</button>`);
+      if (caps.allow_shell) rest.push(`<button class="secondary" onclick="openRemoteShell(${jsArg(a.id)},${jsArg(a.name)})">💻 Terminal</button>`);
+      if (!main && !rest.length) return '<span class="muted">เครื่องนี้ปิดการควบคุมจากระยะไกลไว้</span>';
+      return `<div class="conn-actions">${main}${rest.length ? `<div class="conn-actions-row">${rest.join('')}</div>` : ''}</div>`;
     }
 
     function renderPortalLogin() {
@@ -4498,21 +4610,23 @@
       } else if (peerTab === 'connected') {
         tabContentHTML = peers.length === 0
           ? `<div style="margin:auto;text-align:center" class="muted">ยังไม่มีเครื่องที่เชื่อมต่ออยู่ตอนนี้ — กรอกเลข 9 หลักด้านบนหรือคลิกจากแท็บประวัติเครื่อง</div>`
-          : `<div class="saved-grid">
+          : `<div class="saved-grid conn-grid">
               ${peers.map(p => `
                 <div class="saved-card is-online">
-                  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-                    <div>
-                      <strong>${esc(p.name)}</strong>
-                      <div style="margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><code>${esc(fmtDevID(p.device_id || p.id))}</code> <span class="muted" style="font-size:0.75rem">${esc(p.os)}</span> ${renderPeerVersionBadge(p.version, true)}</div>
+                  <div class="conn-head">
+                    <div style="min-width:0">
+                      <strong class="conn-name" title="${esc(p.name)}">${esc(p.name)}</strong>
+                      <div class="conn-meta"><code>${esc(fmtDevID(p.device_id || p.id))}</code> <span class="muted" style="font-size:0.75rem">${esc(p.os)}</span> ${renderPeerVersionBadge(p.version, true)}</div>
                     </div>
-                    <span class="badge" style="padding:3px 9px;font-size:0.72rem"><span class="dot ok"></span>${esc(p.transport)}</span>
+                    <span class="badge conn-transport" title="ช่องทางที่เชื่อมต่ออยู่"><span class="dot ok"></span>${esc(p.transport)}</span>
                   </div>
                   ${p.vpn_ip ? `<div class="muted" style="font-size:0.76rem">VPN IP: <code style="cursor:pointer" onclick="copyText(${jsArg(p.vpn_ip)},'คัดลอก VPN IP แล้ว')">🛡 ${esc(p.vpn_ip)}</code></div>` : ''}
-                  <div class="row-actions">${renderAgentRemoteButtons(p)}</div>
-                  <div class="row-actions" style="margin-top:auto;padding-top:4px;border-top:1px solid var(--border)">
-                    ${(p.targets || []).map(t => `<button class="secondary" style="padding:4px 8px;font-size:0.74rem" onclick="peerQuickFill(${jsArg(p.id)},${jsArg(t.name)},${jsArg(t.address)})">+ ${esc(t.name)}</button>`).join('')}
-                    <button class="danger" style="margin-left:auto;padding:5px 10px;font-size:0.76rem" onclick="peerDisconnect(${jsArg(p.id)})">ตัด</button>
+                  ${renderConnActions(p)}
+                  <div class="conn-foot">
+                    <div class="conn-targets">
+                      ${(p.targets || []).map(t => `<button class="secondary" title="เปิดช่องทางไปยัง ${esc(t.name)} ของเครื่องนี้" onclick="peerQuickFill(${jsArg(p.id)},${jsArg(t.name)},${jsArg(t.address)})">+ ${esc(t.name)}</button>`).join('')}
+                    </div>
+                    <button class="danger" title="ตัดการเชื่อมต่อกับเครื่องนี้" onclick="peerDisconnect(${jsArg(p.id)})">ตัด</button>
                   </div>
                 </div>`).join('')}
             </div>`;
