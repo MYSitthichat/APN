@@ -27,6 +27,7 @@ import (
 	"relayvpn/internal/executil"
 	"relayvpn/internal/installer"
 	"relayvpn/internal/p2p"
+	"relayvpn/internal/remote"
 	"relayvpn/internal/rendezvous"
 	"relayvpn/internal/security"
 	"relayvpn/internal/server"
@@ -74,6 +75,9 @@ func main() {
 		err = runPeer(args, logger)
 	case "rdv-server":
 		err = runRdvServer(args, logger)
+	case "wayland-cast":
+		// Internal: started by APN as the desktop user to drive GNOME's Wayland screen cast.
+		err = remote.RunWaylandCastHelper()
 	case "service":
 		err = runService(args)
 	case "set-password":

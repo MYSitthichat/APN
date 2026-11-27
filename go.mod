@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/hashicorp/yamux v0.1.2
 	github.com/jezek/xgb v1.3.1
 	github.com/quic-go/quic-go v0.65.0

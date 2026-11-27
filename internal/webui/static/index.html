@@ -645,6 +645,35 @@
       background: var(--stage-bg);
       position: relative;
     }
+    /* Why the remote picture is black, shown over the picture itself (also without the 📊 panel). */
+    .screen-black-advice {
+      display: none;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 6;
+      max-width: min(560px, 86%);
+      padding: 14px 18px;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+      border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+      color: var(--text);
+      font-size: 0.86rem;
+      line-height: 1.55;
+      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
+      pointer-events: auto;
+    }
+    .screen-black-advice strong {
+      display: block;
+      color: var(--warn);
+      margin-bottom: 4px;
+    }
+    .screen-black-advice button {
+      margin-top: 10px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+    }
     .screen-stats {
       position: absolute;
       top: 10px;
@@ -2864,6 +2893,7 @@
     <div id="screenNotice" class="screen-notice"></div>
     <div class="screen-stage" id="screenStage">
       <div id="screenStats" class="screen-stats" aria-live="off"></div>
+      <div id="screenBlackAdvice" class="screen-black-advice" role="status"></div>
       <div id="screenPlaceholder" class="screen-placeholder">⏳ กำลังเชื่อมต่อหน้าจอปลายทาง...</div>
       <canvas id="remoteVideoCanvas" tabindex="0" style="display:none"></canvas>
       <canvas id="remoteCanvas" tabindex="0" style="display:none"></canvas>
@@ -5213,13 +5243,41 @@
     function blackScreenAdvice(hs) {
       const h = new Set(hs?.screen_hints || []);
       const pre = 'ภาพที่ได้เป็นสีดำทั้งจอ — ';
-      if (h.has('wayland')) return pre + 'เครื่องปลายทางเข้าระบบด้วย Wayland ซึ่งจับภาพแบบ X11 ไม่ได้ ให้เปลี่ยนไปใช้ Xorg: ตอนล็อกอินกด ⚙ เลือก "on Xorg" หรือตั้ง WaylandEnable=false ใน /etc/gdm3/custom.conf แล้วรีบูต';
+      if (h.has('wayland')) return pre + 'เครื่องปลายทางใช้ Wayland ที่ APN ยังจับภาพไม่ได้ APN จับภาพ Wayland ได้เฉพาะ GNOME (ต้องมีแพ็กเกจ gstreamer1.0-pipewire และ gstreamer1.0-tools ซึ่ง APN ติดตั้งให้เองเมื่อรันเป็น service) ถ้าเพิ่งติดตั้ง ลองเชื่อมต่อใหม่ ส่วนเดสก์ท็อปอื่นให้ล็อกอินแบบ Xorg';
       if (h.has('lid_closed')) return pre + 'ฝาโน้ตบุ๊กปลายทางพับอยู่ทำให้จอในตัวดับ — เปิดฝา หรือต่อจอ/HDMI dummy plug';
       if (h.has('no_display')) return pre + 'เครื่องปลายทางไม่มีจอต่ออยู่ — ต่อจอหรือ HDMI dummy plug';
       if (h.has('display_off')) return pre + 'จอของเครื่องปลายทางดับอยู่ — ลองขยับเมาส์/กดปุ่ม หรือปิดการพักจออัตโนมัติ';
       if (h.has('login_screen')) return pre + 'ปลายทางอยู่ที่หน้า login — ลองล็อกอินที่เครื่องปลายทาง';
       return pre + 'จอปลายทางอาจดับ ล็อก หรือจับภาพผิดจอ ลองขยับเมาส์ หรือกด 🔎 ตรวจระบบจับภาพ';
     }
+
+    let blackAdviceDismissed = false;
+
+    // updateBlackAdvice runs every second while a remote screen is open: it tracks how long the
+    // picture has been all black and, after 3 s, shows the likely cause over the picture.
+    function updateBlackAdvice() {
+      if (pictureIsBlack()) { if (!screenBlackSince) screenBlackSince = performance.now(); }
+      else { screenBlackSince = 0; blackAdviceDismissed = false; }
+      const box = document.getElementById('screenBlackAdvice');
+      if (!box) return;
+      const show = !blackAdviceDismissed && screenBlackSince && performance.now() - screenBlackSince >= 3000;
+      if (!show) {
+        if (box.style.display !== 'none') box.style.display = 'none';
+        return;
+      }
+      const text = blackScreenAdvice(hostStats).replace(/^ภาพที่ได้เป็นสีดำทั้งจอ — /, '');
+      if (box.dataset.text !== text) {
+        box.dataset.text = text;
+        box.innerHTML = `<strong>⚠ ภาพจากเครื่องปลายทางเป็นสีดำทั้งจอ</strong>${esc(text)}<div><button class="secondary" onclick="dismissBlackAdvice()">ซ่อนข้อความนี้</button></div>`;
+      }
+      box.style.display = 'block';
+    }
+
+    window.dismissBlackAdvice = () => {
+      blackAdviceDismissed = true;
+      const box = document.getElementById('screenBlackAdvice');
+      if (box) box.style.display = 'none';
+    };
 
     // diagnoseScreen names the stage that limits smoothness right now, from host and viewer counters.
     function diagnoseScreen(hs, path, rendered, video) {
@@ -5405,8 +5463,6 @@
         ? `รับ ${vstat.recv} · ถอดรหัส ${vstat.decoded} · แสดง ${n(rendered)} FPS · ข้าม ${vstat.skipped}`
         : `แสดง ${n(rendered)} FPS`;
       const cursorLine = hs?.local_cursor ? 'วาดที่เครื่องนี้ (ไม่หน่วง)' : (wantLocalCursor() ? 'อยู่ในวิดีโอ (ปลายทางยังไม่รองรับ)' : 'อยู่ในวิดีโอ (ตามที่ตั้งไว้)');
-      if (pictureIsBlack()) { if (!screenBlackSince) screenBlackSince = performance.now(); }
-      else screenBlackSince = 0;
       const d = diagnoseScreen(hs, path, rendered, video);
 
       if (!hasSelectionInside(liveBox)) {
@@ -5868,6 +5924,8 @@
       screenRTT = null;
       screenRTTAvg = null;
       screenBlackSince = 0;
+      blackAdviceDismissed = false;
+      { const b = document.getElementById('screenBlackAdvice'); if (b) { b.style.display = 'none'; b.dataset.text = ''; } }
       screenLastActivityAt = performance.now();
       screenPongSupported = false;
       setRemoteCursorShape('');
@@ -5942,6 +6000,7 @@
           }
           sendInput({ type: 'ping', t: performance.now() });
         }
+        updateBlackAdvice();
         renderScreenStats(agentId, screenFrames, screenBytesSec);
         screenFrames = 0;
         screenBytesSec = 0;

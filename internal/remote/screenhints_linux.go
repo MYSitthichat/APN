@@ -5,7 +5,8 @@ package remote
 // hostScreenHints lists reasons the captured screen may be black or blank (see screenhints.go).
 func hostScreenHints() []string {
 	var hints []string
-	if isLinuxWayland() {
+	// Wayland is a cause of a black picture only when capture could not use Mutter's screen cast.
+	if (isLinuxWayland() || waylandDesktop()) && !waylandCaptureActive() {
 		hints = append(hints, hintWayland)
 	}
 	if s := getActiveLinuxSession(); s.HasUserCred && s.UID < 1000 {

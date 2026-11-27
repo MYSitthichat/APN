@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -137,18 +138,8 @@ func WarmupH264Encoder() {
 					continue
 				}
 				probeCtx, cancel := context.WithTimeout(wCtx, 2400*time.Millisecond)
-				cmd := exec.CommandContext(probeCtx, ffmpegPath, cand.args...)
-				release := prepareCaptureCmd(cmd)
 				var stderrBuf bytes.Buffer
-				cmd.Stderr = &stderrBuf
-				stdout, err := cmd.StdoutPipe()
-				if err != nil {
-					release()
-					cancel()
-					continue
-				}
-				err = cmd.Start()
-				release()
+				cmd, stdout, srcCleanup, err := startCandidate(probeCtx, ffmpegPath, cand, &stderrBuf)
 				if err != nil {
 					cancel()
 					continue
@@ -157,6 +148,7 @@ func WarmupH264Encoder() {
 				au, _, rerr := scanner.NextAccessUnit()
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
+				srcCleanup()
 				timedOut := probeCtx.Err() == context.DeadlineExceeded
 				cancel()
 				if rerr == nil && len(au) > 0 {
@@ -219,23 +211,15 @@ func probeCandidate(ctx context.Context, ffmpegPath string, cand encoderCandidat
 func probeCandidateDetail(ctx context.Context, ffmpegPath string, cand encoderCandidate, timeout time.Duration) (ok, timedOut bool, stderr string) {
 	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(pctx, ffmpegPath, cand.args...)
-	release := prepareCaptureCmd(cmd)
 	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		release()
-		return false, false, err.Error()
-	}
-	err = cmd.Start()
-	release()
+	cmd, stdout, srcCleanup, err := startCandidate(pctx, ffmpegPath, cand, &errBuf)
 	if err != nil {
 		return false, false, err.Error()
 	}
 	au, _, rerr := newFLVH264Reader(stdout).NextAccessUnit()
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
+	srcCleanup()
 	timedOut = pctx.Err() != nil
 	return rerr == nil && len(au) > 0 && !timedOut, timedOut, errBuf.String()
 }
@@ -453,19 +437,8 @@ func streamVideoFFmpeg(
 			continue
 		}
 		lastEnc = cand.name
-		cmd := exec.CommandContext(ctx, ffmpegPath, cand.args...)
-		release := prepareCaptureCmd(cmd)
 		var stderrBuf bytes.Buffer
-		cmd.Stderr = &stderrBuf
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			release()
-			lastErr = err
-			fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, reason: err.Error()})
-			continue
-		}
-		err = cmd.Start()
-		release()
+		cmd, stdout, srcCleanup, err := startCandidate(ctx, ffmpegPath, cand, &stderrBuf)
 		if err != nil {
 			lastErr = err
 			fails = append(fails, videoFailure{tier: cand.tier, name: cand.name, reason: err.Error()})
@@ -494,10 +467,12 @@ func streamVideoFFmpeg(
 			probeTimer.Stop()
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
+			srcCleanup()
 			return cand.name, nil
 		case <-probeTimer.C:
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
+			srcCleanup()
 			lastErr = errors.New("encoder startup timed out")
 			if cand.tier != "" && cand.tier != "GDI" {
 				skipTier[cand.tier] = true
@@ -514,6 +489,7 @@ func streamVideoFFmpeg(
 			if pr.err != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
+				srcCleanup()
 				lastErr = summarizeFFmpegErr(stderrBuf.String(), pr.err)
 				noteCaptureStderr(stderrBuf.String())
 				if cand.tier != "" && isCaptureTierFailure(cand.tier, stderrBuf.String()) {
@@ -737,6 +713,7 @@ func streamVideoFFmpeg(
 
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
+		srcCleanup()
 		<-readDone
 
 		if sendErr != nil || ctx.Err() != nil {
@@ -770,6 +747,54 @@ type encoderCandidate struct {
 	name string
 	tier string // Capture tier on Windows: "WGC", "DXGI", "DXGI1", "GDI"
 	args []string
+	// source, when set, feeds FFmpeg's stdin (Linux Wayland: raw frames from Mutter's PipeWire stream).
+	source *candidateSource
+}
+
+// candidateSource produces the input an FFmpeg candidate reads on stdin. start returns the read
+// end FFmpeg gets as its stdin and a cleanup that stops the producer.
+type candidateSource struct {
+	name  string
+	start func(ctx context.Context) (*os.File, func(), error)
+}
+
+// startCandidate launches one candidate's FFmpeg with stdout piped and stderr to errOut. Call
+// cleanup after cmd.Wait: it stops the candidate's input source, if any.
+func startCandidate(ctx context.Context, ffmpegPath string, cand encoderCandidate, errOut io.Writer) (*exec.Cmd, io.ReadCloser, func(), error) {
+	noop := func() {}
+	cmd := exec.CommandContext(ctx, ffmpegPath, cand.args...)
+	release := prepareCaptureCmd(cmd)
+	cmd.Stderr = errOut
+	srcCleanup := noop
+	var stdinFile *os.File
+	if cand.source != nil {
+		f, c, err := cand.source.start(ctx)
+		if err != nil {
+			release()
+			return nil, nil, noop, fmt.Errorf("%s capture: %w", cand.source.name, err)
+		}
+		stdinFile, srcCleanup = f, c
+		cmd.Stdin = f
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		release()
+		if stdinFile != nil {
+			stdinFile.Close()
+		}
+		srcCleanup()
+		return nil, nil, noop, err
+	}
+	err = cmd.Start()
+	release()
+	if stdinFile != nil {
+		stdinFile.Close() // FFmpeg has its own copy; ours would keep the producer alive after FFmpeg exits
+	}
+	if err != nil {
+		srcCleanup()
+		return nil, nil, noop, err
+	}
+	return cmd, stdout, srcCleanup, nil
 }
 
 // sendQueueDepth is how many encoded frames may wait for the network before frames are dropped.
@@ -1083,11 +1108,28 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	}
 
 	var inputArgs []string
+	// wlSource: GNOME on Wayland, where x11grab sees only an empty Xwayland root. Frames come
+	// from Mutter's screen cast as raw BGRx on stdin instead (see wayland_mutter_linux.go).
+	var wlSource *candidateSource
 	if runtime.GOOS == "darwin" {
 		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "avfoundation", "-framerate", fpsStr, "-capture_cursor", cur, "-i", "1:none"}
+	} else if src, args, ok := waylandCaptureSource(srcW, srcH, fps); ok {
+		inputArgs, wlSource = args, src
 	} else {
 		disp := captureDisplay()
 		inputArgs = []string{"-probesize", "32", "-analyzeduration", "0", "-f", "x11grab", "-framerate", fpsStr, "-draw_mouse", cur, "-video_size", fmt.Sprintf("%dx%d", srcW, srcH), "-i", disp}
+	}
+	withSource := func(l []encoderCandidate) []encoderCandidate {
+		if wlSource == nil {
+			return l
+		}
+		for i := range l {
+			// No tier: a timed-out GPU encoder must not skip the remaining candidates (x264), which
+			// a shared tier would do in streamVideoFFmpeg.
+			l[i].source = wlSource
+			l[i].name = "Wayland + " + strings.TrimPrefix(l[i].name, "X11 + ")
+		}
+		return l
 	}
 	makeUnix := func(vf string, encArgs []string) []string {
 		args := append([]string{}, inLowLatency...)
@@ -1109,7 +1151,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			vaapi := []string{"-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-b:v", hevcBitrate, "-maxrate", hevcMaxRate, "-g", gopStr, "-bf", "0"}
 			list = append(list, linuxGPUCandidates("H.265 ", makeUnix, inLowLatency, inputArgs, outFlags, nv12Filter, needScale, outW, outH, nvenc, vaapi)...)
 		}
-		return list
+		return withSource(list)
 	}
 
 	if runtime.GOOS == "darwin" {
@@ -1126,7 +1168,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		name: "x264 ZeroLatency",
 		args: makeUnix(yuvFilter, []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0", "-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
 	})
-	return list
+	return withSource(list)
 }
 
 // linuxGPUCandidates builds the Linux X11 GPU encoder candidates for NVENC and VAAPI.

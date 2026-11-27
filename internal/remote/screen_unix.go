@@ -86,6 +86,10 @@ func markScreenSizeStale() {
 var reXrandrCurrent =regexp.MustCompile(`current\s+(\d+)\s*x\s*(\d+)`)
 
 func probeLinuxScreenSize() (int, int, bool) {
+	// GNOME on Wayland: the size of the monitor the screen cast records.
+	if w, h, ok := waylandStreamSize(); ok {
+		return w, h, true
+	}
 	if w, h, ok := x11ScreenSize(); ok {
 		return w, h, true
 	}
@@ -308,6 +312,10 @@ func decodeAndTrackRGBA(encoded []byte) (*image.RGBA, error) {
 func ApplyInputEvent(ev InputEvent) error {
 	if runtime.GOOS != "linux" {
 		return nil
+	}
+	// GNOME on Wayland: XTest would reach only Xwayland windows, so input goes to Mutter.
+	if handled, err := applyWaylandInput(ev); handled {
+		return err
 	}
 	// Try native pure-Go X11 XTEST first (mouse, wheel, physical keys, Super+Space)
 	if handled, err := applyX11Input(ev); handled {
