@@ -6,7 +6,7 @@
 
 <p align="center">
   โปรแกรมรีโมตเดสก์ท็อป 60 FPS และ Virtual LAN (L3 VPN) ข้ามเครือข่ายอัตโนมัติในไฟล์เดียว<br />
-  รองรับ Windows · Linux · macOS · มือถือ (PWA)
+  รองรับ Windows · Linux · macOS (ยังไม่รองรับมือถือ)
 </p>
 
 ---
@@ -34,12 +34,12 @@
 | Windows (Intel/AMD, ARM64) | `APN-v*-windows-amd64.exe`, `APN-v*-windows-arm64.exe` |
 | Linux (Ubuntu/Debian `.deb` & Binary) | `APN-v*-linux-amd64.deb`, `APN-v*-linux-arm64.deb`, `APN-v*-linux-armv7.deb` |
 | macOS (Apple Silicon, Intel) | `APN-v*-macos-arm64`, `APN-v*-macos-amd64` |
-| iOS / Android | ติดตั้งผ่านเบราว์เซอร์ (Add to Home Screen / PWA) |
+| iOS / Android | ยังไม่รองรับ (ยังไม่มีแอปมือถือ และหน้าแอปเปิดได้จากเครื่องที่รัน APN เท่านั้น) |
 
 ---
 
 ## การบิลด์จากซอร์สโค้ด (สำหรับนักพัฒนา)
-ต้องติดตั้ง Go 1.24+ แล้วรัน:
+ต้องติดตั้ง Go 1.27+ แล้วรัน:
 ```powershell
 go test ./...
 .\scripts\build-all.ps1
