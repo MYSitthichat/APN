@@ -2997,7 +2997,7 @@
         <button id="btnPushFiles" class="success" onclick="pushCheckedLocalFiles()" title="ส่งไฟล์และโฟลเดอร์ที่ติ๊กเลือกจากเครื่องนี้ไปโฟลเดอร์ฝั่งขวา (โฟลเดอร์ส่งไปทั้งโฟลเดอร์)">ส่งไป ➔</button>
         <button id="btnPullFiles" style="background:linear-gradient(135deg,var(--accent),var(--accent-2))" onclick="pullCheckedRemoteFiles()" title="ดึงไฟล์และโฟลเดอร์ที่ติ๊กเลือกจากเครื่องปลายทางมาเก็บในโฟลเดอร์ฝั่งซ้าย (โฟลเดอร์ดึงมาทั้งโฟลเดอร์)">⬅ ดึงมา</button>
         <div class="ft-center-hint muted" style="font-size:0.71rem;text-align:center;line-height:1.45;margin-top:2px">
-          ติ๊กเลือกไฟล์แล้วกดปุ่ม<br/>ดับเบิลคลิกเพื่อเปิด/ส่งทันที
+          ติ๊กเลือกไฟล์/โฟลเดอร์แล้วกดปุ่ม<br/>คลิกโฟลเดอร์เพื่อเปิด · ดับเบิลคลิกไฟล์เพื่อส่งทันที
         </div>
       </div>
 
@@ -6948,11 +6948,11 @@
         const openFn = side === 'local' ? `loadLocalDir(${jsPath})` : `loadRemoteDir(${jsPath})`;
         const delFn = side === 'local' ? `deleteLocalFile(${jsPath},${jsArg(e.name)})` : `deleteRemoteFile(${jsPath},${jsArg(e.name)})`;
         rows.push(`
-          <div class="ft-row ${checked ? 'selected' : ''}"
-               onclick="toggleFileSelect(${jsArg(side)}, ${Number(idx)}, event)"
-               ondblclick="${e.is_dir ? openFn : (side === 'local' ? `pushSingleLocalFile(${idx})` : `pullSingleRemoteFile(${idx})`)}"
-               title="${esc(e.name)}">
-            <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect(${jsArg(side)}, ${Number(idx)})" style="margin:0;cursor:pointer" title="${e.is_dir ? 'เลือกทั้งโฟลเดอร์ (ดับเบิลคลิกเพื่อเปิด)' : 'เลือกไฟล์'}" />
+          <div class="ft-row ${checked ? 'selected' : ''}" data-side="${side}" data-idx="${Number(idx)}"
+               onclick="${e.is_dir ? openFn : `toggleFileSelect(${jsArg(side)}, ${Number(idx)}, event)`}"
+               ${e.is_dir ? '' : `ondblclick="${side === 'local' ? `pushSingleLocalFile(${idx})` : `pullSingleRemoteFile(${idx})`}"`}
+               title="${esc(e.is_dir ? e.name + ' — คลิกเพื่อเปิด · ติ๊กช่องหน้าชื่อเพื่อเลือกทั้งโฟลเดอร์' : e.name)}">
+            <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleFileSelect(${jsArg(side)}, ${Number(idx)})" ondblclick="event.stopPropagation()" style="margin:0;cursor:pointer" title="${e.is_dir ? 'เลือกทั้งโฟลเดอร์' : 'เลือกไฟล์'}" />
             <span class="ft-name ${e.is_dir ? 'is-dir' : ''}">
               <span class="ft-icon">${fileIconFor(e)}</span>
               <span class="ft-name-text">${esc(e.name)}</span>
@@ -6981,7 +6981,18 @@
       if (!item) return;
       if (selSet.has(item.path)) selSet.delete(item.path);
       else selSet.add(item.path);
-      document.getElementById(side === 'local' ? 'localListBody' : 'filesListBody').innerHTML = renderFilePaneRows(side, list);
+      const on = selSet.has(item.path);
+      // Update just this row: re-rendering the whole list replaced the row between the two clicks
+      // of a double click, so double-click-to-send never fired.
+      const body = document.getElementById(side === 'local' ? 'localListBody' : 'filesListBody');
+      const row = body && body.querySelector(`.ft-row[data-idx="${Number(idx)}"]`);
+      if (row) {
+        row.classList.toggle('selected', on);
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) cb.checked = on;
+      } else if (body) {
+        body.innerHTML = renderFilePaneRows(side, list);
+      }
       updateTransferButtonCounts();
     };
 
