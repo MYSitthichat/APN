@@ -21,9 +21,59 @@ func TestAuthLimiterLocksOutRepeatedFailures(t *testing.T) {
 	if !l.allow("198.51.100.9") {
 		t.Fatal("another address must not be locked out")
 	}
+	if w := l.wait("203.0.113.5"); w != time.Minute {
+		t.Fatalf("first lockout = %v, want 1 minute", w)
+	}
 	now = now.Add(perKeyLockout + time.Second)
 	if !l.allow("203.0.113.5") {
 		t.Fatal("still locked out after the lockout period")
+	}
+}
+
+// TestAuthLimiterLockoutGrows: someone who mistyped waits a minute; a guesser who keeps going
+// waits 2, 4, 8 and then at most 15 minutes, and the doubling is forgotten after an hour.
+func TestAuthLimiterLockoutGrows(t *testing.T) {
+	l := newAuthLimiter()
+	now := time.Unix(1_700_000_000, 0)
+	l.now = func() time.Time { return now }
+	lockOnce := func() time.Duration {
+		for i := 0; i < perKeyMaxFails; i++ {
+			if !l.allow("k") {
+				t.Fatalf("locked out after %d of %d failures", i, perKeyMaxFails)
+			}
+			l.fail("k")
+		}
+		w := l.wait("k")
+		now = now.Add(w + time.Second)
+		return w
+	}
+	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 15 * time.Minute, 15 * time.Minute}
+	for i, w := range want {
+		if got := lockOnce(); got != w {
+			t.Fatalf("lockout #%d = %v, want %v", i+1, got, w)
+		}
+	}
+	now = now.Add(lockoutMemory + time.Minute)
+	if got := lockOnce(); got != time.Minute {
+		t.Fatalf("lockout after a quiet hour = %v, want 1 minute again", got)
+	}
+	l.success("k")
+	if got := lockOnce(); got != time.Minute {
+		t.Fatalf("lockout after a successful login = %v, want 1 minute", got)
+	}
+}
+
+func TestWaitText(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		45 * time.Second:            "45 วินาที",
+		200 * time.Millisecond:      "1 วินาที",
+		time.Minute:                 "1 นาที",
+		time.Minute + 2*time.Second: "2 นาที",
+		15 * time.Minute:            "15 นาที",
+	} {
+		if got := waitText(d); got != want {
+			t.Errorf("waitText(%v) = %q, want %q", d, got, want)
+		}
 	}
 }
 

@@ -542,9 +542,9 @@ func TestWrongPINsRotateTempPINAndLockOut(t *testing.T) {
 			t.Fatal("wrong PIN accepted")
 		}
 	}
-	// The source is now locked out, even with the correct PIN.
+	// The source is now locked out for a minute, even with the correct PIN.
 	_, err := attacker.ConnectDirect(ctx, snap.QUICListenAddr, pin, snap.Fingerprint)
-	if err == nil || !strings.Contains(err.Error(), "15") {
+	if err == nil || !strings.Contains(err.Error(), "กรุณารอ") || !strings.Contains(err.Error(), "นาที") {
 		t.Fatalf("correct PIN after 5 failures from the same address: err=%v, want lockout", err)
 	}
 }

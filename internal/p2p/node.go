@@ -2355,11 +2355,11 @@ func (n *Node) handleIncomingSession(sess MuxSession) {
 	}
 
 	key := authKey(sess.RemoteAddr())
-	if !n.authLimit.allow(key) {
+	if wait := n.authLimit.wait(key); wait > 0 {
 		time.Sleep(authFailDelay)
 		_ = protocol.WriteMessage(stream, peerHelloResponse{
 			OK:    false,
-			Error: "ใส่รหัสผิดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่",
+			Error: "ใส่รหัสผิดหลายครั้งเกินไป กรุณารอ " + waitText(wait) + " แล้วลองใหม่",
 		})
 		_ = stream.Close()
 		// Let the reply reach the caller before tearing the session down.
