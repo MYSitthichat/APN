@@ -238,6 +238,7 @@ type NodeSnapshot struct {
 	PendingApprovals     []PendingApproval          `json:"pending_approvals"`
 	ConnectedPeers       []PeerInfo                 `json:"connected_peers"`
 	SavedPeers           []SavedPeerInfo            `json:"saved_peers"`
+	Account              AccountStatus              `json:"account"`
 	DiscoveredPeers      []DiscoveredPeer           `json:"discovered_peers"`
 	ActiveSessions       []ActiveSession            `json:"active_sessions"`
 	Tunnels              []TunnelStatus             `json:"tunnels"`
@@ -286,6 +287,15 @@ type Node struct {
 	sessions         map[string]*liveSession
 	tunnels          map[string]*managedTunnel
 	tunnelOrder      []string
+
+	// Account sign-in (account.go). accountSyncMu lets one sync run at a time; accountKick
+	// wakes the sync loop after a config change; accountQuiet (guarded by mu) mutes that wake-up
+	// while the sync itself saves the config.
+	accountSyncMu sync.Mutex
+	accountKick   chan struct{}
+	accountQuiet  bool
+	accountStatMu sync.Mutex
+	accountStat   accountRuntime
 
 	rdvClient *http.Client
 	rootCtx   context.Context
@@ -356,6 +366,7 @@ func NewNode(cfg *config.PeerConfig, logger *slog.Logger) (*Node, error) {
 		authLimit:     newAuthLimiter(),
 		sessions:      make(map[string]*liveSession),
 		tunnels:       make(map[string]*managedTunnel),
+		accountKick:   make(chan struct{}, 1),
 		rdvClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -483,6 +494,7 @@ func (n *Node) SetRendezvousHTTPClient(hc *http.Client) {
 }
 
 func (n *Node) persistConfigLocked() {
+	n.kickAccountSync()
 	if n.configPath == "" {
 		return
 	}
@@ -582,6 +594,7 @@ func (n *Node) StartAsync(ctx context.Context) error {
 
 	go n.rendezvousSyncLoop(ctx)
 	go n.presenceLoop(ctx)
+	go n.accountLoop(ctx)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -3242,6 +3255,7 @@ func (n *Node) Snapshot() NodeSnapshot {
 		PendingApprovals: approvals,
 		ConnectedPeers:   peers,
 		SavedPeers:       savedPeers,
+		Account:          n.accountStatusLocked(),
 		DiscoveredPeers:  discovered,
 		ActiveSessions:   sessions,
 		Tunnels:          tunnels,

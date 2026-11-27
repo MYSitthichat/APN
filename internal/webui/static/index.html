@@ -2632,6 +2632,19 @@
       </form>
     </div>
   </div>
+  <!-- Account sign-in dialog: the saved device list follows the user to other machines -->
+  <div id="apnAcctBackdrop" class="apn-dialog-backdrop" onclick="if(event.target===this)closeAccountDialog()">
+    <div class="apn-dialog-card" role="dialog" aria-modal="true" aria-labelledby="apnAcctTitle">
+      <div class="apn-dialog-head">
+        <div class="apn-dialog-icon">👤</div>
+        <div style="min-width:0;flex:1">
+          <div id="apnAcctTitle" class="apn-dialog-title">บัญชี APN</div>
+          <div id="apnAcctSub" class="apn-dialog-msg" style="margin-top:3px"></div>
+        </div>
+      </div>
+      <div id="apnAcctBody" style="display:grid;gap:11px"></div>
+    </div>
+  </div>
   <!-- Incoming connection request pop-up (AnyDesk-style) -->
   <div id="aprBackdrop" class="apr-backdrop">
     <div class="apr-card" role="alertdialog" aria-modal="true" aria-labelledby="aprName" aria-describedby="aprQuestion">
@@ -3343,6 +3356,14 @@
           closeGroupDialog();
           return;
         }
+        const acctBd = document.getElementById('apnAcctBackdrop');
+        const confirmOpen = document.getElementById('apnDialogBackdrop')?.classList.contains('open');
+        if (acctBd && acctBd.classList.contains('open') && !confirmOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeAccountDialog();
+          return;
+        }
       }
       const backdrop = document.getElementById('apnDialogBackdrop');
       if (!backdrop || !backdrop.classList.contains('open')) return;
@@ -3357,6 +3378,337 @@
         confirmApnDialog();
       }
     }, true);
+
+    // ---- Account sign-in (address book follows the user to other machines) ----
+    // Views: 'login' | 'register' | 'forgot' | 'reset' | 'home' | 'password' | 'email'
+    let acctView = 'login';
+    let acctBusy = false;
+    let acctResetUser = '';  // carried from "forgot" to "reset"
+    let acctResetEmail = '';
+
+    function acctInfo() {
+      return (lastPeerData && lastPeerData.account) || {};
+    }
+
+    function acctAgo(iso) {
+      if (!iso) return '';
+      const t = Date.parse(iso);
+      if (!t) return '';
+      const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+      if (sec < 60) return 'เมื่อสักครู่';
+      if (sec < 3600) return `${Math.floor(sec / 60)} นาทีที่แล้ว`;
+      if (sec < 86400) return `${Math.floor(sec / 3600)} ชั่วโมงที่แล้ว`;
+      return new Date(t).toLocaleString('th-TH');
+    }
+
+    // Button in the device tab bar. Hidden when no Rendezvous server is configured.
+    function accountButtonHTML(a) {
+      if (!a || !a.available) return '';
+      const base = 'padding:6px 10px;font-size:0.78rem;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis';
+      if (a.signed_in) {
+        const warn = a.error ? '⚠ ' : '👤 ';
+        const tip = a.error
+          ? `ซิงก์ไม่สำเร็จ: ${a.error}`
+          : `เข้าสู่ระบบอยู่ · ซิงก์ ${a.devices || 0} เครื่อง${a.last_sync ? ' · ล่าสุด ' + acctAgo(a.last_sync) : ''}`;
+        return `<button type="button" class="secondary" style="${base}${a.error ? ';color:#fbbf24' : ''}" onclick="openAccountDialog()" title="${esc(tip)}">${warn}${esc(a.username)}</button>`;
+      }
+      if (a.username) {
+        return `<button type="button" class="secondary" style="${base};color:#fbbf24" onclick="openAccountDialog()" title="เซสชันของบัญชี ${esc(a.username)} สิ้นสุดแล้ว กรุณาเข้าสู่ระบบใหม่">⚠ เข้าสู่ระบบใหม่</button>`;
+      }
+      return `<button type="button" class="secondary" style="${base}" onclick="openAccountDialog()" title="เข้าสู่ระบบเพื่อให้รายชื่อเครื่องและรหัสผ่านที่จำไว้ตามไปทุกเครื่อง">👤 เข้าสู่ระบบ</button>`;
+    }
+
+    function acctSetErr(msg) {
+      const el = document.getElementById('acctErr');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.style.display = msg ? 'block' : 'none';
+    }
+
+    function acctLink(view, text) {
+      return `<a href="#" style="font-size:0.8rem;color:var(--accent);text-decoration:none" onclick="setAccountView('${view}');return false">${text}</a>`;
+    }
+
+    function renderAccountDialog(err = '') {
+      const a = acctInfo();
+      const sub = document.getElementById('apnAcctSub');
+      const body = document.getElementById('apnAcctBody');
+      const title = document.getElementById('apnAcctTitle');
+      if (!body) return;
+      const inp = 'class="apn-dialog-input"';
+      if (!a.signed_in && ['home', 'password', 'email'].includes(acctView)) acctView = 'login';
+
+      if (acctView === 'home') {
+        title.textContent = 'บัญชี APN';
+        sub.textContent = 'รายชื่อเครื่อง กลุ่ม และรหัสผ่านที่จำไว้ ซิงก์ไปทุกเครื่องที่เข้าสู่ระบบด้วยบัญชีนี้';
+        const status = a.error
+          ? `<div class="auth-err" style="display:block">ซิงก์ไม่สำเร็จ: ${esc(a.error)}</div>`
+          : `<div class="auth-hint">✓ ซิงก์แล้ว ${a.devices || 0} เครื่อง${a.last_sync ? ' · ล่าสุด ' + esc(acctAgo(a.last_sync)) : ''}</div>`;
+        const mail = a.email
+          ? `<div class="auth-hint">✉ อีเมลสำหรับรีเซ็ตรหัสผ่าน: <strong style="color:var(--text)">${esc(a.email)}</strong> · ${acctLink('email', 'เปลี่ยน')}</div>`
+          : `<div class="auth-hint" style="color:#fbbf24">⚠ บัญชีนี้ยังไม่มีอีเมล ถ้าลืมรหัสผ่านจะรีเซ็ตไม่ได้ · ${acctLink('email', 'ตั้งอีเมล')}</div>`;
+        body.innerHTML = `
+          <div class="auth-target-pill">
+            <div style="min-width:0;flex:1">
+              <div style="font-weight:800;font-size:0.93rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.username)}</div>
+              <div class="muted" style="font-size:0.76rem;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.server || '')}</div>
+            </div>
+            <span class="badge" style="padding:3px 9px;font-size:0.72rem;flex-shrink:0"><span class="dot ok"></span>เข้าสู่ระบบอยู่</span>
+          </div>
+          ${status}
+          ${mail}
+          <div class="auth-hint">🔒 รายชื่อถูกเข้ารหัสบนเครื่องนี้ด้วยรหัสผ่านบัญชีก่อนส่ง เซิร์ฟเวอร์อ่านรายชื่อและรหัสผ่านของเครื่องปลายทางไม่ได้</div>
+          <label style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;color:var(--text-soft)">
+            <input id="acctWipe" type="checkbox" style="width:16px;height:16px;margin:0;cursor:pointer" />
+            <span>ตอนออกจากระบบ ให้ลบรายชื่อเครื่องและรหัสผ่านที่จำไว้ออกจากเครื่องนี้ด้วย</span>
+          </label>
+          <div id="acctErr" class="auth-err"></div>
+          <div class="apn-dialog-actions" style="flex-wrap:wrap">
+            <button type="button" class="secondary" style="color:var(--danger);margin-right:auto" onclick="accountLogout()">ออกจากระบบ</button>
+            <button type="button" class="secondary" onclick="setAccountView('password')">เปลี่ยนรหัสผ่าน</button>
+            <button id="acctSubmit" type="button" class="success" onclick="accountSyncNow()">↻ ซิงก์ตอนนี้</button>
+          </div>`;
+      } else if (acctView === 'password') {
+        title.textContent = 'เปลี่ยนรหัสผ่านบัญชี';
+        sub.textContent = `บัญชี ${a.username}`;
+        body.innerHTML = `
+          <form onsubmit="submitAccountPassword(event)" style="display:grid;gap:11px">
+            <input id="acctOld" ${inp} type="password" placeholder="รหัสผ่านปัจจุบัน" autocomplete="current-password" />
+            <input id="acctNew" ${inp} type="password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 10 ตัวอักษร)" autocomplete="new-password" />
+            <input id="acctNew2" ${inp} type="password" placeholder="ยืนยันรหัสผ่านใหม่" autocomplete="new-password" />
+            <div class="auth-hint">เครื่องอื่นที่เข้าสู่ระบบด้วยบัญชีนี้จะถูกออกจากระบบ และต้องเข้าสู่ระบบใหม่ด้วยรหัสผ่านใหม่</div>
+            <div id="acctErr" class="auth-err"></div>
+            <div class="apn-dialog-actions">
+              <button type="button" class="secondary" onclick="setAccountView('home')">ย้อนกลับ</button>
+              <button id="acctSubmit" type="submit" class="success">เปลี่ยนรหัสผ่าน</button>
+            </div>
+          </form>`;
+      } else if (acctView === 'email') {
+        title.textContent = a.email ? 'เปลี่ยนอีเมลของบัญชี' : 'ตั้งอีเมลของบัญชี';
+        sub.textContent = 'รหัสรีเซ็ตเมื่อลืมรหัสผ่านจะถูกส่งไปที่อีเมลนี้';
+        body.innerHTML = `
+          <form onsubmit="submitAccountEmail(event)" style="display:grid;gap:11px">
+            <input id="acctEmail" ${inp} type="email" maxlength="254" placeholder="อีเมลใหม่" autocomplete="email" autocapitalize="none" spellcheck="false" />
+            <input id="acctOld" ${inp} type="password" placeholder="รหัสผ่านบัญชี (เพื่อยืนยัน)" autocomplete="current-password" />
+            <div class="auth-hint">ตรวจตัวสะกดให้ถูก ใครก็ตามที่เปิดอีเมลนี้ได้จะรีเซ็ตรหัสผ่านบัญชีได้</div>
+            <div id="acctErr" class="auth-err"></div>
+            <div class="apn-dialog-actions">
+              <button type="button" class="secondary" onclick="setAccountView('home')">ย้อนกลับ</button>
+              <button id="acctSubmit" type="submit" class="success">บันทึกอีเมล</button>
+            </div>
+          </form>`;
+      } else if (acctView === 'forgot') {
+        title.textContent = 'ลืมรหัสผ่านบัญชี';
+        sub.textContent = 'กรอกชื่อผู้ใช้และอีเมลที่ใช้สมัคร ระบบจะส่งรหัสรีเซ็ตไปที่อีเมลนั้น';
+        body.innerHTML = `
+          <form onsubmit="submitAccountForgot(event)" style="display:grid;gap:11px">
+            <input id="acctUser" ${inp} type="text" maxlength="32" placeholder="ชื่อผู้ใช้" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(acctResetUser || a.username || '')}" />
+            <input id="acctEmail" ${inp} type="email" maxlength="254" placeholder="อีเมลที่ใช้สมัคร" autocomplete="email" autocapitalize="none" spellcheck="false" value="${esc(acctResetEmail)}" />
+            <div class="auth-hint">⚠ เมื่อตั้งรหัสผ่านใหม่ รายชื่อที่เก็บบนเซิร์ฟเวอร์จะถูกล้าง เพราะถูกเข้ารหัสด้วยรหัสผ่านเดิม รายชื่อบนเครื่องของคุณไม่หาย และจะอัปโหลดกลับเมื่อเครื่องนั้นเข้าสู่ระบบด้วยรหัสผ่านใหม่</div>
+            <div id="acctErr" class="auth-err"></div>
+            <div class="apn-dialog-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
+              <span style="display:flex;gap:12px">${acctLink('login', '‹ เข้าสู่ระบบ')}${acctLink('reset', 'มีรหัสแล้ว')}</span>
+              <button id="acctSubmit" type="submit" class="success">ส่งรหัสไปที่อีเมล</button>
+            </div>
+          </form>`;
+      } else if (acctView === 'reset') {
+        title.textContent = 'ตั้งรหัสผ่านใหม่';
+        sub.textContent = acctResetEmail
+          ? `ถ้าชื่อผู้ใช้และอีเมลตรงกับบัญชี รหัส 8 หลักถูกส่งไปที่ ${acctResetEmail} แล้ว (ใช้ได้ 15 นาที ลองดูในโฟลเดอร์สแปมด้วย)`
+          : 'กรอกรหัส 8 หลักจากอีเมล พร้อมรหัสผ่านใหม่';
+        body.innerHTML = `
+          <form onsubmit="submitAccountReset(event)" style="display:grid;gap:11px">
+            <input id="acctUser" ${inp} type="text" maxlength="32" placeholder="ชื่อผู้ใช้" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(acctResetUser || a.username || '')}" />
+            <input id="acctCode" ${inp} type="text" inputmode="numeric" maxlength="12" placeholder="รหัสรีเซ็ต 8 หลักจากอีเมล" autocomplete="one-time-code" style="letter-spacing:2px;font-weight:700" />
+            <input id="acctNew" ${inp} type="password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 10 ตัวอักษร)" autocomplete="new-password" />
+            <input id="acctNew2" ${inp} type="password" placeholder="ยืนยันรหัสผ่านใหม่" autocomplete="new-password" />
+            <div class="auth-hint">ทุกเครื่องจะถูกออกจากระบบ รายชื่อบนเครื่องนี้จะถูกอัปโหลดเป็นรายชื่อของบัญชี เครื่องอื่นที่มีรายชื่ออยู่ให้เข้าสู่ระบบใหม่ด้วยรหัสผ่านใหม่ รายชื่อจะรวมกลับเข้ามาเอง</div>
+            <div id="acctErr" class="auth-err"></div>
+            <div class="apn-dialog-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
+              ${acctLink('forgot', '‹ ขอรหัสใหม่')}
+              <button id="acctSubmit" type="submit" class="success">ตั้งรหัสผ่านใหม่</button>
+            </div>
+          </form>`;
+      } else {
+        const reg = acctView === 'register';
+        if (!reg) acctView = 'login';
+        title.textContent = reg ? 'สมัครบัญชี APN' : 'เข้าสู่ระบบบัญชี APN';
+        sub.textContent = reg
+          ? 'สร้างบัญชีเพื่อให้รายชื่อเครื่องที่เคย remote ตามไปทุกเครื่องที่เข้าสู่ระบบ'
+          : 'เข้าสู่ระบบแล้วรายชื่อเครื่องที่เคย remote กลุ่ม และรหัสผ่านที่จำไว้จะตามมาที่เครื่องนี้';
+        const ended = !reg && a.username && !a.signed_in
+          ? `<div class="auth-hint" style="color:#fbbf24">เซสชันของบัญชี ${esc(a.username)} สิ้นสุดแล้ว${a.error ? ' (' + esc(a.error) + ')' : ''} รายชื่อบนเครื่องนี้ยังอยู่ครบ</div>`
+          : '';
+        body.innerHTML = `
+          <form onsubmit="submitAccountForm(event)" style="display:grid;gap:11px">
+            ${ended}
+            <input id="acctUser" ${inp} type="text" maxlength="32" placeholder="ชื่อผู้ใช้ (a-z 0-9 . _ -)" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(a.username || '')}" />
+            ${reg ? `<input id="acctEmail" ${inp} type="email" maxlength="254" placeholder="อีเมล (ใช้รับรหัสรีเซ็ตเมื่อลืมรหัสผ่าน)" autocomplete="email" autocapitalize="none" spellcheck="false" />` : ''}
+            <input id="acctPass" ${inp} type="password" placeholder="${reg ? 'รหัสผ่านบัญชี (อย่างน้อย 10 ตัวอักษร)' : 'รหัสผ่านบัญชี'}" autocomplete="${reg ? 'new-password' : 'current-password'}" />
+            ${reg ? `<input id="acctPass2" ${inp} type="password" placeholder="ยืนยันรหัสผ่านบัญชี" autocomplete="new-password" />
+            <div class="auth-hint">⚠ รายชื่อถูกเข้ารหัสด้วยรหัสผ่านนี้และเซิร์ฟเวอร์อ่านไม่ได้ ถ้าลืม รีเซ็ตได้ด้วยรหัสที่ส่งไปอีเมล แต่รายชื่อบนเซิร์ฟเวอร์จะถูกล้าง และต้องอัปโหลดกลับจากเครื่องที่ยังมีรายชื่ออยู่</div>` : ''}
+            <div class="auth-hint">รายชื่อเครื่องที่มีอยู่บนเครื่องนี้จะถูกรวมเข้ากับบัญชี</div>
+            <div id="acctErr" class="auth-err"></div>
+            <div class="apn-dialog-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
+              <span style="display:flex;gap:12px">
+                ${acctLink(reg ? 'login' : 'register', reg ? 'มีบัญชีแล้ว? เข้าสู่ระบบ' : 'สมัครใหม่')}
+                ${reg ? '' : acctLink('forgot', 'ลืมรหัสผ่าน?')}
+              </span>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="secondary" onclick="closeAccountDialog()">ปิด</button>
+                <button id="acctSubmit" type="submit" class="success">${reg ? 'สมัครและเข้าสู่ระบบ' : 'เข้าสู่ระบบ'}</button>
+              </div>
+            </div>
+          </form>`;
+      }
+      acctSetErr(err);
+    }
+
+    function acctFocusFirst() {
+      const order = ['acctUser', 'acctEmail', 'acctCode', 'acctOld', 'acctPass', 'acctNew'];
+      for (const id of order) {
+        const el = document.getElementById(id);
+        if (el && !el.value) { el.focus(); return; }
+      }
+    }
+
+    window.openAccountDialog = () => {
+      acctView = acctInfo().signed_in ? 'home' : 'login';
+      acctBusy = false;
+      acctResetUser = '';
+      acctResetEmail = '';
+      renderAccountDialog();
+      document.getElementById('apnAcctBackdrop').classList.add('open');
+      setTimeout(acctFocusFirst, 30);
+    };
+
+    window.closeAccountDialog = () => {
+      if (acctBusy) return;
+      document.getElementById('apnAcctBackdrop')?.classList.remove('open');
+      poll();
+    };
+
+    window.setAccountView = (v) => {
+      if (acctBusy) return;
+      // Keep what was typed when moving between the sign-in, sign-up and reset forms.
+      const keepUser = document.getElementById('acctUser')?.value;
+      const keepEmail = document.getElementById('acctEmail')?.value;
+      if (keepUser) acctResetUser = keepUser.trim();
+      if (keepEmail && acctView === 'forgot') acctResetEmail = keepEmail.trim();
+      acctView = v;
+      renderAccountDialog();
+      const u = document.getElementById('acctUser');
+      if (u && keepUser) u.value = keepUser;
+      acctFocusFirst();
+    };
+
+    // acctRun sends one account request, shows progress on the main button and re-renders
+    // the dialog from the returned status.
+    async function acctRun(url, body, busyText, okView, okToast) {
+      if (acctBusy) return false;
+      const btn = document.getElementById('acctSubmit');
+      const label = btn ? btn.textContent : '';
+      acctBusy = true;
+      acctSetErr('');
+      if (btn) { btn.disabled = true; btn.textContent = busyText; }
+      try {
+        lastPeerData = await api(url, { method: 'POST', body: JSON.stringify(body || {}) });
+        acctBusy = false;
+        if (okView) acctView = okView;
+        renderAccountDialog();
+        if (okToast) showToast(okToast);
+        return true;
+      } catch (e) {
+        acctBusy = false;
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        acctSetErr(e.message || 'ทำรายการไม่สำเร็จ');
+        return false;
+      }
+    }
+
+    window.submitAccountForm = async (e) => {
+      if (e) e.preventDefault();
+      const reg = acctView === 'register';
+      const username = (document.getElementById('acctUser')?.value || '').trim();
+      const password = document.getElementById('acctPass')?.value || '';
+      const email = (document.getElementById('acctEmail')?.value || '').trim();
+      if (!username || !password) return acctSetErr('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
+      if (reg && !email) return acctSetErr('กรุณากรอกอีเมล (ใช้รับรหัสรีเซ็ตเมื่อลืมรหัสผ่าน)');
+      if (reg && password !== (document.getElementById('acctPass2')?.value || '')) {
+        return acctSetErr('รหัสผ่านที่ยืนยันไม่ตรงกัน');
+      }
+      const ok = await acctRun('/api/peer/account/login', { username, password, email, register: reg },
+        reg ? 'กำลังสมัคร...' : 'กำลังเข้าสู่ระบบ...', 'home', '');
+      if (ok) {
+        const a = acctInfo();
+        showToast(a.error ? '⚠ เข้าสู่ระบบแล้ว แต่ซิงก์รอบแรกไม่สำเร็จ' : `✓ เข้าสู่ระบบแล้ว ซิงก์ ${a.devices || 0} เครื่อง`);
+      }
+    };
+
+    window.submitAccountForgot = async (e) => {
+      if (e) e.preventDefault();
+      const username = (document.getElementById('acctUser')?.value || '').trim();
+      const email = (document.getElementById('acctEmail')?.value || '').trim();
+      if (!username || !email) return acctSetErr('กรุณากรอกชื่อผู้ใช้และอีเมลที่ใช้สมัคร');
+      acctResetUser = username;
+      acctResetEmail = email;
+      const ok = await acctRun('/api/peer/account/reset/request', { username, email }, 'กำลังส่ง...', 'reset', '');
+      if (ok) acctFocusFirst();
+    };
+
+    window.submitAccountReset = async (e) => {
+      if (e) e.preventDefault();
+      const username = (document.getElementById('acctUser')?.value || '').trim();
+      const code = (document.getElementById('acctCode')?.value || '').trim();
+      const newPw = document.getElementById('acctNew')?.value || '';
+      if (!username || !code || !newPw) return acctSetErr('กรุณากรอกชื่อผู้ใช้ รหัสรีเซ็ต และรหัสผ่านใหม่');
+      if (newPw !== (document.getElementById('acctNew2')?.value || '')) return acctSetErr('รหัสผ่านใหม่ที่ยืนยันไม่ตรงกัน');
+      acctResetUser = username;
+      const ok = await acctRun('/api/peer/account/reset/confirm', { username, code, new_password: newPw },
+        'กำลังตั้งรหัสผ่านใหม่...', 'home', '');
+      if (ok) {
+        acctResetUser = '';
+        acctResetEmail = '';
+        showToast('✓ ตั้งรหัสผ่านใหม่แล้ว เครื่องอื่นต้องเข้าสู่ระบบใหม่ด้วยรหัสผ่านนี้');
+      }
+    };
+
+    window.submitAccountEmail = async (e) => {
+      if (e) e.preventDefault();
+      const email = (document.getElementById('acctEmail')?.value || '').trim();
+      const password = document.getElementById('acctOld')?.value || '';
+      if (!email || !password) return acctSetErr('กรุณากรอกอีเมลใหม่และรหัสผ่านบัญชี');
+      await acctRun('/api/peer/account/email', { email, password }, 'กำลังบันทึก...', 'home', '✓ บันทึกอีเมลของบัญชีแล้ว');
+    };
+
+    window.accountSyncNow = () => acctRun('/api/peer/account/sync', {}, 'กำลังซิงก์...', 'home', '');
+
+    window.accountLogout = async () => {
+      const wipe = !!document.getElementById('acctWipe')?.checked;
+      if (wipe) {
+        const sure = await apnConfirm({
+          tone: 'danger',
+          icon: '🗑',
+          title: 'ออกจากระบบและลบรายชื่อออกจากเครื่องนี้',
+          message: 'รายชื่อเครื่องและรหัสผ่านที่จำไว้จะถูกลบออกจากเครื่องนี้ ข้อมูลในบัญชียังอยู่ และจะกลับมาเมื่อเข้าสู่ระบบอีกครั้ง',
+          okText: 'ออกจากระบบและลบ'
+        });
+        if (!sure) return;
+      }
+      const ok = await acctRun('/api/peer/account/logout', { wipe }, 'กำลังออกจากระบบ...', 'login', '✓ ออกจากระบบแล้ว');
+      if (ok) closeAccountDialog();
+    };
+
+    window.submitAccountPassword = async (e) => {
+      if (e) e.preventDefault();
+      const oldPw = document.getElementById('acctOld')?.value || '';
+      const newPw = document.getElementById('acctNew')?.value || '';
+      if (!oldPw || !newPw) return acctSetErr('กรุณากรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่');
+      if (newPw !== (document.getElementById('acctNew2')?.value || '')) return acctSetErr('รหัสผ่านใหม่ที่ยืนยันไม่ตรงกัน');
+      await acctRun('/api/peer/account/password', { old_password: oldPw, new_password: newPw },
+        'กำลังเปลี่ยนรหัสผ่าน...', 'home', '✓ เปลี่ยนรหัสผ่านบัญชีแล้ว');
+    };
+    // ---- end Account sign-in ----
 
     window.toggleSettingsDrawer = (open, focusId = '') => {
       const el = document.getElementById('settingsDrawer');
@@ -4323,6 +4675,7 @@
                 ${sessions.length > 0 ? `<button type="button" class="tab-btn ${peerTab === 'incoming' ? 'active' : ''}" onclick="setPeerTab('incoming')">👁️ กำลังควบคุม (${sessions.length})</button>` : ''}
               </div>
               <div class="row-actions" style="gap:6px;flex-wrap:nowrap">
+                ${accountButtonHTML(d.account)}
                 <input id="peerSearchBox" type="text" placeholder="🔍 ค้นหาชื่อ / กลุ่ม / ID..." value="${esc(peerSearch)}" oninput="onPeerSearch(this.value)" style="padding:6px 10px;font-size:0.79rem;width:clamp(130px,17vw,200px)" />
                 <button type="button" class="secondary" style="padding:6px 10px;font-size:0.78rem;white-space:nowrap" onclick="peerRefreshSaved()">↻ เช็กออนไลน์</button>
               </div>
@@ -7562,6 +7915,7 @@
         }
         if (document.getElementById('apnAuthBackdrop')?.classList.contains('open') ||
             document.getElementById('apnGroupBackdrop')?.classList.contains('open') ||
+            document.getElementById('apnAcctBackdrop')?.classList.contains('open') ||
             document.getElementById('apnDialogBackdrop')?.classList.contains('open')) {
           return;
         }

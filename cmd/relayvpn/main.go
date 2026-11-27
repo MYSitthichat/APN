@@ -779,8 +779,48 @@ func runRdvServer(args []string, logger *slog.Logger) error {
 	ratePerMin := fs.Int("rate-per-min", 600, "Requests per minute allowed per client IP (negative disables the limit)")
 	rateBurst := fs.Int("rate-burst", 300, "Per-IP burst size")
 	maxEntries := fs.Int("max-entries", 2_000_000, "Maximum online devices kept in RAM")
+	accountsDir := fs.String("accounts-dir", "", "Directory for sign-in accounts and their encrypted address books (default: \"accounts\" next to the snapshot; \"off\" disables accounts)")
+	accountSignup := fs.Bool("account-signup", true, "Let anyone create an account from the app")
+	maxAccounts := fs.Int("max-accounts", 10_000, "Maximum number of accounts")
+	// Mail settings for "forgot password". The password comes only from the environment
+	// (APN_SMTP_PASSWORD) so it never shows up in the process list or a unit file.
+	envInt := func(key string, def int) int {
+		if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil {
+			return n
+		}
+		return def
+	}
+	smtpHost := fs.String("smtp-host", os.Getenv("APN_SMTP_HOST"), "SMTP server for password-reset mail, e.g. smtp.gmail.com (env APN_SMTP_HOST)")
+	smtpPort := fs.Int("smtp-port", envInt("APN_SMTP_PORT", 587), "SMTP port: 587 (STARTTLS) or 465 (TLS) (env APN_SMTP_PORT)")
+	smtpUser := fs.String("smtp-user", os.Getenv("APN_SMTP_USER"), "SMTP sign-in name; the password is read from env APN_SMTP_PASSWORD (env APN_SMTP_USER)")
+	smtpFrom := fs.String("smtp-from", os.Getenv("APN_SMTP_FROM"), "From address of reset mail; defaults to -smtp-user (env APN_SMTP_FROM)")
+	smtpTest := fs.String("smtp-test", "", "Send a test mail to this address with the SMTP settings, then exit")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	smtpCfg := rendezvous.SMTPConfig{
+		Host:     strings.TrimSpace(*smtpHost),
+		Port:     *smtpPort,
+		Username: strings.TrimSpace(*smtpUser),
+		Password: os.Getenv("APN_SMTP_PASSWORD"),
+		From:     strings.TrimSpace(*smtpFrom),
+	}
+	if smtpCfg.From == "" {
+		smtpCfg.From = smtpCfg.Username
+	}
+	if *smtpTest != "" {
+		if err := rendezvous.SendTestMail(smtpCfg, *smtpTest); err != nil {
+			return fmt.Errorf("test mail failed: %w", err)
+		}
+		fmt.Printf("Test mail sent to %s through %s:%d\n", *smtpTest, smtpCfg.Host, smtpCfg.Port)
+		return nil
+	}
+	accDir := strings.TrimSpace(*accountsDir)
+	switch {
+	case strings.EqualFold(accDir, "off"):
+		accDir = ""
+	case accDir == "" && *snapshot != "":
+		accDir = filepath.Join(filepath.Dir(*snapshot), "accounts")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -795,6 +835,11 @@ func runRdvServer(args []string, logger *slog.Logger) error {
 		RatePerMin:   *ratePerMin,
 		RateBurst:    *rateBurst,
 		MaxEntries:   *maxEntries,
+
+		AccountsDir:   accDir,
+		AccountSignup: *accountSignup,
+		MaxAccounts:   *maxAccounts,
+		SMTP:          smtpCfg,
 	})
 	return srv.Run(ctx)
 }

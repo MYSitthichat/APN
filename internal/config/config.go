@@ -108,6 +108,39 @@ type PeerConfig struct {
 	VPNIP                 string          `json:"vpn_ip,omitempty"`   // auto-derived 10.99.x.y if empty
 	AllowedTargets        []AllowedTarget `json:"allowed_targets"`
 	KnownPeers            []KnownPeer     `json:"known_peers,omitempty"` // remembered peers for fast 9-digit reconnect
+	// Account is the signed-in account that carries KnownPeers to the user's other machines
+	// (nil when signed out). See internal/p2p/account.go.
+	Account *AccountState `json:"account,omitempty"`
+}
+
+// AccountState is this machine's sign-in to the address book account on the rendezvous server.
+// It lives only in the local 0600 peer.json, next to the saved passwords it protects in transit.
+type AccountState struct {
+	Server   string `json:"server"`             // rendezvous base URL the account lives on
+	Username string `json:"username"`
+	Email    string `json:"email,omitempty"`    // where the server mails password-reset codes
+	Token    string `json:"token,omitempty"`    // session token; empty when the session was ended by the server
+	EncKey   string `json:"enc_key,omitempty"`  // base64 vault key derived from the account password; never sent
+	Rev      int64  `json:"rev"`                // revision of the account's address book at the last sync
+	// Base is the address book as it was after the last sync, by device ID. The next sync
+	// compares against it to tell what changed here from what changed on another machine.
+	Base map[string]SyncedPeer `json:"base,omitempty"`
+}
+
+// SyncedPeer is one remembered device as stored in the account's encrypted address book.
+// It carries what is worth having on another machine: who the device is, how the user filed
+// it, the certificate it was trusted with, and the saved password. Network addresses stay local.
+type SyncedPeer struct {
+	DeviceID      string `json:"device_id"`
+	Name          string `json:"name,omitempty"`
+	CustomName    bool   `json:"custom_name,omitempty"`
+	Group         string `json:"group,omitempty"`
+	OS            string `json:"os,omitempty"`
+	Fingerprint   string `json:"fingerprint,omitempty"`
+	SavedPassword string `json:"saved_password,omitempty"`
+	LastConnected string `json:"last_connected,omitempty"`
+	UpdatedAt     int64  `json:"updated_at,omitempty"` // UnixMilli of the last change
+	Deleted       bool   `json:"deleted,omitempty"`    // tombstone: removed by the user
 }
 
 // KnownPeer remembers a previously connected peer for Saved History, live online status, and 1-click reconnect.

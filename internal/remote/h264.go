@@ -920,10 +920,19 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			args = append(args, outFlags...)
 			return args
 		}
-		makeDDA := func(adapterIdx int, filter string, encArgs []string) []string {
+		// ownEncoderDevice is for encoders that accept a D3D11 device (NVENC, AMF). FFmpeg hands a
+		// lone hardware device to any such encoder, so with the primary monitor on another vendor's
+		// adapter (hybrid Intel + NVIDIA/AMD) the encoder was opened on the capture adapter and
+		// failed with "Invalid argument". A second device of the same type makes the choice
+		// ambiguous: FFmpeg then attaches none and the encoder opens its own GPU.
+		makeDDA := func(adapterIdx int, ownEncoderDevice bool, filter string, encArgs []string) []string {
 			args := append([]string{}, inLowLatency...)
 			if adapterIdx >= 0 {
-				args = append(args, "-init_hw_device", fmt.Sprintf("d3d11va=dda:%d", adapterIdx), "-filter_hw_device", "dda")
+				args = append(args, "-init_hw_device", fmt.Sprintf("d3d11va=dda:%d", adapterIdx))
+				if ownEncoderDevice {
+					args = append(args, "-init_hw_device", fmt.Sprintf("d3d11va=dda2:%d", adapterIdx))
+				}
+				args = append(args, "-filter_hw_device", "dda")
 			}
 			args = append(args, "-filter_complex", filter)
 			args = append(args, encArgs...)
@@ -983,8 +992,8 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 				list = append(list, encoderCandidate{name: "DXGI + H.265 D3D12 GPU", tier: "DXGI", args: makeDDAD12(hevcD12Args)})
 			}
 			list = append(list,
-				encoderCandidate{name: "DXGI + H.265 Hardware GPU (MF)", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, hevcMFArgs)},
-				encoderCandidate{name: "DXGI + H.265 Intel QSV GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, hevcQSVArgs)},
+				encoderCandidate{name: "DXGI + H.265 Hardware GPU (MF)", tier: "DXGI", args: makeDDA(ddaAdapter, false, ddaNV12, hevcMFArgs)},
+				encoderCandidate{name: "DXGI + H.265 Intel QSV GPU", tier: "DXGI", args: makeDDA(ddaAdapter, false, ddaNV12, hevcQSVArgs)},
 			)
 			return list
 		}
@@ -1008,7 +1017,8 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			"-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
 		amfArgs := []string{
-			"-c:v", "h264_amf", "-usage", "ultralowlatency", "-quality", "speed", "-profile:v", "baseline",
+			// h264_amf has no "baseline" profile name (FFmpeg rejects the option before trying the GPU).
+			"-c:v", "h264_amf", "-usage", "ultralowlatency", "-quality", "speed", "-profile:v", "constrained_baseline",
 			"-preanalysis", "0", "-vbaq", "0",
 			"-rc", "cbr", "-b:v", targetBitrate, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
@@ -1041,12 +1051,12 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 			list = append(list, encoderCandidate{name: "DXGI + H.264 D3D12 GPU", tier: "DXGI", args: makeDDAD12(h264D12Args)})
 		}
 		list = append(list,
-			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, mfArgs)},
-			encoderCandidate{name: "DXGI + Hardware GPU (MF)", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, mfSafeArgs)},
-			encoderCandidate{name: "DXGI + Intel QSV GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, qsvArgs)},
-			encoderCandidate{name: "DXGI + AMD AMF GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, amfArgs)},
-			encoderCandidate{name: "DXGI + NVENC GPU", tier: "DXGI", args: makeDDA(ddaAdapter, ddaNV12, nvencArgs)},
-			encoderCandidate{name: "DXGI + x264 ZeroLatency", tier: "DXGI", args: makeDDA(ddaAdapter, ddaYUV, x264Args)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF LD-VBR)", tier: "DXGI", args: makeDDA(ddaAdapter, false, ddaNV12, mfArgs)},
+			encoderCandidate{name: "DXGI + Hardware GPU (MF)", tier: "DXGI", args: makeDDA(ddaAdapter, false, ddaNV12, mfSafeArgs)},
+			encoderCandidate{name: "DXGI + Intel QSV GPU", tier: "DXGI", args: makeDDA(ddaAdapter, false, ddaNV12, qsvArgs)},
+			encoderCandidate{name: "DXGI + AMD AMF GPU", tier: "DXGI", args: makeDDA(ddaAdapter, true, ddaNV12, amfArgs)},
+			encoderCandidate{name: "DXGI + NVENC GPU", tier: "DXGI", args: makeDDA(ddaAdapter, true, ddaNV12, nvencArgs)},
+			encoderCandidate{name: "DXGI + x264 ZeroLatency", tier: "DXGI", args: makeDDA(ddaAdapter, false, ddaYUV, x264Args)},
 		)
 
 		// Tier 3: DXGI Adapter 1 (Hybrid Optimus laptops with older FFmpeg lacking gfxcapture). Only
@@ -1054,9 +1064,9 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		// uses the right adapter and output.
 		if !tgt.dxgiFound {
 			list = append(list,
-				encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF LD-VBR)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfArgs)},
-				encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF)", tier: "DXGI1", args: makeDDA(1, ddaNV12, mfSafeArgs)},
-				encoderCandidate{name: "DXGI-GPU1 + x264 ZeroLatency", tier: "DXGI1", args: makeDDA(1, ddaYUV, x264Args)},
+				encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF LD-VBR)", tier: "DXGI1", args: makeDDA(1, false, ddaNV12, mfArgs)},
+				encoderCandidate{name: "DXGI-GPU1 + Hardware GPU (MF)", tier: "DXGI1", args: makeDDA(1, false, ddaNV12, mfSafeArgs)},
+				encoderCandidate{name: "DXGI-GPU1 + x264 ZeroLatency", tier: "DXGI1", args: makeDDA(1, false, ddaYUV, x264Args)},
 			)
 		}
 

@@ -256,6 +256,120 @@ func Start(ctx context.Context, opts Options) error {
 			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
 		}))
 
+		// Account sign-in: the saved device list follows the user to other machines.
+		mux.HandleFunc("POST /api/peer/account/login", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+				Email    string `json:"email"`
+				Register bool   `json:"register"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			aCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+			defer cancel()
+			var err error
+			if body.Register {
+				err = opts.Peer.AccountRegister(aCtx, body.Username, body.Password, body.Email)
+			} else {
+				err = opts.Peer.AccountLogin(aCtx, body.Username, body.Password)
+			}
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+		// Forgotten password: a code mailed to the account's address sets a new password.
+		mux.HandleFunc("POST /api/peer/account/reset/request", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Username string `json:"username"`
+				Email    string `json:"email"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			aCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			defer cancel()
+			if err := opts.Peer.AccountResetRequest(aCtx, body.Username, body.Email); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+		mux.HandleFunc("POST /api/peer/account/reset/confirm", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Username    string `json:"username"`
+				Code        string `json:"code"`
+				NewPassword string `json:"new_password"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			aCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+			defer cancel()
+			if err := opts.Peer.AccountResetConfirm(aCtx, body.Username, body.Code, body.NewPassword); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+		mux.HandleFunc("POST /api/peer/account/email", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Password string `json:"password"`
+				Email    string `json:"email"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			aCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			defer cancel()
+			if err := opts.Peer.AccountSetEmail(aCtx, body.Password, body.Email); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+		mux.HandleFunc("POST /api/peer/account/logout", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Wipe bool `json:"wipe"`
+			}
+			_ = json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body)
+			aCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			defer cancel()
+			_ = opts.Peer.AccountLogout(aCtx, body.Wipe)
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+		mux.HandleFunc("POST /api/peer/account/sync", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			aCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+			defer cancel()
+			// A failed sync is part of the account status in the snapshot.
+			_ = opts.Peer.SyncAccount(aCtx)
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+		mux.HandleFunc("POST /api/peer/account/password", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				OldPassword string `json:"old_password"`
+				NewPassword string `json:"new_password"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			aCtx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+			defer cancel()
+			if err := opts.Peer.AccountChangePassword(aCtx, body.OldPassword, body.NewPassword); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+
 		mux.HandleFunc("DELETE /api/peer/saved/{id}", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
 			if err := opts.Peer.RemoveSavedPeer(r.PathValue("id")); err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})

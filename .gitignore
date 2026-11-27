@@ -13,3 +13,6 @@ config/
 *.key
 !cmd/relayvpn/rsrc_windows_*.syso
 .wrangler/
+# Server secrets (SMTP password, tunnel token) for deploy/rdv-server
+.env
+*.env

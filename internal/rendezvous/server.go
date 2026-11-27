@@ -51,6 +51,15 @@ type Options struct {
 	MaxEntries   int // cap on online entries kept in RAM (default 2,000,000)
 	RatePerMin   int // per-IP request budget per minute (default 600; negative disables)
 	RateBurst    int // per-IP burst (default 300)
+
+	// AccountsDir holds the sign-in accounts and their encrypted address books (see accounts.go).
+	// Empty disables accounts. AccountSignup lets anyone create an account; MaxAccounts caps how
+	// many exist (default 10,000).
+	AccountsDir   string
+	AccountSignup bool
+	MaxAccounts   int
+	// SMTP sends password-reset codes. Left empty, a forgotten password cannot be reset by mail.
+	SMTP SMTPConfig
 }
 
 // PunchRequest is queued on a host entry when a caller looks up its 9-digit Device ID.
@@ -109,8 +118,9 @@ type Server struct {
 	relFetchMu sync.Mutex
 	relClient  *http.Client
 
-	limiter *ipLimiter
-	now     func() time.Time
+	limiter  *ipLimiter
+	accounts *accountStore // nil when accounts are disabled
+	now      func() time.Time
 }
 
 // NewServer creates a self-hosted Rendezvous Directory server and loads any valid snapshot entries.
@@ -156,6 +166,17 @@ func NewServer(opts Options) *Server {
 		s.shards[i].entries = make(map[string]*Entry, 64)
 		s.shards[i].bindings = make(map[string]*binding, 64)
 	}
+	if opts.AccountsDir != "" {
+		if a, err := newAccountStore(opts.AccountsDir, opts.AccountSignup, opts.MaxAccounts); err != nil {
+			s.logger.Error("accounts disabled: cannot open the accounts directory", "dir", opts.AccountsDir, "err", err)
+		} else {
+			if smtpCfg := opts.SMTP; smtpCfg.Enabled() {
+				a.mailer = func(to, subject, body string) error { return sendMail(smtpCfg, to, subject, body) }
+			}
+			s.accounts = a
+			s.logger.Info("accounts enabled", "dir", opts.AccountsDir, "accounts", len(a.accounts), "signup", opts.AccountSignup, "reset_by_email", a.mailer != nil)
+		}
+	}
 	if opts.SnapshotPath != "" {
 		if n, err := s.LoadSnapshot(opts.SnapshotPath); err == nil && n > 0 {
 			s.logger.Info("loaded rendezvous snapshot into RAM", "peers", n, "path", opts.SnapshotPath)
@@ -193,6 +214,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/rendezvous/unregister", s.handleUnregister)
 	mux.HandleFunc("POST /api/rendezvous/presence", s.handlePresence)
 	mux.HandleFunc("/api/rendezvous/lookup/", s.handleLookup)
+	s.accountRoutes(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -273,6 +295,9 @@ func (s *Server) maintenanceLoop(ctx context.Context) {
 			s.SweepExpired()
 			if s.limiter != nil {
 				s.limiter.prune(s.now())
+			}
+			if s.accounts != nil {
+				s.accounts.prune(s.now())
 			}
 			if s.opts.SnapshotPath != "" && s.dirty.Swap(false) {
 				if _, err := s.SaveSnapshot(s.opts.SnapshotPath); err != nil {

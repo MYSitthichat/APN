@@ -9,6 +9,14 @@ services:
       - "127.0.0.1:8787:8787"
     volumes:
       - apn_rdv_data:/data
+    # Mail settings for "forgot password" (see README). Put the values in a .env file next to
+    # this one; with APN_SMTP_HOST empty, reset by e-mail stays off.
+    environment:
+      APN_SMTP_HOST: ${APN_SMTP_HOST:-}
+      APN_SMTP_PORT: ${APN_SMTP_PORT:-587}
+      APN_SMTP_USER: ${APN_SMTP_USER:-}
+      APN_SMTP_PASSWORD: ${APN_SMTP_PASSWORD:-}
+      APN_SMTP_FROM: ${APN_SMTP_FROM:-}
     ulimits:
       nofile:
         soft: 1048576
