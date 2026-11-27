@@ -2,28 +2,10 @@ package remote
 
 import (
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
-	"time"
 )
-
-func TestLowLatencyVBV(t *testing.T) {
-	cases := []struct {
-		rate  string
-		burst time.Duration
-		want  string
-	}{
-		{"7M", 150 * time.Millisecond, "1050k"},
-		{"3500k", 150 * time.Millisecond, "525k"},
-		{"18M", 300 * time.Millisecond, "5400k"},
-		{"2600k", 150 * time.Millisecond, "390k"},
-		{"bogus", 150 * time.Millisecond, "bogus"},
-	}
-	for _, c := range cases {
-		if got := lowLatencyVBV(c.rate, c.burst); got != c.want {
-			t.Errorf("lowLatencyVBV(%q, %v) = %q, want %q", c.rate, c.burst, got, c.want)
-		}
-	}
-}
 
 func TestSendQueueDepth(t *testing.T) {
 	for fps, want := range map[int]int{60: 30, 30: 15, 24: 12, 10: 12} {
@@ -33,25 +15,63 @@ func TestSendQueueDepth(t *testing.T) {
 	}
 }
 
-// TestCandidatesUseSmallRateBuffer: no encoder may keep a rate buffer of a second or more, which
-// lets one keyframe grow into a burst that stalls the stream.
-func TestCandidatesUseSmallRateBuffer(t *testing.T) {
+// rateKbit parses an FFmpeg rate such as "7M" or "3500k".
+func rateKbit(t *testing.T, v string) int {
+	t.Helper()
+	switch {
+	case strings.HasSuffix(v, "M"):
+		f, err := strconv.ParseFloat(strings.TrimSuffix(v, "M"), 64)
+		if err == nil {
+			return int(f * 1000)
+		}
+	case strings.HasSuffix(v, "k"):
+		n, err := strconv.Atoi(strings.TrimSuffix(v, "k"))
+		if err == nil {
+			return n
+		}
+	}
+	t.Fatalf("cannot parse rate %q", v)
+	return 0
+}
+
+// TestCandidatesKeepFullRateBuffer: every encoder that takes a rate buffer gets about a second
+// of its maximum bitrate. A buffer of 150 ms (v1.3.31-v1.3.32) left the lower part of every
+// keyframe unreadable, because the encoder ran out of bits partway down the picture.
+func TestCandidatesKeepFullRateBuffer(t *testing.T) {
 	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
 		t.Skip("candidate list differs on this OS")
 	}
+	checked := 0
 	for _, codec := range []string{"h264", "hevc"} {
 		for _, q := range []int{60, 82, 90, 95} {
 			for _, c := range videoEncoderCandidates(codec, 60, 1920, 1080, 1920, 1080, q, true) {
+				maxRate, buf := "", ""
 				for i, a := range c.args {
-					if a != "-bufsize" || i+1 >= len(c.args) {
-						continue
+					if i+1 >= len(c.args) {
+						break
 					}
-					v := c.args[i+1]
-					if len(v) < 2 || v[len(v)-1] != 'k' {
-						t.Errorf("%s q%d %s: -bufsize %s is not a small kbit value", codec, q, c.name, v)
+					switch a {
+					case "-maxrate":
+						maxRate = c.args[i+1]
+					case "-bufsize":
+						buf = c.args[i+1]
 					}
+				}
+				if buf == "" {
+					continue
+				}
+				if maxRate == "" {
+					t.Errorf("%s q%d %s: -bufsize %s without -maxrate", codec, q, c.name, buf)
+					continue
+				}
+				checked++
+				if b, m := rateKbit(t, buf), rateKbit(t, maxRate); b*100 < m*85 {
+					t.Errorf("%s q%d %s: -bufsize %s is under 85%% of -maxrate %s", codec, q, c.name, buf, maxRate)
 				}
 			}
 		}
+	}
+	if checked == 0 {
+		t.Error("no candidate with a rate buffer was checked")
 	}
 }

@@ -780,26 +780,6 @@ func sendQueueDepth(fps int) int {
 	return 12
 }
 
-// keyframeBurst is how long a stretch of the maximum bitrate one frame may use (see lowLatencyVBV).
-const keyframeBurst = 150 * time.Millisecond
-
-// lowLatencyVBV returns the encoder rate buffer holding burst worth of a maximum bitrate such as
-// "7M" or "3500k".
-func lowLatencyVBV(maxRate string, burst time.Duration) string {
-	kbps := 0
-	switch {
-	case strings.HasSuffix(maxRate, "M"):
-		v, _ := strconv.ParseFloat(strings.TrimSuffix(maxRate, "M"), 64)
-		kbps = int(v * 1000)
-	case strings.HasSuffix(maxRate, "k"):
-		kbps, _ = strconv.Atoi(strings.TrimSuffix(maxRate, "k"))
-	}
-	if kbps <= 0 {
-		return maxRate
-	}
-	return strconv.Itoa(int(float64(kbps)*burst.Seconds())) + "k"
-}
-
 func h264EncoderCandidates(fps, srcW, srcH, outW, outH, quality int) []encoderCandidate {
 	return videoEncoderCandidates("h264", fps, srcW, srcH, outW, outH, quality, true)
 }
@@ -842,15 +822,22 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		hevcMaxRate = "7500k"
 	}
 
-	// Rate-control buffer (VBV): it caps how many bits one frame may take, i.e. the size of a
-	// keyframe. The former one-second buffer let every periodic keyframe reach 140-280 KB at
-	// 1080p; sent in one burst that stalled the stream ~200 ms on an Internet link and overflowed
-	// the send queue. keyframeBurst worth of bits keeps keyframes around 50-115 KB.
-	// x264 ultrafast needs more bits for a clean keyframe (a tight buffer gives it blocky ones),
-	// so the CPU fallback gets twice the room.
-	bufSize := lowLatencyVBV(maxRate, keyframeBurst)
-	x264BufSize := lowLatencyVBV(maxRate, 2*keyframeBurst)
-	hevcBufSize := lowLatencyVBV(hevcMaxRate, keyframeBurst)
+	// Rate-control buffer (VBV): about one second of the maximum bitrate, and it has to stay that
+	// large. A clean 1080p keyframe takes 110-280 KB. With a 150 ms buffer (v1.3.31-v1.3.32)
+	// keyframes were capped near 65 KB, and NVENC/QSV ran out of bits partway down the picture:
+	// the lower part of every keyframe, i.e. every keyframeInterval, was unreadable until later
+	// frames repaired it. Keyframe bursts have to be reduced by sending fewer keyframes instead.
+	// For x264 a small buffer crushes 1080p keyframes into a macroblock mosaic the same way.
+	bufSize := "7M"
+	switch maxRate {
+	case "3500k":
+		bufSize = "4M"
+	case "18M":
+		bufSize = "16M"
+	case "11M":
+		bufSize = "10M"
+	}
+	hevcBufSize := hevcMaxRate
 
 	needScale := outW != (srcW&^1) || outH != (srcH&^1)
 	nv12Filter := "format=nv12"
@@ -1033,7 +1020,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 		x264Args := []string{
 			"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline",
 			"-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0",
-			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", x264BufSize, "-g", gopStr, "-bf", "0",
+			"-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0",
 		}
 
 		// Tier 1: WGC (gfxcapture) + native vendor GPU encoders (NVENC / AMF / Intel QSV) first because
@@ -1127,7 +1114,7 @@ func videoEncoderCandidates(codec string, fps, srcW, srcH, outW, outH, quality i
 	}
 	list = append(list, encoderCandidate{
 		name: "x264 ZeroLatency",
-		args: makeUnix(yuvFilter, []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0", "-crf", cqStr, "-maxrate", maxRate, "-bufsize", x264BufSize, "-g", gopStr, "-bf", "0"}),
+		args: makeUnix(yuvFilter, []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-x264-params", "repeat-headers=1:sliced-threads=1:rc-lookahead=0:sync-lookahead=0", "-crf", cqStr, "-maxrate", maxRate, "-bufsize", bufSize, "-g", gopStr, "-bf", "0"}),
 	})
 	return list
 }

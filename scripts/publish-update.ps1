@@ -48,7 +48,7 @@ $outPath = Join-Path $distDir 'latest.json'
 $jsonText = $manifest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($outPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "Generated $outPath for APN v$ver ($($assets.Count) platform assets)."
-Write-Host "Upload the binaries in dist/ to $base/ and save latest.json into Cloudflare KV key 'release:latest' (Namespace RELAYVPN_PEERS)!"
+Write-Host "Upload the binaries in dist/ and latest.json to $base/ (the GitHub release). The rendezvous server reads latest.json from the latest release itself, so nothing else needs uploading."
 
 # Sign every platform asset with the offline release key (Ed25519) and verify against the key
 # compiled into APN. Clients v1.3.14+ refuse unsigned or wrongly signed updates.

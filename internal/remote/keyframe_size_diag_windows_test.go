@@ -7,7 +7,9 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,8 @@ import (
 // keyframes are, with the production rate buffer and with APN_DIAG_BUFSIZE (e.g. "1400k") in
 // its place. A keyframe is sent in one burst, so its size decides how long the stream stalls.
 // APN_DIAG_MATCH filters candidates by name (comma-separated substrings).
+// APN_DIAG_DUMP names a directory that receives each run's FLV stream, for looking at the
+// decoded picture (ffmpeg -i x.flv frame_%03d.png); APN_DIAG_QUALITY picks the quality level.
 func TestKeyframeSizeDiag(t *testing.T) {
 	ff, ok := bootstrap.FindFFmpeg()
 	if !ok {
@@ -26,8 +30,13 @@ func TestKeyframeSizeDiag(t *testing.T) {
 	}
 	match := strings.Split(os.Getenv("APN_DIAG_MATCH"), ",")
 	override := os.Getenv("APN_DIAG_BUFSIZE")
+	dumpDir := os.Getenv("APN_DIAG_DUMP")
+	quality := 82
+	if q, err := strconv.Atoi(os.Getenv("APN_DIAG_QUALITY")); err == nil {
+		quality = q
+	}
 	w, h := ScreenSize()
-	measure := func(args []string) (keys []int, deltas, total int, err error) {
+	measure := func(dumpName string, args []string) (keys []int, deltas, total int, err error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, ff, append([]string{"-nostdin", "-hide_banner"}, args...)...)
@@ -37,6 +46,9 @@ func TestKeyframeSizeDiag(t *testing.T) {
 		runErr := cmd.Run()
 		release()
 		b := out.Bytes()
+		if dumpDir != "" {
+			_ = os.WriteFile(filepath.Join(dumpDir, dumpName+".flv"), b, 0o644)
+		}
 		if len(b) < 13 {
 			return nil, 0, 0, runErr
 		}
@@ -61,7 +73,7 @@ func TestKeyframeSizeDiag(t *testing.T) {
 		return keys, deltas, total, nil
 	}
 	for _, codec := range []string{"h264", "hevc"} {
-		for _, c := range videoEncoderCandidates(codec, 60, w, h, w&^1, h&^1, 82, true) {
+		for _, c := range videoEncoderCandidates(codec, 60, w, h, w&^1, h&^1, quality, true) {
 			hit := len(match) == 1 && match[0] == ""
 			for _, m := range match {
 				if m != "" && strings.Contains(c.name, m) {
@@ -86,7 +98,8 @@ func TestKeyframeSizeDiag(t *testing.T) {
 				if vi == 1 {
 					label = "bufsize " + override
 				}
-				keys, deltas, total, _ := measure(args)
+				dumpName := strings.NewReplacer(" ", "_", "+", "", "(", "", ")", "", ".", "").Replace(codec + "-" + c.name + "-" + label)
+				keys, deltas, total, _ := measure(dumpName, args)
 				if len(keys) == 0 {
 					t.Logf("%-5s %-34s %-16s no frames", codec, c.name, label)
 					continue
