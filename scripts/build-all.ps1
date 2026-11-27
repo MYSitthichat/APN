@@ -72,5 +72,4 @@ foreach ($d in $debTargets) {
 }
 
 Write-Host "`nAll 7 cross-platform binaries + 3 Ubuntu/Debian .deb installers built successfully in $outDir!"
-Write-Host "Note: For iOS & Android native VPN bindings (.xcframework / .aar), see scripts/build-mobile.sh"
-Write-Host "      or open the built-in PWA on iPhone/iPad/Android via Safari/Chrome -> Add to Home Screen."
+Write-Host "Note: there is no mobile app yet; scripts/build-mobile.sh only builds the VPN library (.xcframework / .aar)."

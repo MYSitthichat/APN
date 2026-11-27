@@ -77,6 +77,9 @@ type connectedPeer struct {
 	// outbound is true when this machine started the connection (it authenticated to the other
 	// side, not the other way round). Such peers get no access to this machine by default.
 	outbound bool
+	// vpnFlows: VPN conversations this machine started with the peer. For an outbound peer only
+	// their replies may enter the VPN interface (vpn_guard.go).
+	vpnFlows vpnFlowTable
 
 	tunMu     sync.Mutex
 	tunStream io.ReadWriteCloser
@@ -674,6 +677,9 @@ func (n *Node) routeOutboundIPPacketErr(dstIP string, pkt []byte) error {
 	n.mu.RUnlock()
 	if target == nil {
 		return fmt.Errorf("no connected peer owns VPN IP %s", dstIP)
+	}
+	if target.outbound {
+		target.vpnFlows.noteOutbound(pkt, time.Now())
 	}
 
 	// Fast path: send L3 IPv4 packet as an RFC 9221 QUIC Unreliable Datagram (zero Head-of-Line Blocking, WireGuard-like!)
@@ -2474,6 +2480,9 @@ func (n *Node) servePeerDatagrams(ctx context.Context, p *connectedPeer) {
 			continue
 		}
 		n.totalRecv.Add(int64(len(pkt)))
+		if !n.acceptVPNPacket(p, pkt) {
+			continue
+		}
 
 		n.mu.RLock()
 		sink := n.packetSink
@@ -2673,6 +2682,9 @@ func (n *Node) serveIncomingTUN(p *connectedPeer, stream io.ReadWriteCloser) {
 		}
 		ls.recv.Add(int64(len(pkt)))
 		n.totalRecv.Add(int64(len(pkt)))
+		if !n.acceptVPNPacket(p, pkt) {
+			continue
+		}
 
 		n.mu.RLock()
 		sink := n.packetSink

@@ -465,6 +465,53 @@ func TestReverseAccessDeniedByDefault(t *testing.T) {
 			t.Fatalf("mode %s: unexpected error %v", mode, err)
 		}
 	}
+
+	// Nor over the VPN: the host may only answer what the caller started.
+	got := make(chan []byte, 8)
+	caller.SetPacketSink(func(pkt []byte) { got <- pkt })
+	callerIP := net.ParseIP(caller.Snapshot().VPN.VPNIP).To4()
+	hostIP := net.ParseIP(host.Snapshot().VPN.VPNIP).To4()
+	tcp := func(src, dst net.IP, sport, dport uint16) []byte {
+		pkt := make([]byte, 40)
+		pkt[0], pkt[3], pkt[8], pkt[9] = 0x45, 40, 64, 6
+		copy(pkt[12:16], src)
+		copy(pkt[16:20], dst)
+		pkt[20], pkt[21] = byte(sport>>8), byte(sport)
+		pkt[22], pkt[23] = byte(dport>>8), byte(dport)
+		return pkt
+	}
+	expectNone := func(what string) {
+		select {
+		case <-got:
+			t.Fatalf("%s reached the caller's VPN interface", what)
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+	// The host opens RDP to the caller on its own: dropped.
+	if err := host.InjectOutboundPacket(tcp(hostIP, callerIP, 50000, 3389)); err != nil {
+		t.Fatalf("host send: %v", err)
+	}
+	expectNone("a connection opened by the host")
+	// The host pretends to be another VPN machine: dropped.
+	if err := host.InjectOutboundPacket(tcp(net.IPv4(10, 99, 1, 1).To4(), callerIP, 3389, 51515)); err == nil {
+		expectNone("a packet with a forged source address")
+	}
+	// The caller opens RDP to the host; the host's reply comes back.
+	if err := caller.InjectOutboundPacket(tcp(callerIP, hostIP, 51515, 3389)); err != nil {
+		t.Fatalf("caller send: %v", err)
+	}
+	reply := tcp(hostIP, callerIP, 3389, 51515)
+	if err := host.InjectOutboundPacket(reply); err != nil {
+		t.Fatalf("host reply: %v", err)
+	}
+	select {
+	case pkt := <-got:
+		if string(pkt) != string(reply) {
+			t.Fatalf("unexpected packet at the caller: %x", pkt)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("the reply to the caller's own connection did not arrive")
+	}
 }
 
 // TestWrongPINsRotateTempPINAndLockOut: guessing the 6-digit PIN is cut off quickly.
