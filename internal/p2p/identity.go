@@ -129,8 +129,9 @@ func (id *PeerIdentity) ServerTLSConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{id.Cert},
-		NextProtos:   []string{P2PALPN},
-		ClientAuth:   tls.RequireAnyClientCert,
+		// "h3" first: new peers use it, so the handshake looks like HTTP/3 (stealth.go).
+		NextProtos: []string{alpnHTTP3, P2PALPN},
+		ClientAuth: tls.RequireAnyClientCert,
 	}
 }
 
@@ -139,8 +140,8 @@ func (id *PeerIdentity) ClientTLSConfig(expectedFingerprint string) *tls.Config 
 	return &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		Certificates:       []tls.Certificate{id.Cert},
-		NextProtos:         []string{P2PALPN},
-		InsecureSkipVerify: true, // Verified explicitly via SHA-256 fingerprint pinning below
+		NextProtos:         []string{alpnHTTP3}, // legacy P2PALPN is retried for older peers
+		InsecureSkipVerify: true,                // Verified explicitly via SHA-256 fingerprint pinning below
 		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
 				return errors.New("peer presented no TLS certificate")

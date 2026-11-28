@@ -4743,6 +4743,11 @@
               <label class="switch" style="margin:0"><input type="checkbox" ${d.require_approval ? 'checked' : ''} onchange="peerToggleApprovalMode(this.checked)" /><span class="slider"></span></label>
             </div>
 
+            <div class="side-row" title="ไม่ประกาศรหัสเครื่อง ชื่อเครื่อง และพอร์ตให้เครื่องอื่นในวง Wi-Fi / LAN เดียวกันเห็น (เครื่องนี้ยังเห็นเครื่องอื่นได้ และยังเชื่อมต่อด้วยรหัส 9 หลักได้ตามปกติ)">
+              <span style="font-weight:600">🙈 ซ่อนเครื่องนี้จาก LAN</span>
+              <label class="switch" style="margin:0"><input type="checkbox" ${d.hide_from_lan ? 'checked' : ''} onchange="peerToggleHideFromLAN(this.checked)" /><span class="slider"></span></label>
+            </div>
+
             <div class="side-row">
               <div>
                 <div style="font-weight:700">🔑 รหัสผ่านถาวร</div>
@@ -7391,6 +7396,13 @@
     window.peerToggleApprovalMode = async (req) => {
       await api('/api/peer/approval-mode', { method: 'POST', body: JSON.stringify({ require_approval: req }) });
       showToast(req ? 'เปิดโหมดขออนุมัติก่อนเชื่อมต่อแล้ว' : 'ปิดโหมดขออนุมัติแล้ว');
+      poll();
+    };
+    window.peerToggleHideFromLAN = async (hide) => {
+      try {
+        await api('/api/peer/hide-from-lan', { method: 'POST', body: JSON.stringify({ hide }) });
+        showToast(hide ? '🙈 ซ่อนเครื่องนี้จาก LAN แล้ว — เครื่องอื่นในวงเดียวกันจะไม่เห็นเครื่องนี้' : 'เครื่องอื่นใน LAN เห็นเครื่องนี้ได้แล้ว');
+      } catch (err) { showToast('⚠ ' + err.message); }
       poll();
     };
     window.peerToggleVPN = async (enabled) => {

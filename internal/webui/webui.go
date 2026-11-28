@@ -472,6 +472,18 @@ func Start(ctx context.Context, opts Options) error {
 			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
 		}))
 
+		mux.HandleFunc("POST /api/peer/hide-from-lan", requireSameOrigin(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Hide bool `json:"hide"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			opts.Peer.SetHideFromLAN(body.Hide)
+			writeJSON(w, http.StatusOK, opts.Peer.Snapshot())
+		}))
+
 		mux.HandleFunc("GET /api/peer/approvals", func(w http.ResponseWriter, r *http.Request) {
 			approvalPollAt.Store(time.Now().UnixNano())
 			writeJSON(w, http.StatusOK, map[string]any{"approvals": opts.Peer.PendingApprovals(), "now": time.Now().UTC()})

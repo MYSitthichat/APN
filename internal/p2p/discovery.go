@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,6 +46,9 @@ type lanDiscovery struct {
 
 	mu    sync.RWMutex
 	peers map[string]DiscoveredPeer
+
+	// silent stops the announcements (hide this machine from the LAN); listening goes on.
+	silent atomic.Bool
 }
 
 func newLANDiscovery(selfDeviceID, selfID, selfName, selfOS, fp string, quicPort, wsPort int) *lanDiscovery {
@@ -150,6 +154,9 @@ func (d *lanDiscovery) broadcastLoop(ctx context.Context) {
 	})
 
 	sendAll := func() {
+		if d.silent.Load() {
+			return
+		}
 		targets := ifaceBroadcastTargets()
 		// Bind a socket to EACH active physical LAN IPv4 address so Windows emits
 		// broadcast packets out of Wi-Fi / Ethernet without leaking onto virtual VPN adapters.

@@ -95,6 +95,9 @@ type PeerConfig struct {
 	KeyFile               string          `json:"key_file"`
 	STUNServers           []string        `json:"stun_servers,omitempty"`
 	EnableLANDisc         bool            `json:"enable_lan_discovery"`
+	// HideFromLAN stops announcing this machine (ID, name, ports) on the local network. It still
+	// sees other machines' announcements.
+	HideFromLAN bool `json:"hide_from_lan,omitempty"`
 	AllowScreen           bool            `json:"allow_screen"`
 	AllowInput            bool            `json:"allow_input"`
 	AllowShell            bool            `json:"allow_shell"`

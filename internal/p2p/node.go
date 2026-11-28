@@ -217,6 +217,7 @@ type NodeSnapshot struct {
 	TempPIN              string                     `json:"temp_pin"`
 	HasPermanentPassword bool                       `json:"has_permanent_password"`
 	RequireApproval      bool                       `json:"require_approval"`
+	HideFromLAN          bool                       `json:"hide_from_lan"`
 	RendezvousURL        string                     `json:"rendezvous_url,omitempty"`
 	RendezvousStatus     string                     `json:"rendezvous_status,omitempty"`
 	PeerID               string                     `json:"peer_id"`
@@ -508,17 +509,21 @@ func (n *Node) persistConfigLocked() {
 func (n *Node) StartAsync(ctx context.Context) error {
 	n.rootCtx = ctx
 
-	quicBind := n.cfg.QUICAddr
-	if quicBind == "" {
-		quicBind = ":0"
+	var udpConn *net.UDPConn
+	var listenErr error
+	for _, quicBind := range quicListenCandidates(n.cfg.QUICAddr) {
+		udpAddr, err := net.ResolveUDPAddr("udp", quicBind)
+		if err != nil {
+			listenErr = fmt.Errorf("resolve quic_addr %s: %w", quicBind, err)
+			continue
+		}
+		if udpConn, err = net.ListenUDP("udp", udpAddr); err == nil {
+			break
+		}
+		listenErr = fmt.Errorf("listen udp %s: %w", quicBind, err)
 	}
-	udpAddr, err := net.ResolveUDPAddr("udp", quicBind)
-	if err != nil {
-		return fmt.Errorf("resolve quic_addr %s: %w", quicBind, err)
-	}
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		return fmt.Errorf("listen udp %s: %w", quicBind, err)
+	if udpConn == nil {
+		return listenErr
 	}
 	// Enlarge OS UDP buffers (Windows default is only 64 KB!) so 60 FPS H.264 keyframes/bursts
 	// NEVER overflow the socket buffer and trigger QUIC packet loss or congestion stalls!
@@ -548,11 +553,12 @@ func (n *Node) StartAsync(ctx context.Context) error {
 	n.logger.Info("p2p peer ready (AnyDesk/RustDesk mode)", "device_id", FormatDeviceID(n.cfg.DeviceID), "pin", n.tempPIN, "quic", n.quicAddrStr)
 
 	if n.cfg.WSAddr != "" {
-		ln, err := net.Listen("tcp", n.cfg.WSAddr)
+		wsBind := wsListenAddr(n.cfg.WSAddr)
+		ln, err := net.Listen("tcp", wsBind)
 		if err != nil {
 			_ = quicLn.Close()
 			_ = n.quicTr.Close()
-			return fmt.Errorf("listen ws_addr %s: %w", n.cfg.WSAddr, err)
+			return fmt.Errorf("listen ws_addr %s: %w", wsBind, err)
 		}
 		n.wsAddrStr = ln.Addr().String()
 		if ta, ok := ln.Addr().(*net.TCPAddr); ok {
@@ -560,6 +566,7 @@ func (n *Node) StartAsync(ctx context.Context) error {
 		}
 		mux := http.NewServeMux()
 		mux.HandleFunc("GET /ws/peer", n.handleIncomingWS)
+		mux.HandleFunc("GET "+wsE2EPath, n.handleIncomingWSE2E)
 		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok"))
@@ -590,10 +597,12 @@ func (n *Node) StartAsync(ctx context.Context) error {
 			n.quicPort,
 			n.wsPort,
 		)
+		n.lanDisc.silent.Store(n.cfg.HideFromLAN)
 		n.lanDisc.start(ctx)
 	}
 
-	go ensurePeerFirewallRules(n.quicPort, n.wsPort)
+	// The WebSocket port is reached only from this machine now, so it needs no firewall rule.
+	go ensurePeerFirewallRules(n.quicPort, 0)
 
 	go n.rendezvousSyncLoop(ctx)
 	go n.presenceLoop(ctx)
@@ -817,6 +826,17 @@ func (n *Node) SetRequireApproval(req bool) {
 	n.mu.Unlock()
 }
 
+// SetHideFromLAN stops (or resumes) announcing this machine on the local network.
+func (n *Node) SetHideFromLAN(hide bool) {
+	n.mu.Lock()
+	n.cfg.HideFromLAN = hide
+	if n.lanDisc != nil {
+		n.lanDisc.silent.Store(hide)
+	}
+	n.persistConfigLocked()
+	n.mu.Unlock()
+}
+
 // ResolveApproval approves or rejects a pending incoming peer connection request.
 func (n *Node) ResolveApproval(reqID string, allow bool) error {
 	n.mu.Lock()
@@ -942,7 +962,7 @@ func (n *Node) registerWithRendezvous(ctx context.Context) {
 	for _, pr := range result.PunchRequests {
 		for _, addrStr := range pr.UDPAddrs {
 			if ua, err := net.ResolveUDPAddr("udp", addrStr); err == nil && n.quicTr != nil {
-				_, _ = n.quicTr.WriteTo([]byte("RVPN-PUNCH"), ua)
+				_, _ = n.quicTr.WriteTo(punchPacket(), ua)
 			}
 		}
 	}
@@ -1753,7 +1773,7 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 			}
 		}
 		if known.WSURL != "" {
-			info, err := n.dialWSPeer(ctx, known.WSURL, password, true)
+			info, err := n.dialWSPeer(ctx, known.WSURL, password, known.Fingerprint, true)
 			if err == nil {
 				return info, nil
 			}
@@ -1766,7 +1786,7 @@ func (n *Node) ConnectByID(ctx context.Context, rawID, password string) (PeerInf
 	if len(errs) > 0 {
 		return PeerInfo{}, errors.New(strings.Join(errs, "; "))
 	}
-	return PeerInfo{}, fmt.Errorf("ไม่พบเครื่อง %s ในวง LAN เดียวกัน — หากอยู่คนละเครือข่าย ให้กรอก IP:4433 (เช่น 26.x.x.x:4433), ตั้งค่า Rendezvous URL หรือวาง Peer Ticket ในส่วน 'ตั้งค่าขั้นสูง'", FormatDeviceID(devID))
+	return PeerInfo{}, fmt.Errorf("ไม่พบเครื่อง %s ในวง LAN เดียวกัน — หากอยู่คนละเครือข่าย ให้กรอก IP ของเครื่องนั้น (เช่น 26.x.x.x), ตั้งค่า Rendezvous URL หรือวาง Peer Ticket ในส่วน 'ตั้งค่าขั้นสูง'", FormatDeviceID(devID))
 }
 
 // pinnedFingerprint returns the certificate fingerprint to pin when dialing devID: the one
@@ -1853,7 +1873,7 @@ func (n *Node) connectViaRendezvous(ctx context.Context, rdvURL string, hc *http
 			}
 		}
 		if lookup.Entry.WSURL != "" {
-			info, err := n.dialWSPeer(ctx, lookup.Entry.WSURL, password, true)
+			info, err := n.dialWSPeer(ctx, lookup.Entry.WSURL, password, pinnedFP, true)
 			if err == nil {
 				return info, nil
 			}
@@ -1880,7 +1900,7 @@ func (n *Node) connectViaRendezvous(ctx context.Context, rdvURL string, hc *http
 							_ = json.NewDecoder(freshResp.Body).Decode(&freshLookup)
 							_ = freshResp.Body.Close()
 							if freshLookup.OK && freshLookup.Entry.WSURL != "" {
-								if info2, err2 := n.dialWSPeer(ctx, freshLookup.Entry.WSURL, password, true); err2 == nil {
+								if info2, err2 := n.dialWSPeer(ctx, freshLookup.Entry.WSURL, password, pinnedFP, true); err2 == nil {
 									return info2, nil
 								} else {
 									err = err2
@@ -1922,7 +1942,7 @@ func (n *Node) ConnectByTicket(ctx context.Context, ticketStr string) (PeerInfo,
 		}
 	}
 	if ticket.WSURL != "" {
-		info, err := n.dialWSPeer(ctx, ticket.WSURL, ticket.PairSecret, true)
+		info, err := n.dialWSPeer(ctx, ticket.WSURL, ticket.PairSecret, ticket.Fingerprint, true)
 		if err == nil {
 			return info, nil
 		}
@@ -1951,7 +1971,12 @@ func (n *Node) raceQUICAddrs(ctx context.Context, addrs []string, expectedFP, pa
 	if len(filtered) == 0 {
 		return PeerInfo{}, errors.New("no direct UDP endpoints available")
 	}
+	return n.raceQUICAddrsAll(ctx, filtered, expectedFP, pairSecret)
+}
 
+// raceQUICAddrsAll races QUIC dials to every address given (no overlay filtering): used for a
+// bare IP the user typed, which may well be an overlay address (Radmin, Tailscale, ...).
+func (n *Node) raceQUICAddrsAll(ctx context.Context, filtered []string, expectedFP, pairSecret string) (PeerInfo, error) {
 	// Race only the QUIC dials. The first connection wins and the hello handshake runs once on it,
 	// so slower candidates never register a duplicate session or trigger a second approval prompt,
 	// and the owner's approval is not cut off by the 2.5s race window.
@@ -2024,7 +2049,7 @@ func (n *Node) ConnectDirect(ctx context.Context, target, pairSecret, expectedFi
 		if !strings.HasSuffix(target, "/ws/peer") {
 			target = strings.TrimRight(target, "/") + "/ws/peer"
 		}
-		return n.dialWSPeer(ctx, target, pairSecret, false)
+		return n.dialWSPeer(ctx, target, pairSecret, expectedFingerprint, false)
 	}
 
 	quicAddr, wsFallback := normalizeDirectTarget(target)
@@ -2032,19 +2057,27 @@ func (n *Node) ConnectDirect(ctx context.Context, target, pairSecret, expectedFi
 	if wsFallback != "" {
 		dialTimeout = 3500 * time.Millisecond
 	}
-	info, err := n.dialQUICPeerTimeout(ctx, quicAddr, expectedFingerprint, pairSecret, dialTimeout)
+	var info PeerInfo
+	var err error
+	if wsFallback != "" {
+		// A bare IP: the peer listens on UDP 443 (new) or 4433 (older, or 443 was taken).
+		host, _, _ := net.SplitHostPort(quicAddr)
+		info, err = n.raceQUICAddrsAll(ctx, []string{net.JoinHostPort(host, stealthQUICPort), quicAddr}, expectedFingerprint, pairSecret)
+	} else {
+		info, err = n.dialQUICPeerTimeout(ctx, quicAddr, expectedFingerprint, pairSecret, dialTimeout)
+	}
 	if err == nil || wsFallback == "" || isPeerRejected(err) || ctx.Err() != nil {
 		return info, err
 	}
 	// Bare IP/host UDP :4433 blocked by LAN firewall -> seamlessly try direct TCP WebSocket :8444!
-	infoWS, errWS := n.dialWSPeer(ctx, wsFallback, pairSecret, false)
+	infoWS, errWS := n.dialWSPeer(ctx, wsFallback, pairSecret, expectedFingerprint, false)
 	if errWS == nil {
 		return infoWS, nil
 	}
 	if isPeerRejected(errWS) {
 		return PeerInfo{}, errWS
 	}
-	return PeerInfo{}, fmt.Errorf("เชื่อมต่อ IP %s ไม่สำเร็จ (UDP :4433: %v; TCP :8444: %v)", target, err, errWS)
+	return PeerInfo{}, fmt.Errorf("เชื่อมต่อ IP %s ไม่สำเร็จ (UDP 443/4433: %v; TCP :8444: %v)", target, err, errWS)
 }
 
 func (n *Node) dialQUICPeer(ctx context.Context, addrStr, expectedFP, pairSecret string) (PeerInfo, error) {
@@ -2068,9 +2101,8 @@ func (n *Node) dialQUICSession(ctx context.Context, addrStr, expectedFP string, 
 		return nil, err
 	}
 
-	punchPkt := []byte("RVPN-PUNCH")
 	for i := 0; i < 3; i++ {
-		_, _ = n.quicTr.WriteTo(punchPkt, udpAddr)
+		_, _ = n.quicTr.WriteTo(punchPacket(), udpAddr)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -2082,13 +2114,36 @@ func (n *Node) dialQUICSession(ctx context.Context, addrStr, expectedFP string, 
 	defer cancel()
 
 	conn, err := n.quicTr.Dial(dialCtx, udpAddr, n.identity.ClientTLSConfig(expectedFP), defaultQUICConfig())
+	if err != nil && isALPNMismatch(err) && ctx.Err() == nil {
+		// An older APN knows only the legacy ALPN.
+		legacy := n.identity.ClientTLSConfig(expectedFP)
+		legacy.NextProtos = []string{P2PALPN}
+		retryCtx, cancelRetry := context.WithTimeout(ctx, dialTimeout)
+		defer cancelRetry()
+		conn, err = n.quicTr.Dial(retryCtx, udpAddr, legacy, defaultQUICConfig())
+	}
 	if err != nil {
 		return nil, err
 	}
 	return WrapQUIC(conn), nil
 }
 
-func (n *Node) dialWSPeer(ctx context.Context, wsURL, pairSecret string, tryQUICUpgrade bool) (PeerInfo, error) {
+// dialWSPeer connects over a WebSocket (the 443 fallback). It first tries the end-to-end
+// protected endpoint, where a pinned TLS 1.3 session runs inside the WebSocket; only a peer
+// that answers 404 there (an older version) is reached the old way, labelled as not end-to-end
+// encrypted. expectedFP pins the host certificate ("" accepts any: direct URLs typed by hand).
+func (n *Node) dialWSPeer(ctx context.Context, wsURL, pairSecret, expectedFP string, tryQUICUpgrade bool) (PeerInfo, error) {
+	if e2e := e2eWSURL(wsURL); e2e != "" {
+		info, err := n.dialWSPeerMode(ctx, e2e, pairSecret, expectedFP, true, tryQUICUpgrade)
+		if !errors.Is(err, errNoE2EEndpoint) {
+			return info, err
+		}
+		n.logger.Warn("peer has no end-to-end WebSocket endpoint (older APN): connecting without end-to-end encryption", "url", wsURL)
+	}
+	return n.dialWSPeerMode(ctx, wsURL, pairSecret, expectedFP, false, tryQUICUpgrade)
+}
+
+func (n *Node) dialWSPeerMode(ctx context.Context, wsURL, pairSecret, expectedFP string, e2e, tryQUICUpgrade bool) (PeerInfo, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
@@ -2106,6 +2161,9 @@ func (n *Node) dialWSPeer(ctx context.Context, wsURL, pairSecret string, tryQUIC
 	})
 	if err != nil {
 		if resp != nil {
+			if e2e && resp.StatusCode == http.StatusNotFound {
+				return PeerInfo{}, errNoE2EEndpoint
+			}
 			return PeerInfo{}, fmt.Errorf("ws dial HTTP %d: %w", resp.StatusCode, err)
 		}
 		return PeerInfo{}, err
@@ -2116,16 +2174,23 @@ func (n *Node) dialWSPeer(ctx context.Context, wsURL, pairSecret string, tryQUIC
 	if sessCtx == nil {
 		sessCtx = context.Background()
 	}
-	netConn := websocket.NetConn(sessCtx, wsConn, websocket.MessageBinary)
+	var netConn net.Conn = websocket.NetConn(sessCtx, wsConn, websocket.MessageBinary)
+	transport := transportWSLegacy
+	if strings.HasPrefix(wsURL, "ws://") {
+		transport = transportWSPlain
+	}
+	if e2e {
+		tc, err := n.identity.clientTLSOverStream(ctx, netConn, expectedFP)
+		if err != nil {
+			_ = netConn.Close()
+			return PeerInfo{}, fmt.Errorf("end-to-end TLS over WebSocket: %w", err)
+		}
+		netConn, transport = tc, transportWSE2E
+	}
 	ym, err := yamux.Client(netConn, protocol.NewYamuxConfig())
 	if err != nil {
 		_ = netConn.Close()
 		return PeerInfo{}, err
-	}
-
-	transport := "WSS/443 (TLS 1.3)"
-	if strings.HasPrefix(wsURL, "ws://") {
-		transport = "WS/TCP"
 	}
 	return n.completeOutboundHandshake(ctx, WrapYamux(ym, wsURL, transport), pairSecret, tryQUICUpgrade)
 }
@@ -2141,6 +2206,16 @@ func (n *Node) acceptQUICLoop(ctx context.Context) {
 }
 
 func (n *Node) handleIncomingWS(w http.ResponseWriter, r *http.Request) {
+	n.serveIncomingWS(w, r, false)
+}
+
+// handleIncomingWSE2E serves wsE2EPath: a TLS 1.3 session with this peer's certificate runs
+// inside the WebSocket, so the tunnel in between sees only ciphertext.
+func (n *Node) handleIncomingWSE2E(w http.ResponseWriter, r *http.Request) {
+	n.serveIncomingWS(w, r, true)
+}
+
+func (n *Node) serveIncomingWS(w http.ResponseWriter, r *http.Request, e2e bool) {
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionDisabled,
 	})
@@ -2153,7 +2228,15 @@ func (n *Node) handleIncomingWS(w http.ResponseWriter, r *http.Request) {
 	if sessCtx == nil {
 		sessCtx = context.Background()
 	}
-	netConn := websocket.NetConn(sessCtx, wsConn, websocket.MessageBinary)
+	var netConn net.Conn = websocket.NetConn(sessCtx, wsConn, websocket.MessageBinary)
+	if e2e {
+		tc, err := n.identity.serverTLSOverStream(sessCtx, netConn)
+		if err != nil {
+			_ = netConn.Close()
+			return
+		}
+		netConn = tc
+	}
 	ym, err := yamux.Server(netConn, protocol.NewYamuxConfig())
 	if err != nil {
 		_ = netConn.Close()
@@ -2173,9 +2256,12 @@ func (n *Node) handleIncomingWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	transport := "WSS/ReverseProxy"
+	transport := transportWSLegacy
 	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
-		transport = "WS/TCP"
+		transport = transportWSPlain
+	}
+	if e2e {
+		transport = transportWSE2E
 	}
 	n.handleIncomingSession(WrapYamux(ym, remoteAddr, transport))
 }
@@ -2219,14 +2305,13 @@ func (n *Node) sendUDPPunches(addrs []string, duration time.Duration) {
 	if len(resolved) == 0 {
 		return
 	}
-	punch := []byte("RVPN-PUNCH")
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
 		if n.rootCtx != nil && n.rootCtx.Err() != nil {
 			return
 		}
 		for _, ua := range resolved {
-			_, _ = n.quicTr.WriteTo(punch, ua)
+			_, _ = n.quicTr.WriteTo(punchPacket(), ua)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -3237,6 +3322,7 @@ func (n *Node) Snapshot() NodeSnapshot {
 		TempPIN:              tempPIN,
 		HasPermanentPassword: hasPerm,
 		RequireApproval:      reqApproval,
+		HideFromLAN:          n.cfg.HideFromLAN,
 		RendezvousURL:        rdvURL,
 		RendezvousStatus:     rdvStatus,
 		PeerID:               n.cfg.PeerID,
